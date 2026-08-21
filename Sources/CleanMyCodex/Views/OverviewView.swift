@@ -1,219 +1,307 @@
+import AppKit
 import SwiftUI
 
 struct OverviewView: View {
     @EnvironmentObject private var model: AppModel
-    @State private var selection = Set<StorageKind>([.temporary, .logs, .appCache])
-    @State private var showingPreview = false
-
-    private var candidates: [StorageItem] {
-        model.snapshot.storageItems.filter(\.recommended)
-    }
-
-    private var selectedItems: [StorageItem] {
-        candidates.filter { selection.contains($0.kind) }
-    }
-
-    private var selectedBytes: Int64 {
-        selectedItems.reduce(0) { $0 + $1.bytes }
-    }
-
-    private var sessionBytes: Int64 {
-        model.snapshot.sessions.reduce(0) { $0 + $1.totalBytes }
-    }
-
-    private var allSelected: Bool {
-        !candidates.isEmpty && candidates.allSatisfy { selection.contains($0.kind) }
-    }
+    @State private var expanded = Set<String>()
+    @State private var showingCleanup = false
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    PageHeader(title: "空间清理", subtitle: scanStatus, showsScanButton: true)
+                    header
+                    banners
+                    summary
 
-                    CleanerCard {
-                        HStack(spacing: 26) {
-                            MetricBlock(
-                                title: "可清理",
-                                value: ByteFormat.string(selectedBytes),
-                                detail: "已选择 \(selectedItems.count) 项",
-                                emphasized: true
-                            )
-                            Divider().frame(height: 72)
-                            MetricBlock(
-                                title: "Codex 数据",
-                                value: ByteFormat.string(model.snapshot.totalCodexBytes),
-                                detail: model.codexHome.lastPathComponent
-                            )
-                            Divider().frame(height: 72)
-                            MetricBlock(
-                                title: "会话",
-                                value: ByteFormat.string(sessionBytes),
-                                detail: "\(model.snapshot.sessions.count) 个"
-                            )
-                        }
-                    }
-
-                    HStack(alignment: .firstTextBaseline) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("缓存与日志").font(.title2.bold())
-                            Text("默认选择可重新生成的文件")
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Toggle("全选", isOn: Binding(
-                            get: { allSelected },
-                            set: { enabled in
-                                selection = enabled ? Set(candidates.map(\.kind)) : []
-                            }
-                        ))
-                        .toggleStyle(.checkbox)
-                    }
-
-                    CleanerCard {
-                        VStack(spacing: 0) {
-                            ForEach(Array(candidates.enumerated()), id: \.element.id) { index, item in
-                                CleanupItemRow(
-                                    item: item,
-                                    isSelected: Binding(
-                                        get: { selection.contains(item.kind) },
-                                        set: { enabled in
-                                            if enabled { selection.insert(item.kind) }
-                                            else { selection.remove(item.kind) }
-                                        }
-                                    )
-                                )
-                                if index < candidates.count - 1 { Divider() }
-                            }
-                        }
-                    }
+                    group(.recommended)
+                    group(.review)
+                    group(.protectedData)
                 }
                 .padding(28)
             }
 
             Divider()
-            HStack {
-                Text(selection.isEmpty ? "未选择项目" : "已选择 \(selectedItems.count) 项")
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button("查看清理清单 · \(ByteFormat.string(selectedBytes))") {
-                    showingPreview = true
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(selection.isEmpty || model.isScanning)
-            }
-            .padding(.horizontal, 28)
-            .padding(.vertical, 14)
-            .background(.bar)
+            actionBar
         }
-        .sheet(isPresented: $showingPreview) {
-            CleanupPreviewSheet(items: selectedItems)
+        .sheet(isPresented: $showingCleanup) {
+            CleanupFlowSheet(
+                title: "清理缓存与临时文件",
+                confirmTitle: "准备清理",
+                confirmMessage: confirmMessage,
+                rows: model.selectedEntries.map {
+                    CleanupPreviewRow(
+                        id: $0.id,
+                        title: $0.title,
+                        detail: $0.url.path,
+                        badge: $0.method.label,
+                        bytes: $0.reclaimableBytes
+                    )
+                },
+                confirmLabel: "确认清理"
+            ) {
+                model.cleanSelectedStorage()
+            }
         }
     }
 
-    private var scanStatus: String {
+    private var header: some View {
+        PageHeader(title: "空间扫描", subtitle: subtitle) {
+            HStack(spacing: 10) {
+                if model.isScanning {
+                    Button("停止") { model.cancelScan() }
+                } else {
+                    Button {
+                        model.scan()
+                    } label: {
+                        Label("重新扫描", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var banners: some View {
+        if model.codexRunning {
+            NoticeBanner(
+                text: "Codex 正在运行。缓存可以照常清理，日志数据库的压缩会自动跳过。",
+                symbol: "exclamationmark.triangle"
+            )
+        }
+        ForEach(model.snapshot.notes, id: \.self) { note in
+            NoticeBanner(text: note, symbol: "info.circle", color: .cleanerBlue)
+        }
+    }
+
+    private var summary: some View {
+        CleanerCard {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 24) {
+                    MetricBlock(
+                        title: "Codex 总占用",
+                        value: ByteFormat.string(model.snapshot.totalCodexBytes),
+                        detail: "含 Library 中的缓存与日志"
+                    )
+                    Divider().frame(height: 70)
+                    MetricBlock(
+                        title: "已选择",
+                        value: ByteFormat.string(model.selectedBytes),
+                        detail: "\(model.selectedEntries.count) 项 · 建议 \(ByteFormat.string(model.recommendedBytes))",
+                        emphasized: true
+                    )
+                    Divider().frame(height: 70)
+                    MetricBlock(
+                        title: "会话数据",
+                        value: ByteFormat.string(model.snapshot.sessionBytes),
+                        detail: "\(model.snapshot.sessions.count) 个 · 内嵌图片 \(ByteFormat.string(model.snapshot.embeddedImageBytes))"
+                    )
+                }
+                if model.isScanning {
+                    ScanProgressBar(progress: model.scanProgress)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func group(_ group: StorageGroup) -> some View {
+        let categories = model.snapshot.categoryList(in: group)
+        if !categories.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(group.title).font(.title2.bold())
+                        Text(group.subtitle).font(.callout).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Text(ByteFormat.string(categories.reduce(0) { $0 + $1.reclaimableBytes }))
+                        .font(.headline)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                    if group != .protectedData {
+                        TriStateCheckbox(state: state(of: group)) { selected in
+                            model.setSelected(group: group, selected)
+                        }
+                    }
+                }
+
+                CleanerCard(padding: 0) {
+                    VStack(spacing: 0) {
+                        ForEach(Array(categories.enumerated()), id: \.element.id) { index, category in
+                            CategoryRow(
+                                category: category,
+                                isExpanded: expanded.contains(category.id),
+                                onToggleExpanded: { toggleExpanded(category.id) }
+                            )
+                            if index < categories.count - 1 { Divider() }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func state(of group: StorageGroup) -> SelectionState {
+        let states = model.snapshot.categoryList(in: group)
+            .filter(\.isSelectable)
+            .map { model.selectionState(for: $0) }
+        guard !states.isEmpty else { return .none }
+        if states.allSatisfy({ $0 == .all }) { return .all }
+        if states.allSatisfy({ $0 == .none }) { return .none }
+        return .partial
+    }
+
+    private func toggleExpanded(_ id: String) {
+        if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
+    }
+
+    private var actionBar: some View {
+        HStack(spacing: 14) {
+            Label("普通文件先移到废纸篓，数据库只做压缩", systemImage: "trash")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button("取消选择") { model.selectedEntryIDs.removeAll() }
+                .disabled(model.selectedEntryIDs.isEmpty)
+            Button("立即清理 · \(ByteFormat.string(model.selectedBytes))") {
+                showingCleanup = true
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(model.selectedEntries.isEmpty || model.isScanning || model.isCleaning)
+        }
+        .padding(.horizontal, 28)
+        .padding(.vertical, 14)
+        .background(.bar)
+    }
+
+    private var confirmMessage: String {
+        let databases = model.selectedEntries.filter { $0.method == .compactDatabase }.count
+        var message = "已选择 \(model.selectedEntries.count) 项，预计释放 \(ByteFormat.string(model.selectedBytes))。"
+        if databases > 0 {
+            message += "其中 \(databases) 个日志数据库会做 checkpoint 与 VACUUM，不会删除诊断记录。"
+        }
+        return message
+    }
+
+    private var subtitle: String {
         if model.isScanning { return "正在扫描…" }
-        guard !model.snapshot.storageItems.isEmpty else { return model.codexHome.path }
+        if model.snapshot.isEmpty { return model.codexHome.path }
         return "上次扫描 \(model.snapshot.scannedAt.formatted(date: .omitted, time: .shortened))"
     }
 }
 
-private struct MetricBlock: View {
-    let title: String
-    let value: String
-    let detail: String
-    var emphasized = false
+private struct CategoryRow: View {
+    @EnvironmentObject private var model: AppModel
+    let category: StorageCategory
+    let isExpanded: Bool
+    let onToggleExpanded: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.callout).foregroundStyle(.secondary)
-            Text(value)
-                .font(.system(size: emphasized ? 34 : 27, weight: .bold, design: .rounded))
-                .foregroundStyle(emphasized ? Color.cleanerGreen : .primary)
-                .monospacedDigit()
-            Text(detail).font(.caption).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct CleanupItemRow: View {
-    let item: StorageItem
-    @Binding var isSelected: Bool
-
-    var body: some View {
-        Toggle(isOn: $isSelected) {
+        VStack(spacing: 0) {
             HStack(spacing: 14) {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(Color.cleanerGreen.opacity(0.12))
-                    .frame(width: 42, height: 42)
-                    .overlay {
-                        Image(systemName: symbol)
-                            .foregroundStyle(Color.cleanerGreen)
-                    }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(item.title).font(.headline)
-                    Text(item.detail).font(.caption).foregroundStyle(.secondary)
+                TriStateCheckbox(
+                    state: model.selectionState(for: category),
+                    isEnabled: category.isSelectable
+                ) { selected in
+                    model.setSelected(category, selected)
                 }
-                Spacer()
-                StatusPill(text: "可重建", color: .green)
-                Text(ByteFormat.string(item.bytes))
-                    .font(.body.weight(.semibold))
-                    .monospacedDigit()
-                    .frame(width: 88, alignment: .trailing)
-            }
-            .contentShape(Rectangle())
-            .padding(.vertical, 11)
-        }
-        .toggleStyle(.checkbox)
-    }
 
-    private var symbol: String {
-        switch item.kind {
-        case .temporary: "clock.arrow.circlepath"
-        case .logs: "doc.text"
-        case .appCache: "safari"
-        default: "shippingbox"
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(category.risk.tint.opacity(0.13))
+                    .frame(width: 38, height: 38)
+                    .overlay {
+                        Image(systemName: category.symbol)
+                            .foregroundStyle(category.risk.tint)
+                    }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(category.title).font(.headline)
+                    Text(category.detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 12)
+                RiskBadge(risk: category.risk)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(ByteFormat.string(category.reclaimableBytes))
+                        .font(.body.weight(.semibold))
+                        .monospacedDigit()
+                    if category.reclaimableBytes != category.bytes {
+                        Text("共 \(ByteFormat.string(category.bytes))")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(width: 104, alignment: .trailing)
+
+                Button(action: onToggleExpanded) {
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .frame(width: 20)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+
+            if isExpanded {
+                VStack(spacing: 0) {
+                    ForEach(category.entries) { entry in
+                        EntryRow(entry: entry, isSelectable: category.isSelectable)
+                    }
+                }
+                .padding(.bottom, 8)
+            }
         }
     }
 }
 
-private struct CleanupPreviewSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    let items: [StorageItem]
-
-    private var total: Int64 { items.reduce(0) { $0 + $1.bytes } }
+private struct EntryRow: View {
+    @EnvironmentObject private var model: AppModel
+    let entry: StorageEntry
+    let isSelectable: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("清理清单").font(.title2.bold())
-            Text("\(items.count) 项 · \(ByteFormat.string(total))")
-                .foregroundStyle(.secondary)
-            List(items) { item in
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack {
-                        Text(item.title).font(.headline)
-                        Spacer()
-                        Text(ByteFormat.string(item.bytes)).monospacedDigit()
-                    }
-                    ForEach(item.paths, id: \.path) { path in
-                        Text(path.path)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                    }
-                }
-                .padding(.vertical, 5)
+        HStack(spacing: 12) {
+            Toggle("", isOn: Binding(
+                get: { model.isSelected(entry) },
+                set: { model.setSelected(entry, $0) }
+            ))
+            .labelsHidden()
+            .toggleStyle(.checkbox)
+            .disabled(!isSelectable)
+            .opacity(isSelectable ? 1 : 0.35)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.title).font(.callout.weight(.medium))
+                Text(entry.detail)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
             }
-            HStack {
-                Spacer()
-                Button("关闭") { dismiss() }
-                    .keyboardShortcut(.defaultAction)
+            Spacer(minLength: 12)
+            Text(ByteFormat.string(entry.reclaimableBytes))
+                .font(.callout)
+                .monospacedDigit()
+                .frame(width: 92, alignment: .trailing)
+            Button {
+                NSWorkspace.shared.activateFileViewerSelecting([entry.url])
+            } label: {
+                Image(systemName: "folder")
             }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help(entry.url.path)
+            .frame(width: 20)
         }
-        .padding(24)
-        .frame(width: 620, height: 460)
+        .padding(.leading, 70)
+        .padding(.trailing, 18)
+        .padding(.vertical, 6)
     }
 }
