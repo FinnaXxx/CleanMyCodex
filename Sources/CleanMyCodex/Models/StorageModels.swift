@@ -134,8 +134,8 @@ struct StorageCategory: Identifiable, Sendable {
 
     var id: String { kind.rawValue }
     var symbol: String { kind.symbol }
-    var bytes: Int64 { entries.reduce(0) { $0 + $1.bytes } }
-    var reclaimableBytes: Int64 { entries.reduce(0) { $0 + $1.reclaimableBytes } }
+    var bytes: Int64 { entries.reduce(Int64(0)) { $0 + $1.bytes } }
+    var reclaimableBytes: Int64 { entries.reduce(Int64(0)) { $0 + $1.reclaimableBytes } }
     var isEmpty: Bool { entries.isEmpty }
     var isSelectable: Bool { risk.isSelectable && !entries.isEmpty }
 }
@@ -253,8 +253,8 @@ struct ScanSnapshot: Sendable {
             .sorted { $0.reclaimableBytes > $1.reclaimableBytes }
     }
 
-    var sessionBytes: Int64 { sessions.reduce(0) { $0 + $1.totalBytes } }
-    var embeddedImageBytes: Int64 { sessions.reduce(0) { $0 + $1.embeddedImageBytes } }
+    var sessionBytes: Int64 { sessions.reduce(Int64(0)) { $0 + $1.totalBytes } }
+    var embeddedImageBytes: Int64 { sessions.reduce(Int64(0)) { $0 + $1.embeddedImageBytes } }
 
     static func empty(at url: URL) -> ScanSnapshot {
         ScanSnapshot(

@@ -83,7 +83,7 @@ struct CleanupReport: Sendable {
     let finishedAt: Date
     let outcomes: [CleanupOutcome]
 
-    var freedBytes: Int64 { outcomes.reduce(0) { $0 + $1.freedBytes } }
+    var freedBytes: Int64 { outcomes.reduce(Int64(0)) { $0 + $1.freedBytes } }
     var succeeded: [CleanupOutcome] { outcomes.filter { $0.status.isSuccess } }
     var problems: [CleanupOutcome] { outcomes.filter { !$0.status.isSuccess } }
 

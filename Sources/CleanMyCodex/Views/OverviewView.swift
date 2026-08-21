@@ -116,7 +116,7 @@ struct OverviewView: View {
                         Text(group.subtitle).font(.callout).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Text(ByteFormat.string(categories.reduce(0) { $0 + $1.reclaimableBytes }))
+                    Text(ByteFormat.string(categories.reduce(Int64(0)) { $0 + $1.reclaimableBytes }))
                         .font(.headline)
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
