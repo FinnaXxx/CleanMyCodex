@@ -131,11 +131,11 @@ final class AppModel: ObservableObject {
     }
 
     var selectedBytes: Int64 {
-        selectedEntries.reduce(0) { $0 + $1.reclaimableBytes }
+        selectedEntries.reduce(Int64(0)) { $0 + $1.reclaimableBytes }
     }
 
     var recommendedBytes: Int64 {
-        snapshot.categoryList(in: .recommended).reduce(0) { $0 + $1.reclaimableBytes }
+        snapshot.categoryList(in: .recommended).reduce(Int64(0)) { $0 + $1.reclaimableBytes }
     }
 
     func isSelected(_ entry: StorageEntry) -> Bool {
@@ -172,7 +172,7 @@ final class AppModel: ObservableObject {
     }
 
     var selectedSessionBytes: Int64 {
-        selectedSessions.reduce(0) { $0 + $1.totalBytes }
+        selectedSessions.reduce(Int64(0)) { $0 + $1.totalBytes }
     }
 
     var removablePlugins: [PluginVersionItem] {

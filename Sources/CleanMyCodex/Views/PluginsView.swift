@@ -16,7 +16,7 @@ struct PluginsView: View {
     }
 
     private var removableBytes: Int64 {
-        model.selectedPlugins.reduce(0) { $0 + $1.bytes }
+        model.selectedPlugins.reduce(Int64(0)) { $0 + $1.bytes }
     }
 
     var body: some View {

@@ -57,7 +57,7 @@ struct CleanupFlowSheet: View {
 
             HStack {
                 if !started {
-                    Text("总计 \(ByteFormat.string(rows.reduce(0) { $0 + $1.bytes }))")
+                    Text("总计 \(ByteFormat.string(rows.reduce(Int64(0)) { $0 + $1.bytes }))")
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
