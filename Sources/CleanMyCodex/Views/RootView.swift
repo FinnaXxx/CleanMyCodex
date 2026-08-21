@@ -18,56 +18,43 @@ extension CleanupRisk {
     }
 }
 
+/// One page. Sessions, plugins and automation are details of that page and open on
+/// top of it, so the same scan result is never split across parallel tabs.
 struct RootView: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
-        NavigationSplitView {
-            List(AppModel.Page.allCases, selection: $model.page) { page in
-                Label(page.rawValue, systemImage: page.symbol)
-                    .tag(page)
-                    .padding(.vertical, 4)
-            }
-            .navigationSplitViewColumnWidth(min: 196, ideal: 214)
-            .safeAreaInset(edge: .bottom) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Label(
-                        model.codexRunning ? "Codex 正在运行" : "Codex 未运行",
-                        systemImage: model.codexRunning ? "bolt.fill" : "moon.zzz"
-                    )
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(model.codexRunning ? Color.cleanerAmber : .secondary)
-
-                    Text("数据目录")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Text(model.codexHome.path)
-                        .font(.caption.monospaced())
-                        .lineLimit(2)
-                        .textSelection(.enabled)
-                }
-                .padding()
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        } detail: {
-            Group {
-                switch model.page {
-                case .overview: OverviewView()
-                case .sessions: SessionsView()
-                case .plugins: PluginsView()
-                case .automation: AutomationView()
-                }
-            }
+        OverviewView()
             .background(Color(nsColor: .windowBackgroundColor))
-        }
-        .alert("出错了", isPresented: Binding(
-            get: { model.errorMessage != nil },
-            set: { if !$0 { model.errorMessage = nil } }
-        )) {
-            Button("好") { model.errorMessage = nil }
-        } message: {
-            Text(model.errorMessage ?? "未知错误")
-        }
+            .sheet(item: $model.activeSheet) { sheet in
+                Group {
+                    switch sheet {
+                    case .sessions: SessionsView()
+                    case .plugins: PluginsView()
+                    case .automation: AutomationView()
+                    }
+                }
+                .environmentObject(model)
+                .tint(.cleanerGreen)
+            }
+            .alert("出错了", isPresented: Binding(
+                get: { model.errorMessage != nil },
+                set: { if !$0 { model.errorMessage = nil } }
+            )) {
+                Button("好") { model.errorMessage = nil }
+            } message: {
+                Text(model.errorMessage ?? "未知错误")
+            }
+    }
+}
+
+/// Dismisses whichever detail sheet is open. Esc does the same thing.
+struct SheetCloseButton: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        Button("完成") { model.activeSheet = nil }
+            .keyboardShortcut(.cancelAction)
     }
 }
 

@@ -47,11 +47,11 @@ struct CodexStorageScanner: Sendable {
             notes.append("没有连接到 codex app server，插件的当前版本未确认，已全部标记为受保护。")
         }
 
-        reporter.enter(stage: "资产目录", base: 0.43, span: 0.12)
-        let assetItems = assetCategories(in: places, reporter: reporter)
-
-        reporter.enter(stage: "会话", base: 0.55, span: 0.42)
+        reporter.enter(stage: "会话", base: 0.43, span: 0.49)
         let sessions = try sessionItems(in: places, reporter: reporter)
+
+        reporter.enter(stage: "资产目录", base: 0.92, span: 0.05)
+        let assetItems = assetCategories(in: places, sessions: sessions, reporter: reporter)
 
         reporter.enter(stage: "受保护的数据", base: 0.97, span: 0.03)
         let protectedItems = protectedCategories(in: places, reporter: reporter)
@@ -341,8 +341,19 @@ struct CodexStorageScanner: Sendable {
 
         let known = installedPlugins.filter { $0.name == plugin }
         guard !known.isEmpty else { return .orphaned }
-        if known.contains(where: { $0.version == version }) { return .current }
+        let wanted = Self.normalizedVersion(version)
+        if known.contains(where: { Self.normalizedVersion($0.version) == wanted }) { return .current }
+        // The plugin is installed but the app server never told us which version,
+        // so we cannot prove this directory is the stale one.
+        guard known.contains(where: { $0.version?.isEmpty == false }) else { return .unconfirmed }
         return .outdated
+    }
+
+    static func normalizedVersion(_ version: String?) -> String? {
+        guard var value = version?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !value.isEmpty else { return nil }
+        if value.hasPrefix("v") { value.removeFirst() }
+        return value
     }
 
     private func pluginCategory(from plugins: [PluginVersionItem]) -> StorageCategory {
@@ -401,18 +412,26 @@ struct CodexStorageScanner: Sendable {
 
     // MARK: - Generated assets
 
-    private func assetCategories(in places: CodexLocations, reporter: ProgressReporter?) -> [StorageCategory] {
+    private func assetCategories(
+        in places: CodexLocations,
+        sessions: [SessionItem],
+        reporter: ProgressReporter?
+    ) -> [StorageCategory] {
         let manager = FileManager()
+        // Image folders are named after the thread that produced them, so they can be
+        // labelled with the session instead of showing a bare UUID.
+        let byThread = Dictionary(sessions.map { ($0.threadID, $0) }, uniquingKeysWith: { first, _ in first })
         let images = contents(of: places.generatedImages, manager: manager).compactMap { url -> StorageEntry? in
             reporter?.note(url.path)
             let bytes = directorySize(url, reporter: reporter)
             guard bytes > 0 else { return nil }
+            let session = byThread[url.lastPathComponent]
             return StorageEntry(
-                title: url.lastPathComponent,
-                detail: "线程生成的图片",
+                title: session?.displayName ?? url.lastPathComponent,
+                detail: Self.assetDetail(for: session, threadID: url.lastPathComponent),
                 url: url,
                 bytes: bytes,
-                risk: .caution
+                risk: session == nil ? .safe : .caution
             )
         }
 
@@ -437,7 +456,7 @@ struct CodexStorageScanner: Sendable {
             StorageCategory(
                 kind: .generatedImages,
                 title: "生成图片",
-                detail: "按线程保存的图片；删除会话时会一起处理",
+                detail: "按线程保存的图片；删除会话时会一起处理，会话已删除的图片可以安全清理",
                 group: .review,
                 risk: .caution,
                 entries: images.sorted { $0.bytes > $1.bytes }
@@ -451,6 +470,17 @@ struct CodexStorageScanner: Sendable {
                 entries: computerUse
             )
         ]
+    }
+
+    static func assetDetail(for session: SessionItem?, threadID: String) -> String {
+        guard let session else {
+            return "会话已删除，只剩下图片 · \(threadID.prefix(8))"
+        }
+        var parts: [String] = []
+        if let project = session.projectName { parts.append(project) }
+        parts.append(session.location.rawValue)
+        parts.append("最后活动 " + session.modifiedAt.formatted(date: .numeric, time: .omitted))
+        return parts.joined(separator: " · ")
     }
 
     // MARK: - Protected data
@@ -546,14 +576,18 @@ struct CodexStorageScanner: Sendable {
             + sessionFiles(at: places.archivedSessions, location: .archived)
         let totalBytes = max(1, files.reduce(Int64(0)) { $0 + FileSize.of($1.url) })
 
+        var cache = SessionScanCache.load(from: places.scanCache)
         var processed: Int64 = 0
         var result: [SessionItem] = []
+        var cancelled = false
         for file in files {
-            if Task.isCancelled { break }
+            if Task.isCancelled { cancelled = true; break }
             reporter?.note(file.url.path, fraction: Double(processed) / Double(totalBytes))
-            result.append(sessionItem(for: file, in: places))
+            result.append(sessionItem(for: file, in: places, cache: &cache))
             processed += FileSize.of(file.url)
         }
+        // A cancelled pass has not seen every file, so pruning would throw away good records.
+        if !cancelled { cache.save(to: places.scanCache) }
         return result
     }
 
@@ -578,22 +612,38 @@ struct CodexStorageScanner: Sendable {
 
     private func sessionItem(
         for file: (url: URL, location: SessionLocation),
-        in places: CodexLocations
+        in places: CodexLocations,
+        cache: inout SessionScanCache
     ) -> SessionItem {
         let url = file.url
         let before = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
         let compressed = url.lastPathComponent.hasSuffix(".zst")
+        let currentSize = FileSize.of(url)
+        let currentModified = before?.contentModificationDate ?? .distantPast
+
         var content = SessionContentScan()
-        if !compressed {
+        var unstable = false
+        if let cached = cache.record(for: url, size: currentSize, modified: currentModified) {
+            content = cached.contentScan
+        } else if compressed {
+            content = SessionContentScan()
+        } else {
             if let scanned = try? SessionContentScanner(chunkSize: chunkSize).scan(url) {
                 content = scanned
             } else {
                 content = SessionContentScan(parseWarnings: 1)
             }
+            let after = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+            unstable = before?.contentModificationDate != after?.contentModificationDate
+                || before?.fileSize != after?.fileSize
+            // Only a file that stopped moving is worth remembering.
+            if !unstable {
+                cache.store(
+                    SessionScanCache.Record(scan: content, size: currentSize, modified: currentModified),
+                    for: url
+                )
+            }
         }
-        let after = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
-        let unstable = before?.contentModificationDate != after?.contentModificationDate
-            || before?.fileSize != after?.fileSize
 
         let metadata = content.metadata
         let threadID = metadata.id ?? Self.sessionID(from: url.lastPathComponent)
@@ -626,6 +676,7 @@ struct CodexStorageScanner: Sendable {
             embeddedImageCount: content.images.count,
             workingDirectory: metadata.workingDirectory,
             title: metadata.title,
+            preview: metadata.preview,
             tags: tags,
             isCompressed: compressed,
             isUnstable: unstable,
@@ -737,6 +788,8 @@ struct SessionMetadata: Sendable {
     var id: String?
     var workingDirectory: String?
     var title: String?
+    /// First real user message, used as a title when the rollout has none.
+    var preview: String?
 }
 
 struct SessionContentScan: Sendable {
@@ -767,34 +820,21 @@ struct SessionContentScanner: Sendable {
 
         var counter = JSONStringImageCounter()
         var matcher = SessionTagMatcher()
-        var header = Data()
-        var headerComplete = false
+        var header = SessionHeaderReader()
 
         while let chunk = try handle.read(upToCount: chunkSize), !chunk.isEmpty {
             counter.consume(chunk)
             matcher.consume(chunk)
-            if !headerComplete {
-                if let newline = chunk.firstIndex(of: 0x0A) {
-                    header.append(chunk[chunk.startIndex..<newline])
-                    headerComplete = true
-                } else if header.count < 4_194_304 {
-                    header.append(chunk)
-                } else {
-                    headerComplete = true
-                }
-            }
+            header.consume(chunk)
         }
+        header.finish()
 
         var result = SessionContentScan()
         result.images = counter.finish()
         result.tags = matcher.result
-        if headerComplete, !header.isEmpty {
-            if let metadata = Self.parseMetadata(header) {
-                result.metadata = metadata
-            } else {
-                result.parseWarnings += 1
-            }
-        }
+        result.metadata = header.metadata ?? SessionMetadata()
+        result.metadata.preview = header.preview
+        result.parseWarnings += header.parseWarnings
         return result
     }
 
@@ -807,8 +847,103 @@ struct SessionContentScanner: Sendable {
         return SessionMetadata(
             id: payload["id"] as? String,
             workingDirectory: payload["cwd"] as? String,
-            title: (payload["title"] as? String) ?? (payload["name"] as? String)
+            title: Self.cleanPreview((payload["title"] as? String) ?? (payload["name"] as? String))
         )
+    }
+
+    /// Pulls the text out of the first user turn. Rollouts store it either as an
+    /// `event_msg`/`user_message` line or as a `response_item` message with role `user`.
+    static func parsePreview(_ line: Data) -> String? {
+        guard let root = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return nil }
+        let payload = root["payload"] as? [String: Any] ?? root
+
+        var text: String?
+        if payload["type"] as? String == "user_message" {
+            text = (payload["message"] as? String) ?? (payload["text"] as? String)
+        }
+        if text == nil, payload["role"] as? String == "user" {
+            if let content = payload["content"] as? [[String: Any]] {
+                text = content.compactMap { $0["text"] as? String }
+                    .first { cleanPreview($0) != nil }
+            } else {
+                text = payload["content"] as? String
+            }
+        }
+        return cleanPreview(text)
+    }
+
+    static func cleanPreview(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        // Codex opens every thread with <environment_context> and <user_instructions>
+        // turns; those are machine preamble, not something the user would recognise.
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.hasPrefix("<") else { return nil }
+        let collapsed = trimmed.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+        guard !collapsed.isEmpty else { return nil }
+        return collapsed.count > 90 ? String(collapsed.prefix(90)) + "…" : collapsed
+    }
+}
+
+/// Reads the leading lines of a rollout file: the `session_meta` header plus the first
+/// user turn. Bounded on both line length and line count so an embedded screenshot on
+/// line two can never be pulled into memory.
+struct SessionHeaderReader {
+    private(set) var metadata: SessionMetadata?
+    private(set) var preview: String?
+    private(set) var parseWarnings = 0
+    private(set) var isFinished = false
+
+    private var current = Data()
+    private var skippingLine = false
+    private var lines = 0
+    private let maxLineBytes = 131_072
+    private let maxLines = 60
+
+    mutating func consume(_ chunk: Data) {
+        var slice = chunk[...]
+        while !slice.isEmpty, !isFinished {
+            guard let newline = slice.firstIndex(of: 0x0A) else {
+                append(slice)
+                return
+            }
+            append(slice[slice.startIndex..<newline])
+            endLine()
+            slice = slice[slice.index(after: newline)...]
+        }
+    }
+
+    mutating func finish() {
+        guard !isFinished else { return }
+        endLine()
+        if metadata == nil, lines > 0 { parseWarnings += 1 }
+        isFinished = true
+    }
+
+    private mutating func append(_ bytes: Data.SubSequence) {
+        guard !skippingLine, !isFinished else { return }
+        guard current.count + bytes.count <= maxLineBytes else {
+            current.removeAll(keepingCapacity: false)
+            skippingLine = true
+            return
+        }
+        current.append(contentsOf: bytes)
+    }
+
+    private mutating func endLine() {
+        defer {
+            current.removeAll(keepingCapacity: true)
+            skippingLine = false
+        }
+        guard !skippingLine, !current.isEmpty else { return }
+        lines += 1
+        if metadata == nil, let parsed = SessionContentScanner.parseMetadata(current) {
+            metadata = parsed
+            preview = preview ?? parsed.title
+        } else if preview == nil {
+            preview = SessionContentScanner.parsePreview(current)
+        }
+        if metadata != nil, preview != nil { isFinished = true }
+        if lines >= maxLines { isFinished = true }
     }
 }
 

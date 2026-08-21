@@ -43,7 +43,8 @@ struct StorageScannerTests {
         try Data(metadata.utf8)
             .write(to: archivedDir.appending(path: "rollout-2026-08-20T00-00-00-\(id).jsonl"))
 
-        let sessions = try CodexStorageScanner(chunkSize: 11).scanSessions(in: fixture.root)
+        let sessions = try CodexStorageScanner(chunkSize: 11, libraryDirectory: fixture.directory("Library"))
+            .scanSessions(in: fixture.root)
 
         #expect(sessions.count == 2)
         #expect(sessions.contains { $0.location == .active && $0.threadID == id && $0.workingDirectory == "/tmp/demo" })
@@ -60,7 +61,8 @@ struct StorageScannerTests {
         try Data((metadata + body).utf8)
             .write(to: fixture.directory("sessions").appending(path: "rollout-\(id).jsonl"))
 
-        let sessions = try CodexStorageScanner(chunkSize: 5).scanSessions(in: fixture.root)
+        let sessions = try CodexStorageScanner(chunkSize: 5, libraryDirectory: fixture.directory("Library"))
+            .scanSessions(in: fixture.root)
 
         let tags = Set(sessions.first?.tags ?? [])
         #expect(tags.contains(.browser))
@@ -78,7 +80,8 @@ struct StorageScannerTests {
         try Data(repeating: 0x41, count: 4_096)
             .write(to: fixture.directory("generated_images/\(id)").appending(path: "a.png"))
 
-        let sessions = try CodexStorageScanner().scanSessions(in: fixture.root)
+        let sessions = try CodexStorageScanner(libraryDirectory: fixture.directory("Library"))
+            .scanSessions(in: fixture.root)
 
         #expect(sessions.count == 1)
         #expect((sessions.first?.assetBytes ?? 0) >= 4_096)
@@ -92,7 +95,8 @@ struct StorageScannerTests {
         try Data("{}".utf8).write(to: valid.appending(path: "plugin.json"))
         _ = fixture.directory("plugins/cache/personal/example/incomplete")
 
-        let plugins = try CodexStorageScanner().scanPluginVersions(in: fixture.root)
+        let plugins = try CodexStorageScanner(libraryDirectory: fixture.directory("Library"))
+            .scanPluginVersions(in: fixture.root)
 
         #expect(plugins.count == 1)
         #expect(plugins.first?.plugin == "example")
@@ -123,6 +127,82 @@ struct StorageScannerTests {
         #expect(plugins.first { $0.version == "2.0.0" }?.status == .current)
         #expect(plugins.first { $0.version == "1.0.0" }?.status == .outdated)
         #expect(plugins.first { $0.plugin == "gone" }?.status == .orphaned)
+    }
+
+    /// Regression: a plugin whose live version comes back from `plugin/list` must never
+    /// be reported as an uninstalled leftover, however the response nests it.
+    @Test func currentPluginVersionIsNeverTreatedAsRemovable() throws {
+        let fixture = try TemporaryFixture()
+        defer { fixture.remove() }
+        let manifest = fixture.directory("plugins/cache/personal/codex-seo/1.9.6+codex.5/.codex-plugin")
+        try Data("{\"name\":\"codex-seo\",\"version\":\"1.9.6+codex.5\"}".utf8)
+            .write(to: manifest.appending(path: "plugin.json"))
+
+        let response: [String: Any] = [
+            "marketplaces": [
+                ["name": "personal", "plugins": [
+                    ["id": "codex-seo@personal", "name": "codex-seo", "localVersion": "1.9.6+codex.5"]
+                ]]
+            ]
+        ]
+
+        let scanner = CodexStorageScanner()
+        let plugins = scanner.pluginVersions(
+            in: scanner.locations(for: fixture.root),
+            installedPlugins: CodexAppServerClient.parsePlugins(response),
+            reporter: nil
+        )
+
+        #expect(plugins.count == 1)
+        #expect(plugins.first?.status == .current)
+        #expect(plugins.first?.status.isRemovable == false)
+    }
+
+    /// A plugin that is installed but whose version the app server never reports cannot
+    /// be proven stale, so it stays untouchable rather than falling into "old version".
+    @Test func versionlessInventoryLeavesPluginsUnconfirmed() throws {
+        let fixture = try TemporaryFixture()
+        defer { fixture.remove() }
+        let manifest = fixture.directory("plugins/cache/personal/example/1.0.0/.codex-plugin")
+        try Data("{\"name\":\"example\",\"version\":\"1.0.0\"}".utf8)
+            .write(to: manifest.appending(path: "plugin.json"))
+
+        let scanner = CodexStorageScanner()
+        let plugins = scanner.pluginVersions(
+            in: scanner.locations(for: fixture.root),
+            installedPlugins: [InstalledPlugin(name: "example", version: nil, directory: nil)],
+            reporter: nil
+        )
+
+        #expect(plugins.first?.status == .unconfirmed)
+    }
+
+    @Test func generatedImageFoldersAreLabelledWithTheirSession() throws {
+        let fixture = try TemporaryFixture()
+        defer { fixture.remove() }
+        let id = "88888888-9999-aaaa-bbbb-cccccccccccc"
+        let meta = "{\"type\":\"session_meta\",\"payload\":{\"id\":\"\(id)\",\"cwd\":\"/Users/someone/work/api\"}}\n"
+        let user = "{\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"画一张架构图\"}}\n"
+        try Data((meta + user).utf8)
+            .write(to: fixture.directory("sessions").appending(path: "rollout-\(id).jsonl"))
+        try Data(repeating: 0x41, count: 8_192)
+            .write(to: fixture.directory("generated_images/\(id)").appending(path: "a.png"))
+        try Data(repeating: 0x42, count: 4_096)
+            .write(to: fixture.directory("generated_images/deadbeef-0000-0000-0000-000000000000")
+                .appending(path: "b.png"))
+
+        let scanner = CodexStorageScanner(libraryDirectory: fixture.directory("Library"))
+        let snapshot = try scanner.scan(codexHome: fixture.root)
+
+        let images = try #require(snapshot.categories.first { $0.kind == .generatedImages })
+        let known = try #require(images.entries.first { $0.url.lastPathComponent == id })
+        #expect(known.title == "画一张架构图")
+        #expect(known.detail.contains("api"))
+        #expect(known.risk == .caution)
+
+        let orphan = try #require(images.entries.first { $0.url.lastPathComponent.hasPrefix("deadbeef") })
+        #expect(orphan.detail.contains("会话已删除"))
+        #expect(orphan.risk == .safe)
     }
 
     @Test func scanClassifiesTemporaryCachesAndProtectedData() throws {
@@ -189,6 +269,33 @@ struct StorageScannerTests {
         #expect(box.values.count > 1)
         #expect(box.values.last?.fraction == 1)
         #expect(box.values.contains { $0.stage == "会话" })
+    }
+
+    @Test func rescanReusesCachedSessionContentUntilTheFileChanges() throws {
+        let fixture = try TemporaryFixture()
+        defer { fixture.remove() }
+        let library = fixture.directory("Library")
+        let id = "12121212-3434-5656-7878-909090909090"
+        let file = fixture.directory("sessions").appending(path: "rollout-\(id).jsonl")
+        let meta = "{\"type\":\"session_meta\",\"payload\":{\"id\":\"\(id)\"}}\n"
+        try Data((meta + "{\"image_url\":\"data:image/png;base64,QUJD\"}\n").utf8).write(to: file)
+
+        let scanner = CodexStorageScanner(libraryDirectory: library)
+        let first = try scanner.scanSessions(in: fixture.root)
+        #expect(first.first?.embeddedImageCount == 1)
+        #expect(FileManager.default.fileExists(atPath: library.appending(path: "Caches/CleanMyCodex/session-scan.json").path))
+
+        // Reading through the cache must produce exactly the same numbers.
+        let second = try scanner.scanSessions(in: fixture.root)
+        #expect(first.first?.embeddedImageCount == second.first?.embeddedImageCount)
+        #expect(first.first?.embeddedImageBytes == second.first?.embeddedImageBytes)
+        #expect(first.first?.threadID == second.first?.threadID)
+
+        // Appending invalidates it: size and modification date both move.
+        try Data((meta + "{\"image_url\":\"data:image/png;base64,QUJD\"}\n"
+            + "{\"image_url\":\"data:image/png;base64,QUJDRA==\"}\n").utf8).write(to: file)
+        let third = try scanner.scanSessions(in: fixture.root)
+        #expect((third.first?.embeddedImageCount ?? 0) > (first.first?.embeddedImageCount ?? 0))
     }
 
     @Test func byteFormatUsesBinaryUnits() {

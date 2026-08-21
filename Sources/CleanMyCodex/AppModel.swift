@@ -2,22 +2,30 @@ import Foundation
 
 @MainActor
 final class AppModel: ObservableObject {
-    enum Page: String, CaseIterable, Identifiable {
-        case overview = "空间扫描"
-        case sessions = "会话清理"
-        case plugins = "插件版本"
-        case automation = "自动清理"
+    /// Everything lives on one page; sessions, plugins and automation open on top of it.
+    enum Sheet: String, Identifiable {
+        case sessions
+        case plugins
+        case automation
 
         var id: String { rawValue }
+    }
 
-        var symbol: String {
-            switch self {
-            case .overview: "wand.and.stars"
-            case .sessions: "bubble.left.and.bubble.right"
-            case .plugins: "puzzlepiece.extension"
-            case .automation: "calendar.badge.clock"
-            }
-        }
+    enum SessionScope: String, CaseIterable, Identifiable {
+        case all = "全部"
+        case active = "未归档"
+        case archived = "已归档"
+
+        var id: String { rawValue }
+    }
+
+    enum SessionSort: String, CaseIterable, Identifiable {
+        case total = "按总占用"
+        case images = "按内嵌图片"
+        case date = "按最后活动"
+        case name = "按名称"
+
+        var id: String { rawValue }
     }
 
     @Published private(set) var snapshot: ScanSnapshot
@@ -30,20 +38,36 @@ final class AppModel: ObservableObject {
     @Published private(set) var appServerAvailable = false
     @Published private(set) var automationStatus = "未安装"
 
-    @Published var page: Page = .overview
+    @Published var activeSheet: Sheet?
     @Published var errorMessage: String?
     @Published var selectedEntryIDs = Set<String>()
-    @Published var selectedSessionIDs = Set<String>()
     @Published var selectedPluginIDs = Set<String>()
     @Published var sessionDeletionMode: SessionDeletionMode = .appServer
     @Published var automation = AutomationStore.loadSettings()
     @Published var lastAutomaticRun = AutomationStore.loadLastRun()
+
+    // MARK: - Session browsing state
+    //
+    // Filtering and sorting run once per input change instead of once per SwiftUI body
+    // evaluation; with thousands of sessions the latter is what makes scrolling stutter.
+
+    @Published var sessionScope: SessionScope = .all { didSet { rebuildVisibleSessions() } }
+    @Published var sessionSort: SessionSort = .total { didSet { rebuildVisibleSessions() } }
+    @Published var sessionQuery = "" { didSet { rebuildVisibleSessions() } }
+    @Published var sessionRetentionDays = 180 { didSet { rebuildExpiredSessions() } }
+    @Published private(set) var visibleSessions: [SessionItem] = []
+    @Published private(set) var expiredSessionIDs: [String] = []
+    @Published private(set) var selectedSessionIDs = Set<String>()
 
     let locations: CodexLocations
     private let scanner: CodexStorageScanner
     private let automationService = AutomationService()
     private var scanWorker: Task<ScanSnapshot, Never>?
     private var scanGeneration = 0
+    private var entryIndex: [String: StorageEntry] = [:]
+    private var sessionIndex: [String: SessionItem] = [:]
+    private var sessionSearchIndex: [String: String] = [:]
+    private var sessionCounts: [SessionScope: Int] = [:]
 
     var codexHome: URL { locations.home }
 
@@ -104,14 +128,38 @@ final class AppModel: ObservableObject {
         snapshot = result
         appServerAvailable = CodexAppServerClient(codexHome: locations.home).isAvailable
         if !appServerAvailable { sessionDeletionMode = .trash }
+
+        entryIndex = Dictionary(
+            result.categories.flatMap(\.entries).map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        sessionIndex = Dictionary(
+            result.sessions.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        sessionSearchIndex = result.sessions.reduce(into: [:]) { index, item in
+            index[item.id] = [
+                item.displayName,
+                item.projectName ?? "",
+                item.workingDirectory ?? "",
+                item.threadID
+            ].joined(separator: " ").lowercased()
+        }
+        sessionCounts = [
+            .all: result.sessions.count,
+            .active: result.sessions.filter { $0.location == .active }.count,
+            .archived: result.sessions.filter { $0.location == .archived }.count
+        ]
+
         selectedEntryIDs = Set(
             result.categoryList(in: .recommended)
                 .flatMap(\.entries)
                 .filter { $0.risk.isSelectable }
                 .map(\.id)
         )
-        selectedSessionIDs = selectedSessionIDs.intersection(Set(result.sessions.map(\.id)))
+        selectedSessionIDs = selectedSessionIDs.intersection(sessionIndex.keys)
         selectedPluginIDs = selectedPluginIDs.intersection(Set(result.pluginVersions.map(\.id)))
+        rebuildVisibleSessions()
         refreshAutomationStatus()
     }
 
@@ -127,12 +175,14 @@ final class AppModel: ObservableObject {
     }
 
     var selectedEntries: [StorageEntry] {
-        allEntries.filter { selectedEntryIDs.contains($0.id) }
+        selectedEntryIDs.compactMap { entryIndex[$0] }.sorted { $0.reclaimableBytes > $1.reclaimableBytes }
     }
 
     var selectedBytes: Int64 {
-        selectedEntries.reduce(Int64(0)) { $0 + $1.reclaimableBytes }
+        selectedEntryIDs.reduce(Int64(0)) { $0 + (entryIndex[$1]?.reclaimableBytes ?? 0) }
     }
+
+    var selectedEntryCount: Int { selectedEntryIDs.count }
 
     var recommendedBytes: Int64 {
         snapshot.categoryList(in: .recommended).reduce(Int64(0)) { $0 + $1.reclaimableBytes }
@@ -167,13 +217,78 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // MARK: - Sessions
+
+    func count(of scope: SessionScope) -> Int { sessionCounts[scope] ?? 0 }
+
+    var expiredSessionCount: Int { expiredSessionIDs.count }
+
+    func isSessionSelected(_ id: String) -> Bool { selectedSessionIDs.contains(id) }
+
+    func setSessionSelected(_ id: String, _ selected: Bool) {
+        if selected { selectedSessionIDs.insert(id) } else { selectedSessionIDs.remove(id) }
+    }
+
+    func setSessionsSelected<S: Sequence<String>>(_ ids: S, _ selected: Bool) {
+        if selected { selectedSessionIDs.formUnion(ids) } else { selectedSessionIDs.subtract(ids) }
+    }
+
+    func clearSessionSelection() { selectedSessionIDs.removeAll() }
+
+    func selectExpiredSessions() { selectedSessionIDs.formUnion(expiredSessionIDs) }
+
+    var visibleSessionSelectionState: SelectionState {
+        guard !visibleSessions.isEmpty else { return .none }
+        var selected = 0
+        for session in visibleSessions where selectedSessionIDs.contains(session.id) { selected += 1 }
+        if selected == 0 { return .none }
+        return selected == visibleSessions.count ? .all : .partial
+    }
+
     var selectedSessions: [SessionItem] {
-        snapshot.sessions.filter { selectedSessionIDs.contains($0.id) }
+        selectedSessionIDs.compactMap { sessionIndex[$0] }.sorted { $0.totalBytes > $1.totalBytes }
     }
 
     var selectedSessionBytes: Int64 {
-        selectedSessions.reduce(Int64(0)) { $0 + $1.totalBytes }
+        selectedSessionIDs.reduce(Int64(0)) { $0 + (sessionIndex[$1]?.totalBytes ?? 0) }
     }
+
+    /// The largest sessions, for the summary card on the main page.
+    /// The snapshot already arrives sorted by total size, so this stays O(limit).
+    func largestSessions(_ limit: Int) -> [SessionItem] {
+        Array(snapshot.sessions.prefix(limit))
+    }
+
+    private func rebuildVisibleSessions() {
+        let query = sessionQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        var items = snapshot.sessions.filter { item in
+            switch sessionScope {
+            case .all: true
+            case .active: item.location == .active
+            case .archived: item.location == .archived
+            }
+        }
+        if !query.isEmpty {
+            items = items.filter { sessionSearchIndex[$0.id]?.contains(query) ?? false }
+        }
+        switch sessionSort {
+        case .total: items.sort { $0.totalBytes > $1.totalBytes }
+        case .images: items.sort { $0.embeddedImageBytes > $1.embeddedImageBytes }
+        case .date: items.sort { $0.modifiedAt > $1.modifiedAt }
+        case .name: items.sort { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+        }
+        visibleSessions = items
+        rebuildExpiredSessions()
+    }
+
+    private func rebuildExpiredSessions() {
+        let cutoff = Calendar.current.date(byAdding: .day, value: -sessionRetentionDays, to: .now) ?? .distantPast
+        expiredSessionIDs = visibleSessions
+            .filter { $0.modifiedAt < cutoff && !$0.isUnstable }
+            .map(\.id)
+    }
+
+    // MARK: - Plugins
 
     var removablePlugins: [PluginVersionItem] {
         snapshot.pluginVersions.filter { $0.status.isRemovable }

@@ -81,33 +81,59 @@ struct CodexAppServerClient: Sendable {
         guard let session = try? openSession() else { return nil }
         defer { session.close() }
         guard let response = try? session.call("plugin/list", params: [:]) else { return nil }
-        return Self.parsePlugins(response)
+        let plugins = Self.parsePlugins(response)
+        // An empty inventory is indistinguishable from a response shape we failed to read,
+        // so refuse to confirm rather than declaring every directory on disk orphaned.
+        return plugins.isEmpty ? nil : plugins
     }
 
+    /// `plugin/list` answers with marketplaces that each carry their own plugin rows:
+    /// `{"marketplaces":[{"name":"personal","plugins":[{"name":…,"localVersion":…,"source":{"path":…}}]}]}`.
+    /// Older shapes (a bare array, or a top level `plugins` list) are still accepted.
     static func parsePlugins(_ response: Any?) -> [InstalledPlugin] {
-        let rows: [[String: Any]]
+        var rows: [[String: Any]] = []
         if let array = response as? [[String: Any]] {
             rows = array
         } else if let object = response as? [String: Any] {
-            let candidates = ["plugins", "items", "installed", "entries"]
-            rows = candidates.compactMap { object[$0] as? [[String: Any]] }.first ?? []
-        } else {
-            rows = []
+            for key in ["plugins", "items", "installed", "entries"] {
+                if let list = object[key] as? [[String: Any]] {
+                    rows += list
+                }
+            }
+            for key in ["marketplaces", "sources", "registries"] {
+                guard let marketplaces = object[key] as? [[String: Any]] else { continue }
+                for marketplace in marketplaces {
+                    for inner in ["plugins", "items", "entries"] {
+                        if let list = marketplace[inner] as? [[String: Any]] {
+                            rows += list
+                        }
+                    }
+                }
+            }
         }
 
-        return rows.compactMap { row in
-            let nameKeys = ["name", "id", "plugin", "pluginName"]
-            guard let name = nameKeys.compactMap({ row[$0] as? String }).first else { return nil }
-            let version = ["version", "installedVersion", "currentVersion"]
-                .compactMap { row[$0] as? String }.first
-            let path = ["path", "directory", "installPath", "root", "location"]
-                .compactMap { row[$0] as? String }.first
-            return InstalledPlugin(
-                name: name,
-                version: version,
-                directory: path.map { URL(fileURLWithPath: $0) }
-            )
+        return rows.compactMap(parsePluginRow)
+    }
+
+    private static func parsePluginRow(_ row: [String: Any]) -> InstalledPlugin? {
+        let name = ["name", "pluginName", "plugin"].compactMap { row[$0] as? String }.first
+            ?? (row["id"] as? String).map { String($0.prefix(while: { $0 != "@" })) }
+        guard let name, !name.isEmpty else { return nil }
+
+        let version = ["localVersion", "version", "installedVersion", "currentVersion", "resolvedVersion"]
+            .compactMap { row[$0] as? String }.first
+        var path = ["path", "directory", "installPath", "root", "location"]
+            .compactMap { row[$0] as? String }.first
+        if path == nil, let source = row["source"] as? [String: Any] {
+            path = ["path", "directory", "root", "location"]
+                .compactMap { source[$0] as? String }.first
         }
+
+        return InstalledPlugin(
+            name: name,
+            version: version,
+            directory: path.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
+        )
     }
 }
 

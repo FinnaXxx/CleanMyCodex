@@ -15,6 +15,7 @@ struct OverviewView: View {
                     summary
 
                     group(.recommended)
+                    sessionsCard
                     group(.review)
                     group(.protectedData)
                 }
@@ -48,6 +49,18 @@ struct OverviewView: View {
     private var header: some View {
         PageHeader(title: "空间扫描", subtitle: subtitle) {
             HStack(spacing: 10) {
+                StatusPill(
+                    text: model.codexRunning ? "Codex 正在运行" : "Codex 未运行",
+                    color: model.codexRunning ? .cleanerAmber : .secondary
+                )
+
+                Button {
+                    model.activeSheet = .automation
+                } label: {
+                    Label("自动清理", systemImage: "calendar.badge.clock")
+                }
+                .help("设置定期自动清理")
+
                 if model.isScanning {
                     Button("停止") { model.cancelScan() }
                 } else {
@@ -88,7 +101,7 @@ struct OverviewView: View {
                     MetricBlock(
                         title: "已选择",
                         value: ByteFormat.string(model.selectedBytes),
-                        detail: "\(model.selectedEntries.count) 项 · 建议 \(ByteFormat.string(model.recommendedBytes))",
+                        detail: "\(model.selectedEntryCount) 项 · 建议 \(ByteFormat.string(model.recommendedBytes))",
                         emphasized: true
                     )
                     Divider().frame(height: 70)
@@ -104,6 +117,57 @@ struct OverviewView: View {
             }
         }
     }
+
+    // MARK: - Sessions
+
+    /// Sessions are not a checkbox category: each one needs a title, tags and a size
+    /// breakdown before it can be judged, so the card links into the full list.
+    private var sessionsCard: some View {
+        CleanerCard(padding: 0) {
+            VStack(spacing: 0) {
+                HStack(spacing: 14) {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(Color.cleanerBlue.opacity(0.13))
+                        .frame(width: 38, height: 38)
+                        .overlay {
+                            Image(systemName: "bubble.left.and.bubble.right")
+                                .foregroundStyle(Color.cleanerBlue)
+                        }
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("会话记录").font(.headline)
+                        Text("归档只是隐藏，不释放空间。删除会连同内嵌截图和生成的图片一起处理。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 12)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(ByteFormat.string(model.snapshot.sessionBytes))
+                            .font(.body.weight(.semibold))
+                            .monospacedDigit()
+                        Text("\(model.snapshot.sessions.count) 个会话")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Button("管理会话") { model.activeSheet = .sessions }
+                        .disabled(model.snapshot.sessions.isEmpty)
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
+
+                if !model.snapshot.sessions.isEmpty {
+                    Divider()
+                    VStack(spacing: 0) {
+                        ForEach(model.largestSessions(3)) { session in
+                            CompactSessionRow(session: session)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+    }
+
+    // MARK: - Groups
 
     @ViewBuilder
     private func group(_ group: StorageGroup) -> some View {
@@ -170,7 +234,7 @@ struct OverviewView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .disabled(model.selectedEntries.isEmpty || model.isScanning || model.isCleaning)
+            .disabled(model.selectedEntryIDs.isEmpty || model.isScanning || model.isCleaning)
         }
         .padding(.horizontal, 28)
         .padding(.vertical, 14)
@@ -179,7 +243,7 @@ struct OverviewView: View {
 
     private var confirmMessage: String {
         let databases = model.selectedEntries.filter { $0.method == .compactDatabase }.count
-        var message = "已选择 \(model.selectedEntries.count) 项，预计释放 \(ByteFormat.string(model.selectedBytes))。"
+        var message = "已选择 \(model.selectedEntryCount) 项，预计释放 \(ByteFormat.string(model.selectedBytes))。"
         if databases > 0 {
             message += "其中 \(databases) 个日志数据库会做 checkpoint 与 VACUUM，不会删除诊断记录。"
         }
@@ -189,7 +253,42 @@ struct OverviewView: View {
     private var subtitle: String {
         if model.isScanning { return "正在扫描…" }
         if model.snapshot.isEmpty { return model.codexHome.path }
-        return "上次扫描 \(model.snapshot.scannedAt.formatted(date: .omitted, time: .shortened))"
+        return "上次扫描 \(model.snapshot.scannedAt.formatted(date: .omitted, time: .shortened)) · \(model.codexHome.path)"
+    }
+}
+
+private struct CompactSessionRow: View {
+    let session: SessionItem
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "text.bubble")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 20)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(session.displayName)
+                    .font(.callout.weight(.medium))
+                    .lineLimit(1)
+                if let project = session.projectName {
+                    Text(project).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 12)
+            if session.embeddedImageBytes > 0 {
+                Text("图片 \(ByteFormat.string(session.embeddedImageBytes))")
+                    .font(.caption2)
+                    .foregroundStyle(Color.cleanerAmber)
+                    .monospacedDigit()
+            }
+            Text(ByteFormat.string(session.totalBytes))
+                .font(.callout)
+                .monospacedDigit()
+                .frame(width: 92, alignment: .trailing)
+        }
+        .padding(.leading, 52)
+        .padding(.trailing, 18)
+        .padding(.vertical, 5)
     }
 }
 
@@ -198,6 +297,8 @@ private struct CategoryRow: View {
     let category: StorageCategory
     let isExpanded: Bool
     let onToggleExpanded: () -> Void
+
+    @State private var isHovering = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -208,6 +309,7 @@ private struct CategoryRow: View {
                 ) { selected in
                     model.setSelected(category, selected)
                 }
+                .frame(width: 26, height: 30)
 
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .fill(category.risk.tint.opacity(0.13))
@@ -226,6 +328,13 @@ private struct CategoryRow: View {
                 }
 
                 Spacer(minLength: 12)
+
+                if category.kind == .pluginRemnants {
+                    Button("查看全部版本") { model.activeSheet = .plugins }
+                        .buttonStyle(.link)
+                        .font(.callout)
+                }
+
                 RiskBadge(risk: category.risk)
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(ByteFormat.string(category.reclaimableBytes))
@@ -239,24 +348,41 @@ private struct CategoryRow: View {
                 }
                 .frame(width: 104, alignment: .trailing)
 
-                Button(action: onToggleExpanded) {
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .frame(width: 20)
+                // Deliberately generous: the chevron is the affordance, but the whole
+                // row toggles, so the target is the row height, not a 12pt glyph.
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(isHovering ? Color.accentColor : .secondary)
+                    .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                    .frame(width: 34, height: 34)
+                    .background(
+                        Circle().fill(isHovering ? Color.primary.opacity(0.07) : .clear)
+                    )
+                    .accessibilityLabel(isExpanded ? "收起 \(category.title)" : "展开 \(category.title)")
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 12)
             .contentShape(Rectangle())
+            .onTapGesture { onToggleExpanded() }
+            .onHover { isHovering = $0 }
+            .background(isHovering ? Color.primary.opacity(0.03) : .clear)
 
             if isExpanded {
-                VStack(spacing: 0) {
-                    ForEach(category.entries) { entry in
-                        EntryRow(entry: entry, isSelectable: category.isSelectable)
+                if category.entries.isEmpty {
+                    Text("没有可以列出的内容")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 70)
+                        .padding(.bottom, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    LazyVStack(spacing: 0) {
+                        ForEach(category.entries) { entry in
+                            EntryRow(entry: entry, isSelectable: category.isSelectable)
+                        }
                     }
+                    .padding(.bottom, 8)
                 }
-                .padding(.bottom, 8)
             }
         }
     }
@@ -279,7 +405,7 @@ private struct EntryRow: View {
             .opacity(isSelectable ? 1 : 0.35)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(entry.title).font(.callout.weight(.medium))
+                Text(entry.title).font(.callout.weight(.medium)).lineLimit(1)
                 Text(entry.detail)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -298,7 +424,8 @@ private struct EntryRow: View {
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
             .help(entry.url.path)
-            .frame(width: 20)
+            .frame(width: 24, height: 24)
+            .contentShape(Rectangle())
         }
         .padding(.leading, 70)
         .padding(.trailing, 18)

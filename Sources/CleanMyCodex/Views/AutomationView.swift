@@ -10,10 +10,13 @@ struct AutomationView: View {
                     title: "自动清理",
                     subtitle: "通过 macOS LaunchAgent 定期运行；Codex 正在运行时跳过，等下一次。"
                 ) {
-                    StatusPill(
-                        text: model.automation.enabled ? model.automationStatus : "已关闭",
-                        color: statusColor
-                    )
+                    HStack(spacing: 10) {
+                        StatusPill(
+                            text: model.automation.enabled ? model.automationStatus : "已关闭",
+                            color: statusColor
+                        )
+                        SheetCloseButton()
+                    }
                 }
 
                 CleanerCard {
@@ -109,6 +112,7 @@ struct AutomationView: View {
             }
             .padding(28)
         }
+        .frame(minWidth: 640, idealWidth: 700, minHeight: 540, idealHeight: 620)
         .task { model.refreshAutomationStatus() }
     }
 

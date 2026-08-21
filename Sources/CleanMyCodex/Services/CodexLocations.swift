@@ -46,6 +46,9 @@ struct CodexLocations: Sendable {
     }
     var appLogs: URL { library.appending(path: "Logs/com.openai.codex", directoryHint: .isDirectory) }
 
+    /// Where CleanMyCodex keeps its own rescan cache. Never a cleanup target.
+    var scanCache: URL { library.appending(path: "Caches/CleanMyCodex", directoryHint: .isDirectory) }
+
     /// Chromium-style caches that the desktop app rebuilds on demand.
     var browserCacheDirectories: [URL] {
         [
