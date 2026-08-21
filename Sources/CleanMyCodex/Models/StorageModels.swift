@@ -174,6 +174,8 @@ struct SessionItem: Identifiable, Sendable {
     let embeddedImageCount: Int
     let workingDirectory: String?
     let title: String?
+    /// First user message, kept so a thread without a title is still recognisable.
+    let preview: String?
     let tags: [SessionTag]
     let isCompressed: Bool
     let isUnstable: Bool
@@ -181,12 +183,25 @@ struct SessionItem: Identifiable, Sendable {
 
     var totalBytes: Int64 { fileBytes + assetBytes }
 
+    /// Folder name of the working directory — what the user thinks of as "the project".
+    var projectName: String? {
+        guard let workingDirectory, !workingDirectory.isEmpty else { return nil }
+        let name = URL(fileURLWithPath: workingDirectory).lastPathComponent
+        return name.isEmpty ? nil : name
+    }
+
+    /// What the session is about. Falls back through title, first user message and
+    /// project name so a row is never just a UUID when we know anything better.
     var displayName: String {
         if let title, !title.isEmpty { return title }
-        if let workingDirectory, !workingDirectory.isEmpty {
-            return URL(fileURLWithPath: workingDirectory).lastPathComponent
-        }
+        if let preview, !preview.isEmpty { return preview }
+        if let projectName { return projectName }
         return String(threadID.prefix(12))
+    }
+
+    /// True when `displayName` had to fall back to something that is not a real title.
+    var hasTitle: Bool {
+        (title?.isEmpty == false) || (preview?.isEmpty == false)
     }
 
     var imageShare: Double {

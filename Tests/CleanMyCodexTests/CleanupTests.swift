@@ -188,6 +188,7 @@ struct CleanupPlannerTests {
             embeddedImageCount: 0,
             workingDirectory: nil,
             title: nil,
+            preview: nil,
             tags: [],
             isCompressed: false,
             isUnstable: unstable,
@@ -228,6 +229,7 @@ struct CleanupPlannerTests {
             embeddedImageCount: 0,
             workingDirectory: nil,
             title: nil,
+            preview: nil,
             tags: [],
             isCompressed: false,
             isUnstable: false,
@@ -277,5 +279,121 @@ struct AppServerParsingTests {
         #expect(parsedArray.first?.directory == nil)
 
         #expect(CodexAppServerClient.parsePlugins(nil).isEmpty)
+    }
+
+    /// The shape `codex app-server` actually answers with: plugins nested per
+    /// marketplace, the version under `localVersion`, the path under `source`.
+    @Test func parsesMarketplaceShapedPluginList() {
+        let response: [String: Any] = [
+            "marketplaces": [
+                [
+                    "name": "personal",
+                    "plugins": [
+                        [
+                            "id": "codex-seo@personal",
+                            "name": "codex-seo",
+                            "localVersion": "1.9.6+codex.5",
+                            "source": ["type": "local", "path": "/Users/someone/plugins/codex-seo"],
+                            "installed": true,
+                            "enabled": true
+                        ]
+                    ]
+                ]
+            ]
+        ]
+
+        let parsed = CodexAppServerClient.parsePlugins(response)
+
+        #expect(parsed.count == 1)
+        #expect(parsed.first?.name == "codex-seo")
+        #expect(parsed.first?.version == "1.9.6+codex.5")
+        #expect(parsed.first?.directory?.path == "/Users/someone/plugins/codex-seo")
+    }
+
+    @Test func versionMatchingIgnoresCaseAndVPrefix() {
+        #expect(CodexStorageScanner.normalizedVersion("v1.9.6+Codex.5") == "1.9.6+codex.5")
+        #expect(CodexStorageScanner.normalizedVersion("1.9.6+codex.5") == "1.9.6+codex.5")
+        #expect(CodexStorageScanner.normalizedVersion("  ") == nil)
+        #expect(CodexStorageScanner.normalizedVersion(nil) == nil)
+    }
+}
+
+struct SessionPreviewTests {
+    @Test func readsTheFirstUserMessageAsATitle() {
+        let line = Data(#"{"type":"event_msg","payload":{"type":"user_message","message":"帮我修一下扫描器的进度条"}}"#.utf8)
+        #expect(SessionContentScanner.parsePreview(line) == "帮我修一下扫描器的进度条")
+    }
+
+    @Test func readsResponseItemUserMessages() {
+        let line = Data(#"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"add a retry to the uploader"}]}}"#.utf8)
+        #expect(SessionContentScanner.parsePreview(line) == "add a retry to the uploader")
+    }
+
+    @Test func skipsInjectedContextTurns() {
+        let line = Data(#"{"payload":{"role":"user","content":[{"type":"input_text","text":"<environment_context>cwd=/tmp</environment_context>"}]}}"#.utf8)
+        #expect(SessionContentScanner.parsePreview(line) == nil)
+    }
+
+    @Test func collapsesWhitespaceAndTruncates() throws {
+        let long = String(repeating: "字", count: 200)
+        let line = Data("{\"payload\":{\"type\":\"user_message\",\"message\":\"\(long)\"}}".utf8)
+        let preview = try #require(SessionContentScanner.parsePreview(line))
+        #expect(preview.count == 91)
+        #expect(preview.hasSuffix("…"))
+
+        let messy = Data(#"{"payload":{"type":"user_message","message":"  first line\nsecond   line  "}}"#.utf8)
+        #expect(SessionContentScanner.parsePreview(messy) == "first line second line")
+    }
+
+    @Test func headerReaderStopsAfterMetadataAndPreview() {
+        var reader = SessionHeaderReader()
+        let meta = #"{"type":"session_meta","payload":{"id":"abc","cwd":"/Users/someone/work/api"}}"#
+        let user = #"{"type":"event_msg","payload":{"type":"user_message","message":"写个测试"}}"#
+        reader.consume(Data((meta + "
+" + user + "
+").utf8))
+        reader.finish()
+
+        #expect(reader.metadata?.id == "abc")
+        #expect(reader.metadata?.workingDirectory == "/Users/someone/work/api")
+        #expect(reader.preview == "写个测试")
+        #expect(reader.isFinished)
+    }
+
+    @Test func headerReaderSkipsOversizedLinesInsteadOfBufferingThem() {
+        var reader = SessionHeaderReader()
+        let huge = #"{"payload":{"type":"user_message","message":""# + String(repeating: "A", count: 300_000) + #""}}"#
+        let user = #"{"type":"event_msg","payload":{"type":"user_message","message":"真正的第一句"}}"#
+        reader.consume(Data((huge + "
+" + user + "
+").utf8))
+        reader.finish()
+
+        #expect(reader.preview == "真正的第一句")
+    }
+
+    @Test func fallsBackFromTitleToPreviewToProject() {
+        let base = SessionItem(
+            id: "a",
+            threadID: "0123456789abcdef",
+            fileURL: URL(fileURLWithPath: "/tmp/a.jsonl"),
+            location: .active,
+            modifiedAt: .now,
+            fileBytes: 1,
+            assetBytes: 0,
+            assetURLs: [],
+            embeddedImageBytes: 0,
+            embeddedImageCount: 0,
+            workingDirectory: "/Users/someone/work/api",
+            title: nil,
+            preview: "修一下登录",
+            tags: [],
+            isCompressed: false,
+            isUnstable: false,
+            parseWarnings: 0
+        )
+        #expect(base.displayName == "修一下登录")
+        #expect(base.projectName == "api")
+        #expect(base.hasTitle)
     }
 }

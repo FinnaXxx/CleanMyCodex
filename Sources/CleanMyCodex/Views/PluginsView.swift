@@ -25,10 +25,13 @@ struct PluginsView: View {
                 title: "插件版本",
                 subtitle: "当前启用的版本始终受保护，只清理旧版本和卸载残留。"
             ) {
-                Button("选择全部可清理版本") {
-                    model.selectedPluginIDs = Set(model.removablePlugins.map(\.id))
+                HStack(spacing: 10) {
+                    Button("选择全部可清理版本") {
+                        model.selectedPluginIDs = Set(model.removablePlugins.map(\.id))
+                    }
+                    .disabled(model.removablePlugins.isEmpty)
+                    SheetCloseButton()
                 }
-                .disabled(model.removablePlugins.isEmpty)
             }
 
             if !model.appServerAvailable {
@@ -84,7 +87,8 @@ struct PluginsView: View {
                     .disabled(model.selectedPlugins.isEmpty || model.isCleaning)
             }
         }
-        .padding(28)
+        .padding(24)
+        .frame(minWidth: 820, idealWidth: 900, minHeight: 560, idealHeight: 660)
         .sheet(isPresented: $showingCleanup) {
             CleanupFlowSheet(
                 title: "清理老版本插件",
