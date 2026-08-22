@@ -6,7 +6,7 @@ import type {
 
 const api = {
   appInfo: (): Promise<AppInfo> => ipcRenderer.invoke('app:info'),
-  scan: (): Promise<ScanSnapshot> => ipcRenderer.invoke('scan:run'),
+  scan: (): Promise<ScanSnapshot | null> => ipcRenderer.invoke('scan:run'),
   cancelScan: (): Promise<void> => ipcRenderer.invoke('scan:cancel'),
   onScanProgress: (listener: (progress: ScanProgress) => void): (() => void) => {
     const handler = (_event: unknown, progress: ScanProgress): void => listener(progress)
@@ -15,7 +15,7 @@ const api = {
   },
   prepareCleanup: (selection: CleanupSelection): Promise<CleanupPreview> => ipcRenderer.invoke('cleanup:prepare', selection),
   cleanup: (request: CleanupRequest): Promise<CleanupReport> => ipcRenderer.invoke('cleanup:run', request),
-  scanWorkspace: (): Promise<WorkspaceSnapshot> => ipcRenderer.invoke('workspace:scan'),
+  scanWorkspace: (): Promise<WorkspaceSnapshot | null> => ipcRenderer.invoke('workspace:scan'),
   revealPath: (path: string): Promise<void> => ipcRenderer.invoke('path:reveal', path),
   openPath: (path: string): Promise<void> => ipcRenderer.invoke('path:open', path),
   getAutomation: (): Promise<AutomationState> => ipcRenderer.invoke('automation:get'),

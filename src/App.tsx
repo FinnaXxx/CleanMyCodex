@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   type ScanSnapshot,
   type ScanProgress,
@@ -40,36 +40,48 @@ function App() {
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null)
   const [workspaceScanning, setWorkspaceScanning] = useState(false)
   const [workspaceAttempted, setWorkspaceAttempted] = useState(false)
+  const scanInFlight = useRef(false)
+  const workspaceScanInFlight = useRef(false)
 
   const runScan = useCallback(async () => {
+    if (scanInFlight.current) return
+    scanInFlight.current = true
     setError(null)
     setReport(null)
     setProgress({ stage: '扫描中', currentPath: '', scannedBytes: 0, fraction: 0 })
     try {
       const next = await window.cleanmycodex.scan()
-      setSnapshot(next)
-      setWorkspace(next.workspace)
-      setWorkspaceAttempted(false)
-      setAppInfo(await window.cleanmycodex.appInfo())
+      if (next) {
+        setSnapshot(next)
+        setWorkspace(next.workspace)
+        setWorkspaceAttempted(false)
+        setAppInfo(await window.cleanmycodex.appInfo())
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       if (!message.includes('扫描已停止')) setError(message)
     } finally {
+      scanInFlight.current = false
       setProgress(null)
     }
   }, [])
 
   const runWorkspaceScan = useCallback(async () => {
+    if (workspaceScanInFlight.current) return
+    workspaceScanInFlight.current = true
     setWorkspaceAttempted(true)
     setWorkspaceScanning(true)
     setProgress({ stage: '工作产出', currentPath: '', scannedBytes: 0, fraction: 0 })
     setError(null)
-    try { setWorkspace(await window.cleanmycodex.scanWorkspace()) }
+    try {
+      const next = await window.cleanmycodex.scanWorkspace()
+      if (next) setWorkspace(next)
+    }
     catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       if (!message.includes('扫描已停止')) setError(message)
     }
-    finally { setWorkspaceScanning(false); setProgress(null) }
+    finally { workspaceScanInFlight.current = false; setWorkspaceScanning(false); setProgress(null) }
   }, [])
 
   const requestCleanup = useCallback(async (selection: CleanupSelection) => {
