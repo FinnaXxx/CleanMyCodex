@@ -7,6 +7,25 @@ import Foundation
 /// not stop the other 180 sessions from being slimmed. Asking about one file is cheap and
 /// precise, which asking about a whole directory tree is not.
 struct FileUsageProbe: Sendable {
+    /// One-way flag, set from the watchdog queue and read after the process exits.
+    private final class Flag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = false
+
+        func set() {
+            lock.lock()
+            value = true
+            lock.unlock()
+        }
+
+        var isSet: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return value
+        }
+    }
+
+
     enum Usage: Equatable, Sendable {
         case free
         case inUse(processes: [String])
@@ -34,7 +53,7 @@ struct FileUsageProbe: Sendable {
 
         let process = Process()
         process.executableURL = executableURL
-        // -F cn prints one field per line: `c<command>` then `n<name>`.
+        // -F cn prints one field per line: `p<pid>`, then `c<command>`, then `n<name>`.
         process.arguments = ["-n", "-P", "-F", "cn", "--", url.path]
         let output = Pipe()
         process.standardOutput = output
@@ -46,20 +65,36 @@ struct FileUsageProbe: Sendable {
             return .unknown
         }
 
-        let watchdog = DispatchWorkItem { if process.isRunning { process.terminate() } }
+        // Whether the watchdog actually fired has to be recorded by the watchdog itself.
+        // It cannot be inferred from the exit status: lsof exits 1 with no output when
+        // nothing holds the file, which is a real answer, not a failure.
+        let timedOut = Flag()
+        let watchdog = DispatchWorkItem {
+            guard process.isRunning else { return }
+            timedOut.set()
+            process.terminate()
+        }
         DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
         let data = (try? output.fileHandleForReading.readToEnd()) ?? Data()
         process.waitUntilExit()
-        let timedOut = watchdog.isCancelled == false && process.terminationStatus != 0 && data.isEmpty
         watchdog.cancel()
 
-        let processes = Self.parseCommands(String(decoding: data, as: UTF8.self))
+        return Self.interpret(
+            output: String(decoding: data, as: UTF8.self),
+            terminationStatus: process.terminationStatus,
+            timedOut: timedOut.isSet
+        )
+    }
+
+    /// The decision table, kept separate from the process plumbing so it can be tested.
+    ///
+    /// `lsof` exits 0 when it found something and 1 when it found nothing. Both are
+    /// answers. Only a timeout or an unexpected exit code means "cannot tell".
+    static func interpret(output: String, terminationStatus: Int32, timedOut: Bool) -> Usage {
+        let processes = parseCommands(output)
         if !processes.isEmpty { return .inUse(processes: processes) }
-        // lsof exits 1 when it simply found nothing, which is a real answer.
-        if process.terminationStatus == 0 || process.terminationStatus == 1 {
-            return timedOut ? .unknown : .free
-        }
-        return .unknown
+        if timedOut { return .unknown }
+        return (terminationStatus == 0 || terminationStatus == 1) ? .free : .unknown
     }
 
     static func parseCommands(_ output: String) -> [String] {
