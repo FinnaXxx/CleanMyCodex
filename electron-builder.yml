@@ -1,0 +1,31 @@
+appId: com.finnaxxx.cleanmycodex
+productName: CleanMyCodex
+directories:
+  output: dist-electron
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+  - "!**/node_modules/*/{CHANGELOG.md,README.md,readme.md,readme}"
+asar: true
+mac:
+  category: public.app-category.utilities
+  target:
+    - dmg
+    - zip
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  artifactName: ${productName}-${version}-${arch}.${ext}
+win:
+  target:
+    - nsis
+  artifactName: ${productName}-${version}-${arch}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+linux:
+  target:
+    - AppImage
+  category: Utility
+  artifactName: ${productName}-${version}-${arch}.${ext}
