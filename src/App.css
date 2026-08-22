@@ -481,7 +481,7 @@ label.entry-label { cursor: pointer; }
 .page-heading p { margin: 0; color: var(--text-tertiary); font-size: 13px; }
 
 /* --- plugin + workspace rows --- */
-.plugin-row, .workspace-row {
+.plugin-row {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -490,21 +490,21 @@ label.entry-label { cursor: pointer; }
   border-top: 1px solid var(--line-soft);
   font-size: 13px;
 }
-.workspace-head {
-  display: flex;
+.workspace-row { min-height: 48px; border-top: 1px solid var(--line-soft); font-size: 13px; }
+/** One grid for the head and the rows, so every column lines up. */
+.workspace-head, .workspace-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) 72px 116px 92px 30px;
   gap: 12px;
-  padding: 0 16px;
   align-items: center;
+  padding: 9px 16px;
 }
-.workspace-head > span:nth-child(2) { width: 18px; }
-.workspace-head > span:nth-child(3) { flex: 1; }
-.workspace-head .col-date { width: 116px; }
-.workspace-head .col-num { width: 88px; }
-.workspace-head > span:last-child { width: 27px; }
-.workspace-row .col-date { width: 116px; color: var(--text-secondary); font-size: 12px; }
-.row-glyph { display: inline-flex; flex: none; color: var(--text-tertiary); }
-.plugin-row:first-of-type, .workspace-row:first-child { border-top: 0; }
+.workspace-head { padding-top: 0; padding-bottom: 0; }
+.workspace-row .col-date { font-size: 12px; }
+.muted { color: var(--text-tertiary); }
+.plugin-row:first-of-type { border-top: 0; }
 .plugin-row:hover, .workspace-row:hover { background: var(--surface-sunken); }
+.workspace-head + .workspace-row { border-top: 0; }
 .grow { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .grow small, .form-card small { color: var(--text-tertiary); font-size: 12px; }
 .fixed-bytes { width: 88px; text-align: right; font-variant-numeric: tabular-nums; color: var(--text-secondary); }
@@ -521,7 +521,7 @@ label.entry-label { cursor: pointer; }
 .status-outdated { background: var(--caution-soft); color: var(--caution); }
 .status-orphaned { background: var(--danger-soft); color: var(--danger); }
 .unsafe { color: var(--caution); }
-.workspace-metrics { display: grid; grid-template-columns: repeat(3, 1fr); margin-bottom: 14px; }
+.workspace-metrics { display: grid; grid-template-columns: repeat(2, 1fr); margin-bottom: 14px; }
 .workspace-metrics > div { display: flex; flex-direction: column; gap: 4px; padding: 16px 20px; border-left: 1px solid var(--line-soft); }
 .workspace-metrics > div:first-child { border-left: 0; }
 .workspace-metrics small { color: var(--text-tertiary); font-size: 12px; }
