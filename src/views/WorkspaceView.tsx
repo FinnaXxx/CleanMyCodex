@@ -33,11 +33,27 @@ export default function WorkspaceView({ snapshot, scanning, cleaning, actionsDis
 }
 
 function WorkspaceRow({ entry, checked, depth, onToggle, expanded, onExpand }: { entry: WorkspaceFolder; checked: boolean; depth: number; onToggle: () => void; expanded: boolean; onExpand: () => void }) {
+  const display = workspaceDisplay(entry, depth)
   return <div className="workspace-row" style={{ paddingLeft: 16 + depth * 28 }}>
     <input type="checkbox" checked={checked} onChange={onToggle}/><span>{depth ? '📁' : '▣'}</span>
-    <div className="grow"><strong>{entry.name}</strong><small>{workspaceFolderFileCount(entry)} 个文件 {entry.repositories.map((repo) => <span className={`repo ${repo.state === 'clean' ? 'safe' : 'unsafe'}`} key={repo.id}>{repo.name} · {WorkspaceRepositoryStateLabel[repo.state]}</span>)}</small></div>
+    <div className="grow"><strong title={display.tooltip}>{display.name}</strong><small>{workspaceFolderFileCount(entry)} 个文件 {entry.repositories.map((repo) => <span className={`repo ${repo.state === 'clean' ? 'safe' : 'unsafe'}`} key={repo.id}>{repo.name} · {WorkspaceRepositoryStateLabel[repo.state]}</span>)}</small></div>
     {workspaceFolderIsUnsafe(entry) && <span className="unsafe">⚠</span>}<span className="fixed-bytes">{formatBytes(entry.bytes)}</span>
     <button className="icon-button" onClick={() => window.cleanmycodex.revealPath(entry.path)}>⌕</button>
     {entry.children.length ? <button className="icon-button" onClick={onExpand}>{expanded ? '⌃' : '⌄'}</button> : <span className="icon-space"/>}
   </div>
+}
+
+function workspaceDisplay(entry: WorkspaceFolder, depth: number): { name: string; tooltip?: string } {
+  if (!depth || !entry.sourceThreads.length) return { name: entry.name }
+  const main = entry.sourceThreads.filter((thread) => !thread.isSubagent)
+  const shown = main.length ? main : entry.sourceThreads
+  const subagents = entry.sourceThreads.filter((thread) => thread.isSubagent).length
+  const status = shown.every((thread) => thread.archived) ? ' · 已归档' : ''
+  const first = shown[0].title
+  const others = shown.length > 1 ? ` · 另 ${shown.length - 1} 个会话` : ''
+  const children = main.length && subagents ? ` · ${subagents} 个子会话` : ''
+  return {
+    name: `${first}${others}${children}${status}`,
+    tooltip: entry.sourceThreads.map((thread) => `${thread.title}\n${thread.id}${thread.archived ? ' · 已归档' : ''}${thread.isSubagent ? ' · 子会话' : ''}`).join('\n\n')
+  }
 }

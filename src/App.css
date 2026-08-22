@@ -475,6 +475,7 @@ button.secondary:disabled { opacity: .45; cursor: default; }
 .workspace-metrics strong { font-size: 22px; font-variant-numeric: tabular-nums; }
 .workspace-tree { margin-bottom: 76px; }
 .workspace-row:first-child { border-top: 0; }
+.workspace-row .grow strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-row .repo { margin-right: 4px; }
 .form-card { padding: 18px 20px; margin-bottom: 14px; display: flex; flex-direction: column; align-items: flex-start; gap: 13px; }
 .form-card h3 { margin: 0; font-size: 15px; }

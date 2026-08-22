@@ -209,6 +209,14 @@ export interface WorkspaceRepository {
   state: WorkspaceRepositoryState
 }
 
+export interface WorkspaceThreadReference {
+  id: string
+  title: string
+  archived: boolean
+  isSubagent: boolean
+  modifiedAt: number
+}
+
 export interface WorkspaceFolder {
   id: string
   path: string
@@ -217,6 +225,8 @@ export interface WorkspaceFolder {
   fileCount: number
   modifiedAt: number
   repositories: WorkspaceRepository[]
+  /** Threads whose SQLite cwd points at this output directory or one of its children. */
+  sourceThreads: WorkspaceThreadReference[]
   children: WorkspaceFolder[]
 }
 
