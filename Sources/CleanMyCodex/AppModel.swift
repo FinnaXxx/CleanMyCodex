@@ -417,9 +417,12 @@ final class AppModel: ObservableObject {
     }
 
     /// Tasks that will be deferred unless Codex is not running.
+    /// Slimming is deliberately absent: it is gated on the individual rollout being in
+    /// use, not on Codex as a whole, so a terminal session no longer blocks every other
+    /// session from being slimmed.
     nonisolated static func requiresCodexStopped(_ tasks: [CleanupTask]) -> [CleanupTask] {
         tasks.filter { task in
-            task.requiresCodexStopped || task.method == .compactDatabase || task.method == .slimSession
+            task.requiresCodexStopped || task.method == .compactDatabase
         }
     }
 
