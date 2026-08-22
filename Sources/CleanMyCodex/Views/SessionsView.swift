@@ -198,6 +198,10 @@ struct SessionsView: View {
             message += model.appServerAvailable
                 ? "会话文件和关联资产会移到废纸篓。"
                 : "没有找到 codex 命令行，只能把会话文件和关联资产移到废纸篓。"
+            // Only thread/delete updates Codex' own thread index; a plain file removal
+            // leaves the row in state_*.sqlite pointing at a rollout that is gone.
+            message += "注意：这种方式不会更新 Codex 的线程索引（state_*.sqlite），"
+                + "会话可能仍然出现在 Codex 的历史列表里但打不开。"
         }
         return message
     }
