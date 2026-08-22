@@ -9,10 +9,6 @@ export interface CachedSessionContent {
   cwd: string | null
   metadataTitle: string | null
   preview: string | null
-  imageCount: number
-  imageBytes: number
-  distinctCount: number
-  duplicateBytes: number
   tags: SessionTag[]
   parseWarnings: number
   isSubagent: boolean
@@ -31,7 +27,7 @@ export class SessionScanCache {
   static load(directory: string): SessionScanCache {
     try {
       const payload = JSON.parse(readFileSync(join(directory, 'session-scan.json'), 'utf8')) as Payload
-      return new SessionScanCache(payload.version === 4 ? payload.records : {})
+      return new SessionScanCache(payload.version === 7 ? payload.records : {})
     } catch { return new SessionScanCache({}) }
   }
 
@@ -58,7 +54,7 @@ export class SessionScanCache {
     const temporary = `${target}.tmp`
     try {
       mkdirSync(dirname(target), { recursive: true })
-      writeFileSync(temporary, JSON.stringify({ version: 4, records: this.records } satisfies Payload), 'utf8')
+      writeFileSync(temporary, JSON.stringify({ version: 7, records: this.records } satisfies Payload), 'utf8')
       replaceFile(temporary, target)
       this.dirty = false
     } catch { /* cache failure must never fail a scan */ }

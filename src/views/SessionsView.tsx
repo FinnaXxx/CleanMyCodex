@@ -1,52 +1,48 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   type ScanSnapshot,
   type SessionItem,
   type CleanupSelection,
   type CleanupProgress,
-  type SessionSlimMode,
-  SessionLocationLabel,
-  SessionSlimModeDetail,
-  SessionSlimModeLabel,
   SessionTagLabel,
   sessionDisplayName,
-  sessionImageBytes,
   sessionProjectName,
   sessionTotalBytes,
   listableSessions,
   formatBytes
 } from '../../shared/types'
-import { FolderIcon } from '../icons'
+import { BackIcon, FolderIcon } from '../icons'
+import { usePreferences } from '../preferences'
 
 interface Props {
   snapshot: ScanSnapshot
-  appServerAvailable: boolean
   cleaning: boolean
   actionsDisabled: boolean
   cleanProgress: CleanupProgress | null
+  onBack: () => void
   onCleanup: (selection: CleanupSelection) => void
 }
 
 type Scope = 'all' | 'active' | 'archived'
-type Sort = 'total' | 'imageSize' | 'date' | 'name'
+type Sort = 'total' | 'date' | 'name'
 
 /** Compact enough for one line: this year keeps the time, older entries keep the year. */
-function formatDate(ms: number): string {
+function formatDate(ms: number, locale: string): string {
   if (!ms) return '—'
   const date = new Date(ms)
   return date.getFullYear() === new Date().getFullYear()
-    ? date.toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
-    : date.toLocaleDateString([], { year: 'numeric', month: '2-digit', day: '2-digit' })
+    ? date.toLocaleString(locale, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+    : date.toLocaleDateString(locale, { year: 'numeric', month: '2-digit', day: '2-digit' })
 }
 
-export default function SessionsView({ snapshot, appServerAvailable, cleaning, actionsDisabled, cleanProgress, onCleanup }: Props) {
+export default function SessionsView({ snapshot, cleaning, actionsDisabled, cleanProgress, onBack, onCleanup }: Props) {
+  const { t, locale } = usePreferences()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [scope, setScope] = useState<Scope>('all')
   const [sort, setSort] = useState<Sort>('total')
   const [query, setQuery] = useState('')
   /** Empty keeps every session; otherwise it is "last active more than N days ago". */
   const [olderThanDays, setOlderThanDays] = useState('')
-  const [confirmStripAll, setConfirmStripAll] = useState(false)
 
   useEffect(() => {
     const current = new Set(snapshot.sessions.map((session) => session.id))
@@ -67,7 +63,6 @@ export default function SessionsView({ snapshot, appServerAvailable, cleaning, a
         .filter(Boolean).join(' ').toLocaleLowerCase().includes(needle)
     })
     return items.sort((a, b) => {
-      if (sort === 'imageSize') return sessionImageBytes(b) - sessionImageBytes(a)
       if (sort === 'date') return b.modifiedAt - a.modifiedAt
       if (sort === 'name') return sessionDisplayName(a).localeCompare(sessionDisplayName(b))
       return sessionTotalBytes(b) - sessionTotalBytes(a)
@@ -78,167 +73,79 @@ export default function SessionsView({ snapshot, appServerAvailable, cleaning, a
   const selectedBytes = selectedSessions.reduce((sum, session) => sum + sessionTotalBytes(session), 0)
   const allVisibleSelected = visible.length > 0 && visible.every((session) => selected.has(session.id))
 
-  const slimTargets = (mode: SessionSlimMode): SessionItem[] => selectedSessions.filter((session) =>
-    !session.isCompressed && !session.isUnstable &&
-    (mode === 'deduplicate' ? session.duplicateImageBytes > 0 : session.embeddedImageBytes > 0))
-  const slimBytes = (mode: SessionSlimMode): number => slimTargets(mode)
-    .reduce((sum, session) => sum + (mode === 'deduplicate' ? session.duplicateImageBytes : session.embeddedImageBytes), 0)
-
   const toggle = (id: string): void => setSelected((previous) => {
     const next = new Set(previous); next.has(id) ? next.delete(id) : next.add(id); return next
   })
 
-  const runSlim = (mode: SessionSlimMode): void =>
-    onCleanup({ kind: 'sessions-slim', ids: slimTargets(mode).map((session) => session.id), mode })
-
-  useEffect(() => {
-    if (!confirmStripAll) return
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape') return
-      event.stopPropagation()
-      setConfirmStripAll(false)
-    }
-    document.addEventListener('keydown', onKeyDown, true)
-    return () => document.removeEventListener('keydown', onKeyDown, true)
-  }, [confirmStripAll])
-
   return <>
     <div className="detail-content">
     <section className="page-heading">
-      <div><h2>会话记录</h2></div>
+      <div className="page-title"><button className="icon-button detail-back-button" title={t('返回', 'Back')} aria-label={t('返回', 'Back')} onClick={onBack}><BackIcon /></button><div><h2>{t('会话记录', 'Sessions')}</h2></div></div>
     </section>
 
     <section className="filters">
       <select value={scope} onChange={(event) => setScope(event.target.value as Scope)}>
-        <option value="all">全部 {listable.length}</option>
-        <option value="active">未归档 {listable.filter((session) => session.location === 'active').length}</option>
-        <option value="archived">已归档 {listable.filter((session) => session.location === 'archived').length}</option>
+        <option value="all">{t('全部', 'All')} {listable.length}</option>
+        <option value="active">{t('未归档', 'Active')} {listable.filter((session) => session.location === 'active').length}</option>
+        <option value="archived">{t('已归档', 'Archived')} {listable.filter((session) => session.location === 'archived').length}</option>
       </select>
       <label className="filter-days">
-        <input className="number" type="number" min="0" max="3650" placeholder="不限" value={olderThanDays}
+        <input className="number" type="number" min="0" max="3650" placeholder={t('不限', 'Any')} value={olderThanDays}
           onChange={(event) => setOlderThanDays(event.target.value.replace(/[^0-9]/g, ''))} />
-        天前
+        {t('天前', 'days ago')}
       </label>
-      <select value={sort} onChange={(event) => setSort(event.target.value as Sort)} aria-label="排序方式">
-        <option value="total">按总占用</option><option value="imageSize">按图片大小</option><option value="date">按最后活动</option>
-        <option value="name">按名称</option>
+      <select value={sort} onChange={(event) => setSort(event.target.value as Sort)} aria-label={t('排序方式', 'Sort by')}>
+        <option value="total">{t('按总占用', 'Total size')}</option><option value="date">{t('按最后活动', 'Last active')}</option>
+        <option value="name">{t('按名称', 'Name')}</option>
       </select>
-      <input className="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题或项目" />
+      <input className="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('搜索标题或项目', 'Search title or project')} />
     </section>
-
-    {snapshotEmbeddedNotice(snapshot)}
 
     <div className="card session-table">
       <div className="table-head">
-        <input type="checkbox" aria-label="全选" checked={allVisibleSelected}
+        <input type="checkbox" aria-label={t('全选', 'Select all')} checked={allVisibleSelected}
           ref={(input) => { if (input) input.indeterminate = visible.some((session) => selected.has(session.id)) && !allVisibleSelected }}
           onChange={() => setSelected((previous) => {
             const next = new Set(previous)
             for (const session of visible) allVisibleSelected ? next.delete(session.id) : next.add(session.id)
             return next
           })} />
-        <span>会话</span><span className="col-status">状态</span><span className="col-date">最后活动</span>
-        <span className="col-num">会话文件</span><span className="col-num">图片</span><span className="col-num">总占用</span><span />
+        <span>{t('会话', 'Session')}</span><span className="col-status">{t('状态', 'Status')}</span><span className="col-date">{t('最后活动', 'Last active')}</span>
+        <span className="col-num">{t('会话文件', 'Session file')}</span><span className="col-num">{t('总占用', 'Total')}</span><span />
       </div>
       <ul className="session-list">
-        {visible.map((session) => <SessionRow key={session.id} session={session} checked={selected.has(session.id)} onToggle={() => toggle(session.id)} />)}
+        {visible.map((session) => <SessionRow key={session.id} session={session} checked={selected.has(session.id)} onToggle={() => toggle(session.id)} locale={locale} />)}
       </ul>
-      {!visible.length && <p className="empty-inline">没有符合筛选条件的会话</p>}
+      {!visible.length && <p className="empty-inline">{t('没有符合筛选条件的会话', 'No sessions match these filters')}</p>}
     </div>
     </div>
 
     {selectedSessions.length > 0 && <div className="action-bar">
-      <span>已选 {selectedSessions.length} 个会话 · {formatBytes(selectedBytes)}</span>
+      <span>{t(`已选 ${selectedSessions.length} 个会话`, `${selectedSessions.length} sessions selected`)} · {formatBytes(selectedBytes)}</span>
       <div className="action-buttons">
-        <ImageCleanupMenu disabled={cleaning || actionsDisabled} bytesFor={slimBytes} countFor={(mode) => slimTargets(mode).length}
-          onPick={(mode) => mode === 'stripAll' ? setConfirmStripAll(true) : runSlim('deduplicate')} />
         <button className="btn danger" disabled={cleaning || actionsDisabled}
-          onClick={() => onCleanup({ kind: 'sessions-delete', ids: selectedSessions.map((session) => session.id), mode: appServerAvailable ? 'appServer' : 'trash' })}>
-          {cleaning ? `删除中… ${cleanProgress?.completed ?? 0}/${selectedSessions.length}` : '删除所选会话'}
+          onClick={() => onCleanup({ kind: 'sessions-delete', ids: selectedSessions.map((session) => session.id) })}>
+          {cleaning ? t(`删除中… ${cleanProgress?.completed ?? 0}/${selectedSessions.length}`, `Deleting… ${cleanProgress?.completed ?? 0}/${selectedSessions.length}`) : t('删除所选会话', 'Delete Selected Sessions')}
         </button>
       </div>
     </div>}
 
-    {confirmStripAll && <div className="modal-backdrop" onMouseDown={() => setConfirmStripAll(false)}>
-      <section className="cleanup-dialog confirm-dialog" role="alertdialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
-        <h2>清理所有图片</h2>
-        <p className="dialog-lead">
-          将从 {slimTargets('stripAll').length} 个会话里删除全部图片，可回收 {formatBytes(slimBytes('stripAll'))}。
-        </p>
-        <p className="notice warning">图片删除后无法恢复，会话的文字记录保持不变。</p>
-        <div className="dialog-actions">
-          <button className="btn" onClick={() => setConfirmStripAll(false)}>取消</button>
-          <button className="btn danger" onClick={() => { setConfirmStripAll(false); runSlim('stripAll') }}>确认删除</button>
-        </div>
-      </section>
-    </div>}
   </>
 }
 
-/** Two strengths of the same action, so the button owns the choice instead of a stray dropdown. */
-function ImageCleanupMenu({ disabled, bytesFor, countFor, onPick }: {
-  disabled: boolean
-  bytesFor: (mode: SessionSlimMode) => number
-  countFor: (mode: SessionSlimMode) => number
-  onPick: (mode: SessionSlimMode) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const container = useRef<HTMLDivElement>(null)
-  const modes: SessionSlimMode[] = ['deduplicate', 'stripAll']
-  const available = modes.some((mode) => countFor(mode) > 0)
-
-  useEffect(() => {
-    if (!open) return
-    const onPointerDown = (event: MouseEvent): void => {
-      if (!container.current?.contains(event.target as Node)) setOpen(false)
-    }
-    const onKeyDown = (event: KeyboardEvent): void => { if (event.key === 'Escape') setOpen(false) }
-    document.addEventListener('mousedown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown, true)
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown, true)
-    }
-  }, [open])
-
-  return <div className="menu-anchor" ref={container}>
-    <button className="btn" disabled={disabled || !available} aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-      清理图片 <span className="chevron">⌄</span>
-    </button>
-    {open && <div className="menu" role="menu">
-      {modes.map((mode) => {
-        const count = countFor(mode)
-        return <button key={mode} className={`menu-item${mode === 'stripAll' ? ' menu-item-caution' : ''}`} role="menuitem" disabled={!count}
-          onClick={() => { setOpen(false); onPick(mode) }}>
-          <span className="menu-item-title">{SessionSlimModeLabel[mode]}<b>{count ? `可回收 ${formatBytes(bytesFor(mode))}` : '无可处理项'}</b></span>
-          <span className="menu-item-detail">{count ? `${count} 个会话 · ` : ''}{SessionSlimModeDetail[mode]}</span>
-        </button>
-      })}
-    </div>}
-  </div>
-}
-
-function SessionRow({ session, checked, onToggle }: { session: SessionItem; checked: boolean; onToggle: () => void }) {
-  const duplicates = session.embeddedImageCount - session.distinctImageCount
+function SessionRow({ session, checked, locale, onToggle }: { session: SessionItem; checked: boolean; locale: string; onToggle: () => void }) {
+  const { t, language } = usePreferences()
   return <li className={`session-row ${session.isUnstable ? 'unstable' : ''}`}>
     <input type="checkbox" aria-label={sessionDisplayName(session)} checked={checked} onChange={onToggle} />
     <div className="session-title">
       <span className="session-name">{sessionDisplayName(session)}</span>
-      {session.tags.length > 0 && <span className="session-tags">{session.tags.map((tag) => <span key={tag} className={`tag tag-${tag}`}>{SessionTagLabel[tag]}</span>)}</span>}
-      <span className="session-path">{sessionProjectName(session) ? `${sessionProjectName(session)} · ` : ''}{session.fileURL}{session.isUnstable ? ' · 正在写入' : ''}</span>
+      {session.tags.length > 0 && <span className="session-tags">{session.tags.map((tag) => <span key={tag} className={`tag tag-${tag}`}>{language === 'zh-CN' ? SessionTagLabel[tag] : ({ browser: 'Browser', computerUse: 'Computer Use' } as const)[tag]}</span>)}</span>}
+      <span className="session-path">{sessionProjectName(session) ? `${sessionProjectName(session)} · ` : ''}{session.fileURL}{session.isUnstable ? t(' · 正在写入', ' · Being written') : ''}</span>
     </div>
-    <span className="col-status"><span className={`pill loc-${session.location}`}>{SessionLocationLabel[session.location]}</span></span>
-    <span className="col-date" title={new Date(session.modifiedAt).toLocaleString()}>{formatDate(session.modifiedAt)}</span>
+    <span className="col-status"><span className={`pill loc-${session.location}`}>{session.location === 'active' ? t('未归档', 'Active') : t('已归档', 'Archived')}</span></span>
+    <span className="col-date" title={new Date(session.modifiedAt).toLocaleString(locale)}>{formatDate(session.modifiedAt, locale)}</span>
     <span className="col-num">{formatBytes(session.fileBytes)}</span>
-    <span className="col-num">{sessionImageBytes(session) ? <>{formatBytes(sessionImageBytes(session))}{duplicates > 0 && <small>重复 {duplicates}</small>}</> : '—'}</span>
     <span className="col-num">{formatBytes(sessionTotalBytes(session))}</span>
-    <button className="icon-button" title="在文件管理器中显示" aria-label="在文件管理器中显示" onClick={() => window.cleanmycodex.revealPath(session.fileURL)}><FolderIcon /></button>
+    <button className="icon-button" title={t('在文件管理器中显示', 'Show in file manager')} aria-label={t('在文件管理器中显示', 'Show in file manager')} onClick={() => window.cleanmycodex.revealPath(session.fileURL)}><FolderIcon /></button>
   </li>
-}
-
-function snapshotEmbeddedNotice(snapshot: ScanSnapshot) {
-  const embedded = snapshot.sessions.reduce((sum, session) => sum + session.embeddedImageBytes, 0)
-  const duplicate = snapshot.sessions.reduce((sum, session) => sum + session.duplicateImageBytes, 0)
-  if (!embedded) return null
-  return <p className="notice">会话内嵌图片共 {formatBytes(embedded)}{duplicate ? `，其中重复图片约 ${formatBytes(duplicate)}` : '，没有重复图片'}。</p>
 }

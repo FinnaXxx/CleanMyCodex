@@ -101,6 +101,17 @@ function logDatabases(home: string): { path: string; bytes: number }[] {
   }
 }
 
+function databaseFiles(home: string, prefix: string): { path: string; bytes: number }[] {
+  try {
+    return readdirSync(home)
+      .filter((name) => name.startsWith(prefix) && name.endsWith('.sqlite'))
+      .map((name) => {
+        const path = join(home, name)
+        return { path, bytes: fileAllocatedSize(path) + fileAllocatedSize(`${path}-wal`) + fileAllocatedSize(`${path}-shm`) }
+      })
+  } catch { return [] }
+}
+
 /**
  * Builds the core Codex snapshot. The interactive worker fills in workspace output
  * immediately afterward so the Documents permission prompt belongs to the main scan.
@@ -204,6 +215,16 @@ export async function scanSnapshot(
   const pluginVersions = scanPluginVersions(locations.plugins, installedPlugins, (path) => progress('插件', path, 0.32))
   const pluginCategory = pluginStorageCategory(pluginVersions)
   if (pluginCategory.entries.length) categories.push(pluginCategory)
+  const pluginRuntimeEntries: StorageEntry[] = pluginVersions
+    .filter((plugin) => plugin.status === 'current' || plugin.status === 'unconfirmed')
+    .map((plugin) => entry(`${plugin.plugin} · ${plugin.version}`, plugin.status === 'current' ? '当前使用的插件版本' : '无法确认状态的插件版本', plugin.directoryURL, plugin.bytes, 'shielded', 'trash', {
+      tags: [{ label: plugin.status === 'current' ? '当前版本' : '未确认', tone: 'neutral' }]
+    }))
+  if (entryExists(locations.pluginRuntime)) {
+    pluginRuntimeEntries.push(entry('.plugin-appserver', 'Codex 插件运行组件', locations.pluginRuntime,
+      measure(locations.pluginRuntime, '插件', 0.36), 'shielded', 'trash', { tags: [{ label: '运行组件', tone: 'info' }] }))
+  }
+  categories.push(category('pluginRuntime', '当前插件与运行组件', '已统计但不会自动删除', 'protectedData', 'shielded', pluginRuntimeEntries))
   if (installedPlugins === null && pluginVersions.length) {
     notes.push('未连接 codex app server，无法确认插件的当前版本，已全部锁定。')
   }
@@ -220,7 +241,10 @@ export async function scanSnapshot(
     notes.push('没有读到 Codex 的会话标题，列表改用会话首句或项目名显示。')
   }
   throwIfAborted(signal)
-  categories.push(...assetCategories(locations, sessions, (path) => measure(path, '资产目录', 0.93)))
+  const sessionDatabases = databaseFiles(locations.home, 'thread_history_').map((db) =>
+    entry(basename(db.path), '会话内容投影数据库（含 WAL/SHM）', db.path, db.bytes, 'shielded'))
+  categories.push(category('sessionDatabase', '会话投影数据库', 'Codex 加载会话使用的 SQLite 投影', 'protectedData', 'shielded', sessionDatabases))
+  categories.push(...assetCategories(locations, (path) => measure(path, '资产目录', 0.93)))
 
   const marketplaceSources = new Set(guards.localMarketplaceSources)
   const protectedConfigEntries: StorageEntry[] = []
@@ -236,7 +260,7 @@ export async function scanSnapshot(
   }
   let homeEntries: string[] = []
   try { homeEntries = readdirSync(locations.home) } catch { /* missing home */ }
-  for (const db of homeEntries.filter((name) => ProtectedPaths.protectedHomePrefixes.some((prefix) => name.startsWith(prefix)))) {
+  for (const db of homeEntries.filter((name) => !name.startsWith('thread_history_') && ProtectedPaths.protectedHomePrefixes.some((prefix) => name.startsWith(prefix)))) {
     const path = join(locations.home, db)
     protectedConfigEntries.push(entry(db, 'Codex 状态数据库', path, fileAllocatedSize(path), 'shielded'))
   }
@@ -281,30 +305,12 @@ function relativeToHome(path: string, home: string): string {
 
 function assetCategories(
   locations: CodexLocations,
-  sessions: SessionItem[],
   measure: (path: string) => number
 ): StorageCategory[] {
-  const byThread = new Map<string, SessionItem>()
-  for (const session of sessions) if (!byThread.has(session.threadID)) byThread.set(session.threadID, session)
-  let names: string[] = []
-  try { names = readdirSync(locations.generatedImages) } catch { /* missing */ }
-  const images = names.flatMap((name): StorageEntry[] => {
-    const path = join(locations.generatedImages, name)
-    const bytes = measure(path)
-    if (!bytes) return []
-    const session = byThread.get(name)
-    const title = session?.title || session?.preview || name
-    const tag: StorageEntry['tags'] = session
-      ? [{ label: session.location === 'archived' ? '已归档' : '未归档', tone: session.location === 'archived' ? 'neutral' : 'info' }]
-      : [{ label: '会话已删除', tone: 'caution' }]
-    return [entry(title, '', path, bytes, session ? 'caution' : 'safe', 'trash', { tags: tag })]
-  }).sort((a, b) => b.bytes - a.bytes)
-
   const computerUse = entryExists(locations.computerUse)
     ? [entry('computer-use', 'Computer Use 辅助组件，删除后需要重新下载', locations.computerUse, measure(locations.computerUse), 'caution')]
     : []
   return [
-    category('generatedImages', '会话生成的图片', 'Codex 在会话里生成的图片，删除后会话中不再显示', 'review', 'caution', images),
     category('computerUse', 'Computer Use 组件', 'Computer Use 运行所需的本地组件', 'review', 'caution', computerUse)
   ]
 }

@@ -1,17 +1,20 @@
 import { useMemo, useState } from 'react'
 import type { CleanupProgress, CleanupSelection, PluginVersionItem, ScanSnapshot } from '../../shared/types'
 import { formatBytes, PluginStatusLabel, pluginStatusIsRemovable } from '../../shared/types'
-import { FolderIcon } from '../icons'
+import { BackIcon, FolderIcon } from '../icons'
+import { usePreferences } from '../preferences'
 
 interface Props {
   snapshot: ScanSnapshot
   cleaning: boolean
   actionsDisabled: boolean
   cleanProgress: CleanupProgress | null
+  onBack: () => void
   onCleanup: (selection: CleanupSelection) => void
 }
 
-export default function PluginsView({ snapshot, cleaning, actionsDisabled, cleanProgress, onCleanup }: Props) {
+export default function PluginsView({ snapshot, cleaning, actionsDisabled, cleanProgress, onBack, onCleanup }: Props) {
+  const { t, language, locale } = usePreferences()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const groups = useMemo(() => {
     const map = new Map<string, PluginVersionItem[]>()
@@ -34,26 +37,26 @@ export default function PluginsView({ snapshot, cleaning, actionsDisabled, clean
   return <>
     <div className="detail-content">
     <section className="page-heading">
-      <div><h2>插件版本</h2><p>只清理旧版本和卸载残留。</p></div>
-      <button className="btn" disabled={!removable.length} onClick={() => setSelected(new Set(removable.map((item) => item.directoryURL)))}>选择全部可清理版本</button>
+      <div className="page-title"><button className="icon-button detail-back-button" title={t('返回', 'Back')} aria-label={t('返回', 'Back')} onClick={onBack}><BackIcon /></button><div><h2>{t('插件版本', 'Plugin Versions')}</h2></div></div>
+      <button className="btn" disabled={!removable.length} onClick={() => setSelected(new Set(removable.map((item) => item.directoryURL)))}>{t('选择全部可清理版本', 'Select All Cleanable Versions')}</button>
     </section>
-    {snapshot.pluginVersions.some((item) => item.status === 'unconfirmed') && <p className="notice">未连接 codex app server，无法确认当前版本，已全部锁定。</p>}
-    {!groups.length && <p className="empty-panel">没有找到本地插件</p>}
+    {snapshot.pluginVersions.some((item) => item.status === 'unconfirmed') && <p className="notice">{t('未连接 codex app server，无法确认当前版本，已全部锁定。', 'Codex app server is unavailable, so current versions cannot be verified and are locked.')}</p>}
+    {!groups.length && <p className="empty-panel">{t('没有找到本地插件', 'No local plugins found')}</p>}
     <div className="card-stack">
       {groups.map(([name, versions]) => <section className="card" key={name}>
-        <div className="panel-title"><strong>{name}</strong><span>{versions.length} 个版本 · {formatBytes(versions.reduce((sum, item) => sum + item.bytes, 0))}</span></div>
+        <div className="panel-title"><strong>{name}</strong><span>{t(`${versions.length} 个版本`, `${versions.length} versions`)} · {formatBytes(versions.reduce((sum, item) => sum + item.bytes, 0))}</span></div>
         {versions.sort((a, b) => b.modifiedAt - a.modifiedAt).map((item) => <div className="plugin-row" key={item.directoryURL}>
           {pluginStatusIsRemovable(item.status)
             ? <input type="checkbox" aria-label={`${item.plugin} ${item.version}`} checked={selected.has(item.directoryURL)} onChange={() => toggle(item.directoryURL)} />
             : <span className="checkbox-space" />}
-          <div className="grow"><code>{item.version}</code><small>最后改动 {new Date(item.modifiedAt).toLocaleDateString()}{item.environmentBytes ? ` · Python 环境 ${formatBytes(item.environmentBytes)}` : ''}</small></div>
-          <span className={`pill status-${item.status}`}>{PluginStatusLabel[item.status]}</span>
+          <div className="grow"><code>{item.version}</code><small>{t('最后改动', 'Modified')} {new Date(item.modifiedAt).toLocaleDateString(locale)}{item.environmentBytes ? ` · ${t('Python 环境', 'Python environment')} ${formatBytes(item.environmentBytes)}` : ''}</small></div>
+          <span className={`pill status-${item.status}`}>{language === 'zh-CN' ? PluginStatusLabel[item.status] : ({ current: 'Current', outdated: 'Outdated', orphaned: 'Leftover', unconfirmed: 'Unverified' } as const)[item.status]}</span>
           <span className="fixed-bytes">{formatBytes(item.bytes)}</span>
-          <button className="icon-button" title="在文件管理器中显示" aria-label="在文件管理器中显示" onClick={() => window.cleanmycodex.revealPath(item.directoryURL)}><FolderIcon /></button>
+          <button className="icon-button" title={t('在文件管理器中显示', 'Show in file manager')} aria-label={t('在文件管理器中显示', 'Show in file manager')} onClick={() => window.cleanmycodex.revealPath(item.directoryURL)}><FolderIcon /></button>
         </div>)}
       </section>)}
     </div>
     </div>
-    <div className="page-footer"><span>{chosen.length ? `已选择 ${chosen.length} 个版本 · ${formatBytes(bytes)}` : `可清理 ${removable.length} 个版本`}</span><button className="btn primary" disabled={!chosen.length || cleaning || actionsDisabled} onClick={cleanup}>{cleaning ? `清理中… ${cleanProgress?.completed ?? 0}/${chosen.length}` : '清理所选版本'}</button></div>
+    <div className="page-footer"><span>{chosen.length ? t(`已选择 ${chosen.length} 个版本 · ${formatBytes(bytes)}`, `${chosen.length} versions selected · ${formatBytes(bytes)}`) : t(`可清理 ${removable.length} 个版本`, `${removable.length} cleanable versions`)}</span><button className="btn primary" disabled={!chosen.length || cleaning || actionsDisabled} onClick={cleanup}>{cleaning ? t(`清理中… ${cleanProgress?.completed ?? 0}/${chosen.length}`, `Cleaning… ${cleanProgress?.completed ?? 0}/${chosen.length}`) : t('清理所选版本', 'Clean Selected Versions')}</button></div>
   </>
 }

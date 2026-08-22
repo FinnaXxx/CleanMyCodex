@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CodexLocations } from '../electron/main/locations'
@@ -15,23 +15,24 @@ function fixture(): { locations: CodexLocations; root: string } {
 }
 
 describe('session scanning', () => {
-  it('uses the state database title and scans preview, tools, assets, and duplicate images in one pass', async () => {
+  it('uses the state database title and scans preview, tools, and associated assets in one pass', async () => {
     const { locations } = fixture()
     const id = '22222222-2222-2222-2222-222222222222'
     const rollout = join(locations.sessions, '2026', '08', `rollout-${id}.jsonl`)
     mkdirSync(join(rollout, '..'), { recursive: true })
-    const image = `data:image/png;base64,${Buffer.alloc(4096, 4).toString('base64')}`
     const giantInjectedLine = JSON.stringify({ payload: { context: 'x'.repeat(140_000) } })
     writeFileSync(rollout, [
       JSON.stringify({ type: 'session_meta', payload: { id, cwd: '/work/project', title: '' } }),
       giantInjectedLine,
       JSON.stringify({ payload: { type: 'user_message', message: '真正的用户请求' } }),
-      JSON.stringify({ payload: { tool: 'browser_open', image } }),
-      JSON.stringify({ payload: { tool: 'computer_use', image } }),
-      JSON.stringify({ payload: { tool: 'image_gen' } })
+      JSON.stringify({ payload: { tool: 'browser_open' } }),
+      JSON.stringify({ payload: { tool: 'computer_use' } })
     ].join('\n') + '\n')
     mkdirSync(join(locations.generatedImages, id), { recursive: true })
     writeFileSync(join(locations.generatedImages, id, 'result.png'), Buffer.alloc(8192))
+    const visualization = join(locations.visualizations, '2026', '08', '22', id)
+    mkdirSync(visualization, { recursive: true })
+    writeFileSync(join(visualization, 'comparison.html'), Buffer.alloc(4096))
 
     const sessions = await scanSessions(locations)
     expect(sessions).toHaveLength(1)
@@ -40,14 +41,12 @@ describe('session scanning', () => {
       title: null,
       preview: '真正的用户请求',
       workingDirectory: '/work/project',
-      embeddedImageCount: 2,
-      distinctImageCount: 1,
       isCompressed: false,
       isUnstable: false
     })
-    expect(sessions[0].duplicateImageBytes).toBeGreaterThan(0)
     expect(sessions[0].assetBytes).toBeGreaterThan(0)
-    expect(sessions[0].tags).toEqual(expect.arrayContaining(['browser', 'computerUse', 'imageGen']))
+    expect(sessions[0].assetURLs).toEqual(expect.arrayContaining([join(locations.generatedImages, id), visualization]))
+    expect(sessions[0].tags).toEqual(expect.arrayContaining(['browser', 'computerUse']))
     expect(sessions[0].parseWarnings).toBe(1)
     expect(existsSync(join(locations.scanCache, 'session-scan.json'))).toBe(true)
   })
@@ -68,8 +67,8 @@ describe('session scanning', () => {
 
     const sessions = await scanSessions(locations)
     expect(sessions.find((session) => session.threadID === activeID)?.preview).toBe('第二种格式的请求')
-    expect(sessions.find((session) => session.threadID === compressedID)).toMatchObject({ location: 'archived', isCompressed: true, embeddedImageCount: 0 })
-    expect(JSON.parse(readFileSync(join(locations.scanCache, 'session-scan.json'), 'utf8')).version).toBe(4)
+    expect(sessions.find((session) => session.threadID === compressedID)).toMatchObject({ location: 'archived', isCompressed: true })
+    expect(JSON.parse(readFileSync(join(locations.scanCache, 'session-scan.json'), 'utf8')).version).toBe(7)
   })
 
   it('filters injected preambles and unwraps the explicit request marker', () => {
@@ -87,6 +86,45 @@ describe('session scanning', () => {
       payload: { id, title: '工作产出能定位到是哪个会话里产生的吗？', name: '定位工作产出所属会话' }
     })}\n`)
     expect((await scanSessions(locations))[0].title).toBe('定位工作产出所属会话')
+  })
+
+  it('merges resumed rollout segments with the same thread id into one session', async () => {
+    const { locations } = fixture()
+    const id = '5a5a5a5a-5555-5555-5555-555555555555'
+    const directory = join(locations.sessions, '2026', '08', '22')
+    const first = join(directory, `rollout-2026-08-22T10-00-00-${id}.jsonl`)
+    const second = join(directory, `rollout-2026-08-22T10-05-00-${id}_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.jsonl`)
+    const latest = join(directory, `rollout-2026-08-22T10-10-00-${id}_bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb.jsonl`)
+    mkdirSync(directory, { recursive: true })
+    const writeSegment = (path: string, request: string): void => writeFileSync(path, [
+      JSON.stringify({ type: 'session_meta', payload: { id, cwd: '/work/project', name: '同一个续跑会话' } }),
+      JSON.stringify({ payload: { type: 'user_message', message: request } })
+    ].join('\n') + '\n')
+    writeSegment(first, '最初的请求')
+    writeSegment(second, '继续处理')
+    writeSegment(latest, '再继续处理')
+    utimesSync(first, new Date(1_000), new Date(1_000))
+    utimesSync(second, new Date(2_000), new Date(2_000))
+    utimesSync(latest, new Date(3_000), new Date(3_000))
+    const asset = join(locations.generatedImages, id)
+    mkdirSync(asset, { recursive: true })
+    writeFileSync(join(asset, 'result.png'), Buffer.alloc(4096))
+
+    const sessions = await scanSessions(locations)
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0]).toMatchObject({
+      threadID: id,
+      fileURL: latest,
+      title: '同一个续跑会话',
+      preview: '同一个续跑会话'
+    })
+    expect(sessions[0].segmentURLs).toEqual([first, second])
+    expect(sessions[0].fileBytes).toBe([first, second, latest].reduce((sum, path) => {
+      const stats = statSync(path)
+      return sum + (stats.blocks * 512 || stats.size)
+    }, 0))
+    expect(sessions[0].assetURLs).toEqual([asset])
+    expect(sessions[0].assetBytes).toBeGreaterThan(0)
   })
 
   it('unwraps the desktop ## My request heading past the files-mentioned block', () => {
@@ -112,19 +150,6 @@ describe('session scanning', () => {
       ''
     ].join('\n')
     expect(cleanPreview(text)).toBeNull()
-  })
-
-  it('finds an image prefix split across stream chunks', async () => {
-    const { locations } = fixture()
-    const id = '66666666-6666-6666-6666-666666666666'
-    const rollout = join(locations.sessions, `rollout-${id}.jsonl`)
-    mkdirSync(locations.sessions, { recursive: true })
-    const first = `${JSON.stringify({ type: 'session_meta', payload: { id, title: 'chunk test' } })}\n{"payload":"`
-    const padding = 'x'.repeat(1024 * 1024 - Buffer.byteLength(first) - 5)
-    writeFileSync(rollout, `${first}${padding}data:image/png;base64,QUJDRA=="}\n`)
-    const item = (await scanSessions(locations))[0]
-    expect(item.embeddedImageCount).toBe(1)
-    expect(item.distinctImageCount).toBe(1)
   })
 
   it('persists content records keyed by exact size and modification time', async () => {
@@ -163,10 +188,34 @@ describe('session scanning', () => {
     const parentItem = sessions.find((session) => session.threadID === parentID)
     const childItem = sessions.find((session) => session.threadID === childID)
     expect(sessions).toHaveLength(2)
-    expect(childItem).toMatchObject({ isSubagent: true, parentThreadID: parentID, childThreadCount: 0, childBytes: 0, childImageBytes: 0 })
+    expect(childItem).toMatchObject({ isSubagent: true, parentThreadID: parentID, childThreadCount: 0, childBytes: 0 })
     expect(parentItem).toMatchObject({ isSubagent: false, parentThreadID: null, childThreadCount: 1 })
     expect(parentItem?.childBytes).toBe((childItem?.fileBytes ?? 0) + (childItem?.assetBytes ?? 0))
-    expect(parentItem?.childImageBytes).toBe((childItem?.embeddedImageBytes ?? 0) + (childItem?.assetBytes ?? 0))
     expect(parentItem?.childURLs).toEqual(expect.arrayContaining([child, childAsset]))
+  })
+
+  it('groups nested subagents and their resumed segments into one deletion scope', async () => {
+    const { locations } = fixture()
+    const parentID = 'aaaaaaaa-1111-1111-1111-111111111111'
+    const childID = 'bbbbbbbb-2222-2222-2222-222222222222'
+    const grandchildID = 'cccccccc-3333-3333-3333-333333333333'
+    const parent = join(locations.sessions, `rollout-${parentID}.jsonl`)
+    const childFirst = join(locations.sessions, `rollout-${childID}.jsonl`)
+    const childLatest = join(locations.sessions, `rollout-${childID}-resumed.jsonl`)
+    const grandchild = join(locations.sessions, `rollout-${grandchildID}.jsonl`)
+    mkdirSync(locations.sessions, { recursive: true })
+    const writeRollout = (path: string, payload: Record<string, unknown>): void =>
+      writeFileSync(path, `${JSON.stringify({ type: 'session_meta', payload })}\n`)
+    writeRollout(parent, { id: parentID })
+    writeRollout(childFirst, { id: childID, thread_source: 'subagent', parent_thread_id: parentID })
+    writeRollout(childLatest, { id: childID, thread_source: 'subagent', parent_thread_id: parentID })
+    writeRollout(grandchild, { id: grandchildID, thread_source: 'subagent', parent_thread_id: childID })
+    utimesSync(childFirst, new Date(1_000), new Date(1_000))
+    utimesSync(childLatest, new Date(2_000), new Date(2_000))
+
+    const sessions = await scanSessions(locations)
+    const root = sessions.find((session) => session.threadID === parentID)!
+    expect(root.childThreadCount).toBe(2)
+    expect(root.childURLs).toEqual(expect.arrayContaining([childFirst, childLatest, grandchild]))
   })
 })

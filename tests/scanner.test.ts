@@ -19,7 +19,7 @@ function age(path: string, days: number): void {
 }
 
 describe('storage scanner semantics', () => {
-  it('keeps recent logs, protects live marketplaces, and classifies assets per thread', async () => {
+  it('keeps recent logs, protects live marketplaces, and associates assets with their thread', async () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-scan-')); roots.push(root)
     const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), documents: join(root, 'Documents') })
     const thread = '11111111-1111-1111-1111-111111111111'
@@ -39,8 +39,10 @@ describe('storage scanner semantics', () => {
     writeFileSync(join(locations.home, 'config.toml'), '[marketplaces.local]\nsource = ".tmp/custom-source"\n[marketplaces.shared]\nsource = "../shared-market"\n')
 
     write(join(locations.generatedImages, thread, 'active.png'))
-    write(join(locations.generatedImages, 'orphan-thread', 'orphan.png'))
     write(join(locations.computerUse, 'helper.bin'))
+    write(join(locations.pluginRuntime, 'codex'))
+    write(join(locations.home, 'thread_history_1.sqlite'))
+    write(join(locations.home, 'thread_history_1.sqlite-wal'))
     write(join(locations.appSupport, 'Default', 'Cookies'))
     write(join(locations.appSupport, 'Default', 'Cache', 'cache.bin'))
 
@@ -58,12 +60,14 @@ describe('storage scanner semantics', () => {
     expect(snapshot.categories.find((category) => category.kind === 'protectedConfig')?.entries.some((entry) => entry.url === liveMarket)).toBe(true)
     expect(snapshot.categories.find((category) => category.kind === 'protectedConfig')?.entries.some((entry) => entry.url === externalMarket)).toBe(true)
 
-    const images = snapshot.categories.find((category) => category.kind === 'generatedImages')
-    expect(images?.group).toBe('review')
-    expect(images?.entries.find((entry) => entry.url.endsWith(thread))?.risk).toBe('caution')
-    expect(images?.entries.find((entry) => entry.url.endsWith('orphan-thread'))?.risk).toBe('safe')
+    expect(snapshot.sessions.find((session) => session.threadID === thread)?.assetURLs)
+      .toContain(join(locations.generatedImages, thread))
     const computerUse = snapshot.categories.find((category) => category.kind === 'computerUse')
     expect(computerUse).toMatchObject({ group: 'review', risk: 'caution' })
+    const pluginRuntime = snapshot.categories.find((category) => category.kind === 'pluginRuntime')
+    expect(pluginRuntime?.entries.some((entry) => entry.url === locations.pluginRuntime)).toBe(true)
+    const sessionDatabase = snapshot.categories.find((category) => category.kind === 'sessionDatabase')
+    expect(sessionDatabase?.entries[0].bytes).toBeGreaterThanOrEqual(16_384)
   })
 
   it('includes application support in the external and total footprint', async () => {

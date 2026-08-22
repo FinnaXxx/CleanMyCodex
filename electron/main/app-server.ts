@@ -5,11 +5,9 @@ import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { Writable, Readable } from 'node:stream'
 
-/**
- * Talks to `codex app-server` over newline-delimited JSON-RPC on stdio. Deleting a
- * thread through the app server is the only way to also drop the derived metadata and
- * spawned child threads, so it is preferred over removing the rollout file by hand.
- */
+/** Talks to `codex app-server` over newline-delimited JSON-RPC on stdio. CleanMyCodex
+ * currently uses it only to discover installed plugins; session scanning and cleanup
+ * use the rollout files and local indexes/databases directly. */
 
 export interface InstalledPlugin {
   name: string
@@ -95,14 +93,10 @@ export class AppServerSession {
 
   async handshake(): Promise<void> {
     await this.call('initialize', {
-      clientInfo: { name: 'cleanmycodex', title: 'CleanMyCodex', version: this.clientVersion },
+      clientInfo: { name: 'cleanmycodex', title: 'Clean My Codex', version: this.clientVersion },
       capabilities: { experimentalApi: false }
     })
     this.notify('initialized', {})
-  }
-
-  async deleteThread(threadID: string): Promise<unknown> {
-    return this.call('thread/delete', { threadId: threadID })
   }
 
   async listPlugins(): Promise<unknown> {
