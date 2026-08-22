@@ -9,7 +9,15 @@ permissions:
 
 jobs:
   release:
-    runs-on: macos-26
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-26
+            builderArgs: --mac --arm64 --x64
+          - os: windows-latest
+            builderArgs: --win --x64
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -23,8 +31,11 @@ jobs:
       - name: Verify tag
         shell: bash
         run: test "$GITHUB_REF_NAME" = "v$(node -p "require('./package.json').version")"
-      - run: pnpm check
-      - run: pnpm build:mac -- --arm64 --x64 --publish never
+      - run: pnpm typecheck
+      - if: runner.os == 'macOS'
+        run: pnpm test
+      - run: pnpm build
+      - run: pnpm exec electron-builder ${{ matrix.builderArgs }} --publish never
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
