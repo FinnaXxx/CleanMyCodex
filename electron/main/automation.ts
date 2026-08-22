@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import type { AutomaticRunRecord, AutomationSettings, AutomationState } from '../../shared/types'
+import { normalizeAutomaticRunRecord, type AutomaticRunRecord, type AutomationSettings, type AutomationState } from '../../shared/types'
 
 export const DEFAULT_AUTOMATION_SETTINGS: AutomationSettings = {
   enabled: false,
@@ -134,7 +134,7 @@ export function getAutomationState(): AutomationState {
     installed,
     loaded,
     nextRunAt,
-    lastRun: readJSON<AutomaticRunRecord>(lastRunPath()),
+    lastRun: normalizeAutomaticRunRecord(readJSON<unknown>(lastRunPath())),
     supported: process.platform === 'darwin' || process.platform === 'win32'
   }
 }
