@@ -20,8 +20,8 @@ beforeAll(async () => {
   })
 })
 
-describe('SQLite maintenance in Electron', () => {
-  it('reports and vacuums free pages without losing retained rows', () => {
+describe('session database cleanup in Electron', () => {
+  it('deletes roots, descendants, and continuation segments without touching other sessions', () => {
     const require = createRequire(import.meta.url)
     const electron = require('electron') as string
     const result = spawnSync(electron, [output, `--user-data-dir=${join(root, 'out', 'test', 'electron-profile')}`], {

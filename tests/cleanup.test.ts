@@ -51,20 +51,6 @@ describe('cleanup engine', () => {
     expect(report.outcomes[0].status.kind).toBe('skipped')
   })
 
-  it('gates database compaction on exact file usage', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-cleanup-')); roots.push(root)
-    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), documents: join(root, 'Documents') })
-    const database = join(locations.home, 'logs_1.sqlite')
-    mkdirSync(locations.home, { recursive: true })
-    writeFileSync(database, 'not opened because usage gate runs first')
-    const compact: CleanupTask = { id: 'db', title: 'db', detail: '', url: database, method: 'compactDatabase', expectedBytes: 1, threadID: null, companionURLs: [], minimumIdleSeconds: null, requiresCodexStopped: false }
-    const report = await runCleanup([compact], new ProtectedPaths(locations), {
-      trash: async () => undefined, isCodexRunning: () => false, fileUsage: () => ({ kind: 'inUse', processes: ['Codex'] })
-    })
-    expect(report.outcomes.map((item) => item.status.kind)).toEqual(['skipped'])
-    expect(report.outcomes.map((item) => item.status.kind === 'skipped' ? item.status.reason : '').join(' ')).toContain('Codex')
-  })
-
   it('deletes every rollout and asset companion before removing SQLite records', async () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-cleanup-')); roots.push(root)
     const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), documents: join(root, 'Documents') })
@@ -79,7 +65,7 @@ describe('cleanup engine', () => {
     for (const directory of [generated, visualization]) {
       mkdirSync(directory, { recursive: true }); writeFileSync(join(directory, 'asset'), Buffer.alloc(4096))
     }
-    const deletedThreads: string[] = []
+    const deletedThreads: Array<{ threadID: string; relatedURLs: string[] }> = []
     const task: CleanupTask = {
       id: parent, title: 'thread', detail: '', url: parent, method: 'trash', expectedBytes: 1,
       threadID: 'parent-thread', companionURLs: [resumed, child, generated, visualization],
@@ -89,12 +75,12 @@ describe('cleanup engine', () => {
       trash: async (path) => renameSync(path, `${path}.trashed`),
       isCodexRunning: () => false,
       sessionDatabase: {
-        deleteThread: (threadID) => { deletedThreads.push(threadID); return { removedRows: 11, freedBytes: 8192 } }
+        deleteThread: (threadID, relatedURLs) => { deletedThreads.push({ threadID, relatedURLs }); return { removedRows: 11, freedBytes: 8192 } }
       }
     })
     expect(report.outcomes[0].status.kind).toBe('succeeded')
     for (const path of [parent, resumed, child, generated, visualization]) expect(existsSync(`${path}.trashed`)).toBe(true)
-    expect(deletedThreads).toEqual(['parent-thread'])
+    expect(deletedThreads).toEqual([{ threadID: 'parent-thread', relatedURLs: [parent, resumed, child, generated, visualization] }])
     expect(report.outcomes[0].freedBytes).toBeGreaterThanOrEqual(8192)
   })
 

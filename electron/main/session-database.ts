@@ -1,5 +1,5 @@
 import { existsSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import Database from 'better-sqlite3'
 import { fileAllocatedSize } from './fs-size'
 
@@ -11,6 +11,9 @@ export interface SessionDatabaseReport {
 const footprint = (path: string | null): number => path
   ? fileAllocatedSize(path) + fileAllocatedSize(`${path}-wal`) + fileAllocatedSize(`${path}-shm`)
   : 0
+
+const ROLLOUT_NAME_RE = /^rollout-.*\.jsonl(?:\.zst)?$/i
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/ig
 
 function latestDatabase(home: string, prefix: string): string | null {
   try {
@@ -51,6 +54,22 @@ function descendants(statePath: string | null, rootID: string): string[] {
   } finally { db.close() }
 }
 
+/**
+ * Continued desktop threads keep the root session id in `session_meta`, while
+ * thread_history may key newer projected items by UUID suffixes in the rollout
+ * filename. Those suffixes are not thread_spawn_edges, so include every UUID
+ * from the selected root/segment/subagent rollout names explicitly.
+ */
+function sessionThreadIDs(statePath: string | null, rootID: string, relatedURLs: string[]): string[] {
+  const result = new Set(descendants(statePath, rootID))
+  for (const url of relatedURLs) {
+    const name = basename(url)
+    if (!ROLLOUT_NAME_RE.test(name)) continue
+    for (const match of name.matchAll(UUID_RE)) result.add(match[0])
+  }
+  return [...result]
+}
+
 function rewriteDatabase(path: string | null, operation: (db: Database.Database) => number): number {
   if (!path) return 0
   const db = new Database(path, { fileMustExist: true, timeout: 8_000 })
@@ -58,10 +77,7 @@ function rewriteDatabase(path: string | null, operation: (db: Database.Database)
     db.pragma('foreign_keys = ON')
     db.pragma('wal_checkpoint(TRUNCATE)')
     const changed = db.transaction(() => operation(db))()
-    if (changed > 0) {
-      db.exec('VACUUM;')
-      db.pragma('wal_checkpoint(TRUNCATE)')
-    }
+    if (changed > 0) db.pragma('wal_checkpoint(TRUNCATE)')
     return changed
   } finally { db.close() }
 }
@@ -89,20 +105,20 @@ function preflightDatabase(path: string | null, requiredTable: string): void {
 }
 
 /** Validate supported schemas and acquire each write lock before any rollout is trashed. */
-export function preflightSessionRecords(home: string, threadID: string): void {
+export function preflightSessionRecords(home: string, threadID: string, relatedURLs: string[] = []): void {
   const statePath = latestDatabase(home, 'state_')
   const historyPath = latestDatabase(home, 'thread_history_')
   preflightDatabase(statePath, 'threads')
   preflightDatabase(historyPath, 'thread_items')
-  descendants(statePath, threadID)
+  sessionThreadIDs(statePath, threadID, relatedURLs)
 }
 
 /** Remove a thread and its spawned descendants from both Codex session databases. */
-export function deleteSessionRecords(home: string, threadID: string): SessionDatabaseReport {
+export function deleteSessionRecords(home: string, threadID: string, relatedURLs: string[] = []): SessionDatabaseReport {
   const statePath = latestDatabase(home, 'state_')
   const historyPath = latestDatabase(home, 'thread_history_')
   const before = footprint(statePath) + footprint(historyPath)
-  const threadIDs = descendants(statePath, threadID)
+  const threadIDs = sessionThreadIDs(statePath, threadID, relatedURLs)
   let removedRows = deleteHistoryRows(historyPath, threadIDs)
   removedRows += rewriteDatabase(statePath, (db) => {
     const list = placeholders(threadIDs)

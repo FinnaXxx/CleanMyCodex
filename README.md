@@ -6,7 +6,7 @@ Clean My Codex 用于扫描和清理 Codex 产生的缓存、会话数据、插�
 
 扫描由 Electron 主进程统一调度，耗时的文件遍历放在 worker 中执行，避免阻塞界面。扫描结果分为四部分：
 
-- Codex 数据目录：识别缓存、日志、临时文件和 SQLite 可回收空间。
+- Codex 数据目录：识别缓存、日志和临时文件；SQLite 数据库仅统计实际占用，不把可复用空闲页列为清理项。
 - 会话：流式读取 rollout，统计会话信息并关联生成资产，避免一次加载大文件。
 - 插件：结合磁盘目录和 `codex app-server` 返回的信息，区分当前版本、旧版本和卸载残留。
 - 工作产出：仅在用户打开对应页面后扫描，优先关联 SQLite 中的来源会话标题，并标记 git 未提交或未推送状态。
@@ -41,8 +41,8 @@ Clean My Codex 不通过一个接口读取所有信息，而是按数据的实�
 1. 将主会话的全部 rollout 分段移到系统废纸篓。
 2. 将所有层级子代理的全部 rollout 分段移到系统废纸篓。
 3. 将主会话和子代理关联的 `generated_images`、Visualization 目录移到系统废纸篓。
-4. 在最新的 `thread_history_*.sqlite` 中删除主会话及所有后代的 `thread_items`、`thread_turns` 和 `thread_history_projection_state` 行。
-5. 在最新的 `state_*.sqlite` 中删除相同会话集合的 `threads`、`thread_dynamic_tools` 和 `thread_spawn_edges` 行，并执行 `VACUUM`/WAL checkpoint 归还数据库空间。
+4. 从主会话、续写分段及子代理 rollout 文件名收集全部关联 ID，并在最新的 `thread_history_*.sqlite` 中删除这些 ID 的 `thread_items`、`thread_turns` 和 `thread_history_projection_state` 行；续写分段不依赖 `thread_spawn_edges`。
+5. 在最新的 `state_*.sqlite` 中删除相同会话集合的 `threads`、`thread_dynamic_tools` 和 `thread_spawn_edges` 行，并执行 WAL checkpoint 让删除落盘；不主动 `VACUUM` SQLite 可复用空闲页。
 
 系统废纸篓中的占用不再计作 Clean My Codex 的已占用空间；如果需要立即归还整个磁盘的可用空间，由用户清空系统废纸篓。
 
