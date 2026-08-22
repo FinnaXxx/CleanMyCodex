@@ -1,4 +1,5 @@
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
 import Database from 'better-sqlite3'
 import { fileAllocatedSize } from './fs-size'
@@ -70,6 +71,24 @@ function sessionThreadIDs(statePath: string | null, rootID: string, relatedURLs:
   return [...result]
 }
 
+/**
+ * IDs that must each receive an official thread/delete request. A root request
+ * removes all of that thread's continuation rollouts, while spawned subagents are
+ * independent threads. Rollout filenames always lead with their owning thread ID;
+ * any later UUID is only a continuation projection ID.
+ */
+export function sessionProtocolThreadIDs(rootID: string, relatedURLs: string[]): string[] {
+  const result = new Set<string>()
+  for (const url of relatedURLs) {
+    const name = basename(url)
+    if (!ROLLOUT_NAME_RE.test(name)) continue
+    const ownerID = name.match(UUID_RE)?.[0]
+    if (ownerID && ownerID !== rootID) result.add(ownerID)
+  }
+  result.add(rootID)
+  return [...result]
+}
+
 function rewriteDatabase(path: string | null, operation: (db: Database.Database) => number): number {
   if (!path) return 0
   const db = new Database(path, { fileMustExist: true, timeout: 8_000 })
@@ -91,6 +110,41 @@ function deleteHistoryRows(path: string | null, threadIDs: string[]): number {
     }
     return changed
   })
+}
+
+/**
+ * Codex uses session_index.jsonl as more than a title cache: an otherwise deleted
+ * thread can remain visible in the desktop session list while its index row exists.
+ * Rewrite it atomically so a crash cannot leave a truncated index behind.
+ */
+function deleteSessionIndexRows(home: string, threadIDs: string[]): number {
+  const path = join(home, 'session_index.jsonl')
+  if (!existsSync(path)) return 0
+  const ids = new Set(threadIDs)
+  const original = readFileSync(path, 'utf8')
+  let removed = 0
+  const kept = original.split(/(?<=\n)/).filter((line) => {
+    if (!line.trim()) return true
+    try {
+      const row = JSON.parse(line) as Record<string, unknown>
+      if (typeof row['id'] !== 'string' || !ids.has(row['id'])) return true
+      removed += 1
+      return false
+    } catch {
+      // Preserve malformed rows rather than risking unrelated metadata loss.
+      return true
+    }
+  })
+  if (removed === 0) return 0
+
+  const temporary = join(home, `.session_index.${process.pid}.${randomUUID()}.tmp`)
+  try {
+    writeFileSync(temporary, kept.join(''), { mode: statSync(path).mode })
+    renameSync(temporary, path)
+  } finally {
+    if (existsSync(temporary)) rmSync(temporary, { force: true })
+  }
+  return removed
 }
 
 function preflightDatabase(path: string | null, requiredTable: string): void {
@@ -130,6 +184,7 @@ export function deleteSessionRecords(home: string, threadID: string, relatedURLs
     if (hasTable(db, 'threads')) changed += db.prepare(`DELETE FROM threads WHERE id IN (${list})`).run(...threadIDs).changes
     return changed
   })
+  removedRows += deleteSessionIndexRows(home, threadIDs)
   const after = footprint(statePath) + footprint(historyPath)
   return { removedRows, freedBytes: Math.max(0, before - after) }
 }

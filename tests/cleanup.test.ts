@@ -51,7 +51,7 @@ describe('cleanup engine', () => {
     expect(report.outcomes[0].status.kind).toBe('skipped')
   })
 
-  it('deletes every rollout and asset companion before removing SQLite records', async () => {
+  it('removes every rollout and asset companion before the local compatibility cleanup', async () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-cleanup-')); roots.push(root)
     const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), documents: join(root, 'Documents') })
     const parent = join(locations.sessions, 'parent.jsonl')
@@ -75,13 +75,38 @@ describe('cleanup engine', () => {
       trash: async (path) => renameSync(path, `${path}.trashed`),
       isCodexRunning: () => false,
       sessionDatabase: {
-        deleteThread: (threadID, relatedURLs) => { deletedThreads.push({ threadID, relatedURLs }); return { removedRows: 11, freedBytes: 8192 } }
+        deleteThreadWithProtocol: async () => false,
+        deleteThreadLocally: (threadID, relatedURLs) => {
+          expect(existsSync(parent)).toBe(false)
+          deletedThreads.push({ threadID, relatedURLs })
+          return { removedRows: 11, freedBytes: 8192 }
+        }
       }
     })
     expect(report.outcomes[0].status.kind).toBe('succeeded')
     for (const path of [parent, resumed, child, generated, visualization]) expect(existsSync(`${path}.trashed`)).toBe(true)
     expect(deletedThreads).toEqual([{ threadID: 'parent-thread', relatedURLs: [parent, resumed, child, generated, visualization] }])
     expect(report.outcomes[0].freedBytes).toBeGreaterThanOrEqual(8192)
+  })
+
+  it('counts a rollout permanently removed by the preferred session protocol', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-cleanup-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), documents: join(root, 'Documents') })
+    const rollout = join(locations.sessions, 'thread.jsonl')
+    mkdirSync(locations.sessions, { recursive: true }); writeFileSync(rollout, Buffer.alloc(8192))
+    const task: CleanupTask = { id: rollout, title: 'thread', detail: '', url: rollout, method: 'trash', expectedBytes: 8192, threadID: 'thread', companionURLs: [], minimumIdleSeconds: null, requiresCodexStopped: false }
+    let trashCalled = false
+    const report = await runCleanup([task], new ProtectedPaths(locations), {
+      trash: async () => { trashCalled = true },
+      isCodexRunning: () => false,
+      sessionDatabase: {
+        deleteThreadWithProtocol: async () => { rmSync(rollout); return true },
+        deleteThreadLocally: () => { throw new Error('local fallback must not run') }
+      }
+    })
+    expect(report.outcomes[0].status.kind).toBe('succeeded')
+    expect(report.outcomes[0].freedBytes).toBeGreaterThan(0)
+    expect(trashCalled).toBe(false)
   })
 
   it('validates every companion before trashing a session', async () => {
@@ -110,7 +135,7 @@ describe('cleanup engine', () => {
       trash: async () => { trashed = true }, isCodexRunning: () => false,
       sessionDatabase: {
         preflightDelete: () => { throw new Error('unsupported schema') },
-        deleteThread: () => ({ removedRows: 0, freedBytes: 0 })
+        deleteThreadLocally: () => ({ removedRows: 0, freedBytes: 0 })
       }
     })
     expect(report.outcomes[0].status.kind).toBe('failed')

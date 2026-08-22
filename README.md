@@ -17,10 +17,10 @@ Clean My Codex 用于扫描和清理 Codex 产生的缓存、会话数据、插�
 
 Clean My Codex 不通过一个接口读取所有信息，而是按数据的实际来源扫描：
 
-- `codex app-server`：目前只调用 `initialize` 和 `plugin/list`，用于确认已安装的插件及版本。会话扫描和删除不依赖它。
+- `codex app-server`：调用 `plugin/list` 确认已安装的插件及版本；支持 `thread/delete` 的版本会优先由 Codex 自己删除会话，不支持时回退到本地定向清理。
 - rollout JSONL：直接流式扫描 `~/.codex/sessions` 和 `~/.codex/archived_sessions`。它们是会话事件的持久记录；Codex 也以 rollout 为来源构建会话历史投影。
 - `state_*.sqlite`：只读获取标题、工作目录、归档状态及子代理父子关系；删除会话时才定向删除该会话及所有后代的状态行。
-- `session_index.jsonl`：作为生成标题的补充索引。它很小，清理时不为回收少量空间而重写。
+- `session_index.jsonl`：作为生成标题和桌面会话列表的补充索引；删除会话时会定向移除相同会话集合的索引行。
 - `thread_history_*.sqlite`：Codex 从 rollout 派生出的会话历史投影。扫描器把它作为“会话投影数据库”统计；删除会话时会直接清理相应行，不等待 Codex 重建。
 - `generated_images/<thread-id>`：会话生成的独立图片目录。
 - `visualizations/YYYY/MM/DD/<thread-id>`：Codex 生成的富视觉结果，例如 JPG/PNG 对比图或 HTML 可视化预览。扫描时会递归识别日期层级并归到对应会话。
@@ -38,15 +38,15 @@ Clean My Codex 不通过一个接口读取所有信息，而是按数据的实�
 
 删除一个会话需要 ChatGPT/Codex 已退出，随后依次执行：
 
-1. 将主会话的全部 rollout 分段移到系统废纸篓。
-2. 将所有层级子代理的全部 rollout 分段移到系统废纸篓。
-3. 将主会话和子代理关联的 `generated_images`、Visualization 目录移到系统废纸篓。
-4. 从主会话、续写分段及子代理 rollout 文件名收集全部关联 ID，并在最新的 `thread_history_*.sqlite` 中删除这些 ID 的 `thread_items`、`thread_turns` 和 `thread_history_projection_state` 行；续写分段不依赖 `thread_spawn_edges`。
-5. 在最新的 `state_*.sqlite` 中删除相同会话集合的 `threads`、`thread_dynamic_tools` 和 `thread_spawn_edges` 行，并执行 WAL checkpoint 让删除落盘；不主动 `VACUUM` SQLite 可复用空闲页。
+1. 优先对主会话及每个层级子代理分别调用 Codex app-server 的 `thread/delete`；每个请求会永久删除该 thread 的全部续写 rollout、数据库记录和 `session_index.jsonl` 行。
+2. 旧版本不支持协议或任一请求失败时，回退到本地兼容清理，并将协议未处理的 rollout 移到系统废纸篓。
+3. 将协议不管理的 `generated_images`、Visualization 目录移到系统废纸篓。
+4. 本地兼容回退会从主会话、续写分段及子代理 rollout 文件名收集全部关联 ID，并在最新的 `thread_history_*.sqlite` 中删除这些 ID 的投影行。
+5. 本地兼容回退还会清理 `state_*.sqlite` 和 `session_index.jsonl` 中的相同会话集合；协议成功时由 Codex 自己维护这些元数据，Clean My Codex 不再重复改写。
 
 系统废纸篓中的占用不再计作 Clean My Codex 的已占用空间；如果需要立即归还整个磁盘的可用空间，由用户清空系统废纸篓。
 
-配置、凭据、当前插件、工作产出，以及 `session_index.jsonl` 等小型辅助元数据不会随会话删除。
+配置、凭据、当前插件和工作产出不会随会话删除；与目标会话直接关联的 `session_index.jsonl` 行会一并删除。
 
 自动会话清理会跳过置顶会话、存在未完成 goal 的会话和仍有 queued item 的会话；任一子代理满足这些条件时，整个顶层会话都会跳过。手动删除前会先检查 SQLite 完整性、受支持的核心表和写锁，避免会话文件已经移入废纸篓后才发现数据库无法修改。插件删除则会在真正执行前重新向 `codex app-server` 查询当前版本，防止扫描后升级造成误删。
 
