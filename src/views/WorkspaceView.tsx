@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { CleanupProgress, CleanupSelection, WorkspaceFolder, WorkspaceSnapshot } from '../../shared/types'
-import { formatBytes, workspaceBytes, workspaceFolderFileCount, workspaceFolderIsUnsafe, WorkspaceRepositoryStateLabel } from '../../shared/types'
+import type { CleanupProgress, CleanupSelection, SessionLocation, WorkspaceFolder, WorkspaceSnapshot } from '../../shared/types'
+import { formatBytes, SessionLocationLabel, workspaceBytes, workspaceFolderFileCount, workspaceFolderIsUnsafe, WorkspaceRepositoryStateLabel } from '../../shared/types'
 import { FolderIcon } from '../icons'
 
 interface Props { snapshot: WorkspaceSnapshot; scanning: boolean; cleaning: boolean; actionsDisabled: boolean; cleanProgress: CleanupProgress | null; onScan: () => void; onCleanup: (selection: CleanupSelection) => void }
@@ -36,7 +36,7 @@ export default function WorkspaceView({ snapshot, scanning, cleaning, actionsDis
 
   return <>
     <section className="page-heading"><div><h2>工作产出</h2><p>Codex 会话的工作目录和产出文件。</p></div><button className="btn" disabled={scanning} onClick={onScan}>{scanning ? '正在统计…' : snapshot.isScanned ? '重新统计' : '开始统计'}</button></section>
-    <section className="workspace-metrics card"><div><small>总占用</small><strong>{formatBytes(workspaceBytes(snapshot))}</strong></div><div><small>已选择</small><strong>{formatBytes(chosenBytes)}</strong></div><div><small>产出</small><strong>{rows.length}</strong></div></section>
+    <section className="workspace-metrics card"><div><small>总占用</small><strong>{formatBytes(workspaceBytes(snapshot))}</strong></div><div><small>已选择</small><strong>{formatBytes(chosenBytes)}</strong></div></section>
     {!snapshot.isScanned && <p className="empty-panel">第一次读取可能请求“文稿”文件夹访问权限<br/><code>{snapshot.root}</code></p>}
     {snapshot.isScanned && !rows.length && <p className="empty-panel">没有找到工作产出目录<br/><code>{snapshot.root}</code></p>}
     {!!rows.length && <section className="card workspace-tree">
@@ -44,7 +44,7 @@ export default function WorkspaceView({ snapshot, scanning, cleaning, actionsDis
         <input type="checkbox" aria-label="全选" checked={allSelected}
           ref={(input) => { if (input) input.indeterminate = rows.some((entry) => selected.has(entry.id)) && !allSelected }}
           onChange={() => setSelected(() => allSelected ? new Set() : new Set(rows.flatMap((entry) => [entry.id, ...entry.children.map((child) => child.id)])))}/>
-        <span/><span>产出</span><span className="col-date">最后改动</span><span className="col-num">占用</span><span/>
+        <span>产出</span><span className="col-status">状态</span><span className="col-date">最后改动</span><span className="col-num">占用</span><span/>
       </div>
       {rows.map((entry) => <WorkspaceRow key={entry.id} entry={entry} checked={selected.has(entry.id)} onToggle={() => toggle(entry)} date={formatDate(entry.modifiedAt)} />)}
     </section>}
@@ -54,23 +54,32 @@ export default function WorkspaceView({ snapshot, scanning, cleaning, actionsDis
 
 function WorkspaceRow({ entry, checked, date, onToggle }: { entry: WorkspaceFolder; checked: boolean; date: string; onToggle: () => void }) {
   const display = workspaceDisplay(entry)
+  const status = workspaceStatus(entry)
   return <div className="workspace-row">
     <input type="checkbox" aria-label={display.name} checked={checked} onChange={onToggle}/>
-    <span className="row-glyph"><FolderIcon /></span>
     <div className="grow">
       <strong title={display.tooltip}>{display.name}</strong>
       <small>
         {workspaceFolderFileCount(entry)} 个文件
         {entry.children.length > 0 && ` · 含下方 ${entry.children.length} 项产出`}
+        {workspaceFolderIsUnsafe(entry) && <span className="unsafe" title="有未提交、未推送或状态未知的 git 仓库"> ⚠</span>}
         {' '}
         {entry.repositories.map((repo) => <span className={`repo ${repo.state === 'clean' ? 'safe' : 'unsafe'}`} key={repo.id}>{repo.name} · {WorkspaceRepositoryStateLabel[repo.state]}</span>)}
       </small>
     </div>
+    <span className="col-status">{status ? <span className={`pill loc-${status.location}`}>{SessionLocationLabel[status.location]}</span> : <span className="muted">—</span>}</span>
     <span className="col-date" title={entry.modifiedAt ? new Date(entry.modifiedAt).toLocaleString() : undefined}>{date}</span>
-    {workspaceFolderIsUnsafe(entry) && <span className="unsafe">⚠</span>}
-    <span className="col-num fixed-bytes">{formatBytes(entry.bytes)}</span>
+    <span className="col-num">{formatBytes(entry.bytes)}</span>
     <button className="icon-button" title="在文件管理器中显示" aria-label="在文件管理器中显示" onClick={() => window.cleanmycodex.revealPath(entry.path)}><FolderIcon /></button>
   </div>
+}
+
+/** Outputs inherit the state of the session that produced them, like the session list. */
+function workspaceStatus(entry: WorkspaceFolder): { location: SessionLocation } | null {
+  if (!entry.sourceThreads.length) return null
+  const main = entry.sourceThreads.filter((thread) => !thread.isSubagent)
+  const shown = main.length ? main : entry.sourceThreads
+  return { location: shown.every((thread) => thread.archived) ? 'archived' : 'active' }
 }
 
 function workspaceDisplay(entry: WorkspaceFolder): { name: string; tooltip?: string } {
@@ -78,12 +87,11 @@ function workspaceDisplay(entry: WorkspaceFolder): { name: string; tooltip?: str
   const main = entry.sourceThreads.filter((thread) => !thread.isSubagent)
   const shown = main.length ? main : entry.sourceThreads
   const subagents = entry.sourceThreads.filter((thread) => thread.isSubagent).length
-  const status = shown.every((thread) => thread.archived) ? ' · 已归档' : ''
   const first = shown[0].title
   const others = shown.length > 1 ? ` · 另 ${shown.length - 1} 个会话` : ''
   const children = main.length && subagents ? ` · ${subagents} 个子会话` : ''
   return {
-    name: `${first}${others}${children}${status}`,
+    name: `${first}${others}${children}`,
     tooltip: entry.sourceThreads.map((thread) => `${thread.title}\n${thread.id}${thread.archived ? ' · 已归档' : ''}${thread.isSubagent ? ' · 子会话' : ''}`).join('\n\n')
   }
 }
