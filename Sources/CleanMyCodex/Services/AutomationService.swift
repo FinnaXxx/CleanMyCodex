@@ -22,7 +22,12 @@ struct AutomaticRunRecord: Codable, Sendable {
     var freedBytes: Int64
     var succeeded: Int
     var failed: Int
+    /// Set when the whole pass did nothing. Individual items that had to wait are
+    /// reported in `deferredNote` instead — the pass itself still ran.
     var skippedReason: String?
+    /// Optional so records written by older versions still decode.
+    var deferred: Int?
+    var deferredNote: String?
 }
 
 enum AutomationStore {

@@ -8,7 +8,7 @@ struct AutomationView: View {
             VStack(alignment: .leading, spacing: 20) {
                 PageHeader(
                     title: "自动清理",
-                    subtitle: "通过 macOS LaunchAgent 定期运行；Codex 正在运行时跳过，等下一次。"
+                    subtitle: "通过 macOS LaunchAgent 定期运行。Codex 开着也照常清理，只有需要独占文件的项目会推迟。"
                 ) {
                     HStack(spacing: 10) {
                         StatusPill(
@@ -126,7 +126,12 @@ struct AutomationView: View {
         if let reason = record.skippedReason {
             return "上次运行 \(time)：\(reason)，已跳过"
         }
-        return "上次运行 \(time)：释放 \(ByteFormat.string(record.freedBytes))，"
-            + "成功 \(record.succeeded) 项，未完成 \(record.failed) 项"
+        var text = "上次运行 \(time)：释放 \(ByteFormat.string(record.freedBytes))，"
+            + "成功 \(record.succeeded) 项，失败 \(record.failed) 项"
+        if let deferred = record.deferred, deferred > 0 {
+            text += "，推迟 \(deferred) 项"
+            if let note = record.deferredNote { text += "（\(note)）" }
+        }
+        return text
     }
 }

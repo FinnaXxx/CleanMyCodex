@@ -59,7 +59,7 @@ enum CleanupStatus: Sendable, Equatable {
     var label: String {
         switch self {
         case .succeeded: "已完成"
-        case .skipped: "已跳过"
+        case .skipped: "已推迟"
         case .failed: "失败"
         }
     }

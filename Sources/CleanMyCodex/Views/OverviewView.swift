@@ -80,7 +80,7 @@ struct OverviewView: View {
     private var banners: some View {
         if model.codexRunning {
             NoticeBanner(
-                text: "Codex 正在运行。缓存可以照常清理，日志数据库的压缩会自动跳过。",
+                text: "Codex 正在运行。缓存、临时文件、旧插件和会话都可以照常清理；只有日志数据库压缩和会话瘦身需要独占文件，会推迟到 Codex 退出后。",
                 symbol: "exclamationmark.triangle"
             )
         }
