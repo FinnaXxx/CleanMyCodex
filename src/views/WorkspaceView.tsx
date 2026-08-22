@@ -35,9 +35,10 @@ export default function WorkspaceView({ snapshot, scanning, cleaning, actionsDis
   })
 
   return <>
+    <div className="detail-content">
     <section className="page-heading"><div><h2>工作产出</h2><p>Codex 会话的工作目录和产出文件。</p></div><button className="btn" disabled={scanning} onClick={onScan}>{scanning ? '正在统计…' : snapshot.isScanned ? '重新统计' : '开始统计'}</button></section>
     <section className="workspace-metrics card"><div><small>总占用</small><strong>{formatBytes(workspaceBytes(snapshot))}</strong></div><div><small>已选择</small><strong>{formatBytes(chosenBytes)}</strong></div></section>
-    {!snapshot.isScanned && <p className="empty-panel">第一次读取可能请求“文稿”文件夹访问权限<br/><code>{snapshot.root}</code></p>}
+    {!snapshot.isScanned && <p className="empty-panel">工作产出尚未完成统计，请在首页重新扫描<br/><code>{snapshot.root}</code></p>}
     {snapshot.isScanned && !rows.length && <p className="empty-panel">没有找到工作产出目录<br/><code>{snapshot.root}</code></p>}
     {!!rows.length && <section className="card workspace-tree">
       <div className="table-head workspace-head">
@@ -48,6 +49,7 @@ export default function WorkspaceView({ snapshot, scanning, cleaning, actionsDis
       </div>
       {rows.map((entry) => <WorkspaceRow key={entry.id} entry={entry} checked={selected.has(entry.id)} onToggle={() => toggle(entry)} date={formatDate(entry.modifiedAt)} />)}
     </section>}
+    </div>
     <div className="page-footer"><span className={targets.some(workspaceFolderIsUnsafe) ? 'unsafe' : ''}>{targets.some(workspaceFolderIsUnsafe) ? '⚠ 所选内容包含未提交、未推送或状态未知的 git 仓库' : snapshot.root}</span><button className="btn danger" disabled={!targets.length || cleaning || actionsDisabled} onClick={() => onCleanup({ kind: 'workspace', ids: targets.map((entry) => entry.id) })}>{cleaning ? `处理中… ${cleanProgress?.completed ?? 0}/${targets.length}` : `移到废纸篓 · ${formatBytes(chosenBytes)}`}</button></div>
   </>
 }
@@ -86,12 +88,5 @@ function workspaceDisplay(entry: WorkspaceFolder): { name: string; tooltip?: str
   if (!entry.sourceThreads.length) return { name: entry.name }
   const main = entry.sourceThreads.filter((thread) => !thread.isSubagent)
   const shown = main.length ? main : entry.sourceThreads
-  const subagents = entry.sourceThreads.filter((thread) => thread.isSubagent).length
-  const first = shown[0].title
-  const others = shown.length > 1 ? ` · 另 ${shown.length - 1} 个会话` : ''
-  const children = main.length && subagents ? ` · ${subagents} 个子会话` : ''
-  return {
-    name: `${first}${others}${children}`,
-    tooltip: entry.sourceThreads.map((thread) => `${thread.title}\n${thread.id}${thread.archived ? ' · 已归档' : ''}${thread.isSubagent ? ' · 子会话' : ''}`).join('\n\n')
-  }
+  return { name: shown[0].title }
 }

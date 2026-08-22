@@ -32,6 +32,7 @@ export default function PluginsView({ snapshot, cleaning, actionsDisabled, clean
   const cleanup = () => onCleanup({ kind: 'plugins', ids: chosen.map((item) => item.directoryURL) })
 
   return <>
+    <div className="detail-content">
     <section className="page-heading">
       <div><h2>插件版本</h2><p>只清理旧版本和卸载残留。</p></div>
       <button className="btn" disabled={!removable.length} onClick={() => setSelected(new Set(removable.map((item) => item.directoryURL)))}>选择全部可清理版本</button>
@@ -51,6 +52,7 @@ export default function PluginsView({ snapshot, cleaning, actionsDisabled, clean
           <button className="icon-button" title="在文件管理器中显示" aria-label="在文件管理器中显示" onClick={() => window.cleanmycodex.revealPath(item.directoryURL)}><FolderIcon /></button>
         </div>)}
       </section>)}
+    </div>
     </div>
     <div className="page-footer"><span>{chosen.length ? `已选择 ${chosen.length} 个版本 · ${formatBytes(bytes)}` : `可清理 ${removable.length} 个版本`}</span><button className="btn primary" disabled={!chosen.length || cleaning || actionsDisabled} onClick={cleanup}>{cleaning ? `清理中… ${cleanProgress?.completed ?? 0}/${chosen.length}` : '清理所选版本'}</button></div>
   </>

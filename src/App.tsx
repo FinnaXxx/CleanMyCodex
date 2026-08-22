@@ -38,7 +38,6 @@ function App() {
   const [cleanupStage, setCleanupStage] = useState('')
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null)
   const [workspaceScanning, setWorkspaceScanning] = useState(false)
-  const [workspaceAttempted, setWorkspaceAttempted] = useState(false)
   const scanInFlight = useRef(false)
   const workspaceScanInFlight = useRef(false)
 
@@ -53,7 +52,6 @@ function App() {
       if (next) {
         setSnapshot(next)
         setWorkspace(next.workspace)
-        setWorkspaceAttempted(false)
         setAppInfo(await window.cleanmycodex.appInfo())
       }
     } catch (err) {
@@ -68,7 +66,6 @@ function App() {
   const runWorkspaceScan = useCallback(async () => {
     if (workspaceScanInFlight.current) return
     workspaceScanInFlight.current = true
-    setWorkspaceAttempted(true)
     setWorkspaceScanning(true)
     setProgress({ stage: '工作产出', currentPath: '', scannedBytes: 0, fraction: 0 })
     setError(null)
@@ -105,7 +102,6 @@ function App() {
       try {
         const nextReport = await window.cleanmycodex.cleanup({ selection: cleanupPreview.selection, restartCodex })
         await runScan()
-        if (cleanupPreview.selection.kind === 'workspace') await runWorkspaceScan()
         setReport(nextReport)
         setDialogReport(nextReport)
       } catch (err) {
@@ -115,7 +111,7 @@ function App() {
         setCleanProgress(null)
       }
     },
-    [cleaning, cleanupPreview, restartCodex, runScan, runWorkspaceScan]
+    [cleaning, cleanupPreview, restartCodex, runScan]
   )
 
   useEffect(() => {
@@ -129,10 +125,6 @@ function App() {
       offStage()
     }
   }, [runScan])
-
-  useEffect(() => {
-    if (!cleaning && detail === 'workspace' && workspace && !workspace.isScanned && !workspaceScanning && !workspaceAttempted) void runWorkspaceScan()
-  }, [cleaning, runWorkspaceScan, detail, workspace, workspaceAttempted, workspaceScanning])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

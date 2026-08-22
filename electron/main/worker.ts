@@ -11,7 +11,18 @@ parentPort?.on('message', async (request: Request) => {
   const locations = CodexLocations.standard()
   try {
     if (request.type === 'scan') {
-      const result = await scanSnapshot(locations, request.installedPlugins, (progress) => parentPort?.postMessage({ type: 'progress', progress }))
+      const result = await scanSnapshot(locations, request.installedPlugins, (progress) => {
+        if (progress.stage !== '完成') parentPort?.postMessage({
+          type: 'progress', progress: { ...progress, fraction: Math.min(progress.fraction * 0.9, 0.9) }
+        })
+      })
+      const workspaceThreads = CodexThreadIndex.load(locations.home).workspaceThreads(locations.workspace)
+      result.workspace = scanWorkspace(locations.workspace, (currentPath) => parentPort?.postMessage({
+        type: 'progress', progress: { stage: '工作产出', currentPath, scannedBytes: 0, fraction: 0.95 }
+      }), workspaceThreads)
+      parentPort?.postMessage({
+        type: 'progress', progress: { stage: '完成', currentPath: '', scannedBytes: 0, fraction: 1 }
+      })
       parentPort?.postMessage({ type: 'result', result })
     } else {
       const workspaceThreads = CodexThreadIndex.load(locations.home).workspaceThreads(locations.workspace)
