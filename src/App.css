@@ -1,6 +1,6 @@
 :root {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  color-scheme: light dark;
+  color-scheme: light;
 }
 body {
   margin: 0;
@@ -304,4 +304,61 @@ h1 {
 /* Danger variant for the destructive action */
 .clean.danger {
   background: #d20b34;
+}
+
+button.secondary {
+  font: inherit;
+  padding: 7px 12px;
+  border-radius: 8px;
+  border: 1px solid #d2d2d7;
+  background: #fff;
+  color: #1d1d1f;
+  cursor: pointer;
+}
+button.secondary:disabled { opacity: .45; cursor: default; }
+.warning-button { color: #9a6700 !important; }
+.action-buttons { display: flex; gap: 8px; align-items: center; }
+.page-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.page-heading h2 { margin: 0 0 3px; font-size: 21px; }
+.page-heading p { margin: 0; color: #6e6e73; font-size: 13px; }
+.panel { background: #fff; border: 1px solid #e7e7ea; border-radius: 12px; overflow: hidden; }
+.card-stack { display: grid; gap: 12px; margin-bottom: 76px; }
+.panel-title { display: flex; justify-content: space-between; padding: 13px 16px; color: #6e6e73; font-size: 13px; border-bottom: 1px solid #eeeeef; }
+.panel-title strong { color: #1d1d1f; font-size: 14px; }
+.plugin-row, .workspace-row { display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 8px 16px; border-top: 1px solid #f1f1f2; font-size: 13px; }
+.plugin-row:first-of-type { border-top: 0; }
+.grow { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.grow small, .form-card small { color: #86868b; }
+.fixed-bytes { width: 86px; text-align: right; font-variant-numeric: tabular-nums; }
+.pill, .repo { display: inline-block; width: max-content; border-radius: 999px; padding: 2px 8px; font-size: 11px; color: #6e6e73; background: #ededf0; }
+.status-current, .repo.safe { color: #187a37; background: #e8f7ed; }
+.status-outdated { color: #946200; background: #fff4d6; }
+.status-orphaned { color: #b42318; background: #ffebe9; }
+.icon-button { border: 0; background: transparent; color: #6e6e73; cursor: pointer; font-size: 16px; padding: 4px 6px; }
+.icon-space { width: 27px; }
+.notice { padding: 11px 14px; border-radius: 9px; color: #57575c; background: #eef5ff; border: 1px solid #d5e6ff; font-size: 13px; }
+.notice.warning, .unsafe { color: #9a6700; }
+.notice.warning { background: #fff8e6; border-color: #f3dfae; }
+.empty-panel { padding: 52px 20px; text-align: center; color: #86868b; background: #fff; border: 1px solid #e7e7ea; border-radius: 12px; line-height: 1.8; }
+.page-footer { position: fixed; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-between; align-items: center; padding: 13px max(40px, calc((100vw - 860px) / 2 + 40px)); background: rgba(255,255,255,.94); backdrop-filter: blur(14px); border-top: 1px solid #e5e5ea; font-size: 13px; z-index: 2; }
+.workspace-metrics { display: grid; grid-template-columns: repeat(3, 1fr); margin-bottom: 14px; }
+.workspace-metrics > div { padding: 16px 20px; display: flex; flex-direction: column; gap: 5px; border-left: 1px solid #ededf0; }
+.workspace-metrics > div:first-child { border-left: 0; }
+.workspace-metrics small { color: #86868b; }
+.workspace-metrics strong { font-size: 22px; font-variant-numeric: tabular-nums; }
+.workspace-tree { margin-bottom: 76px; }
+.workspace-row:first-child { border-top: 0; }
+.workspace-row .repo { margin-right: 4px; }
+.form-card { padding: 18px 20px; margin-bottom: 14px; display: flex; flex-direction: column; align-items: flex-start; gap: 13px; }
+.form-card h3 { margin: 0; font-size: 15px; }
+.form-card label { display: flex; align-items: center; gap: 6px; }
+.form-card label.strong { font-weight: 600; font-size: 15px; }
+.number { width: 64px; padding: 4px 6px; border: 1px solid #d2d2d7; border-radius: 6px; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+@media (max-width: 1080px) {
+  .app { padding-left: 24px; padding-right: 24px; }
+  .page-footer { padding-left: 24px; padding-right: 24px; }
+  .tabs { overflow-x: auto; }
+  .tab { white-space: nowrap; }
 }

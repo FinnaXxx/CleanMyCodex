@@ -193,6 +193,22 @@ export interface PluginVersionItem {
   status: PluginStatus
 }
 
+export type WorkspaceRepositoryState = 'clean' | 'dirty' | 'unpushed' | 'unknown'
+
+export const WorkspaceRepositoryStateLabel: Record<WorkspaceRepositoryState, string> = {
+  clean: '已同步',
+  dirty: '有未提交改动',
+  unpushed: '有未推送提交',
+  unknown: '状态未知'
+}
+
+export interface WorkspaceRepository {
+  id: string
+  path: string
+  name: string
+  state: WorkspaceRepositoryState
+}
+
 export interface WorkspaceFolder {
   id: string
   path: string
@@ -200,6 +216,8 @@ export interface WorkspaceFolder {
   bytes: number
   fileCount: number
   modifiedAt: number
+  repositories: WorkspaceRepository[]
+  children: WorkspaceFolder[]
 }
 
 export interface WorkspaceSnapshot {
@@ -207,6 +225,18 @@ export interface WorkspaceSnapshot {
   isScanned: boolean
   entries: WorkspaceFolder[]
 }
+
+export const workspaceFolderFileCount = (entry: WorkspaceFolder): number =>
+  entry.fileCount + entry.children.reduce((sum, child) => sum + workspaceFolderFileCount(child), 0)
+
+export const workspaceFolderRepositoryCount = (entry: WorkspaceFolder): number =>
+  entry.repositories.length + entry.children.reduce((sum, child) => sum + workspaceFolderRepositoryCount(child), 0)
+
+export const workspaceFolderIsUnsafe = (entry: WorkspaceFolder): boolean =>
+  entry.repositories.some((repository) => repository.state !== 'clean') || entry.children.some(workspaceFolderIsUnsafe)
+
+export const workspaceBytes = (snapshot: WorkspaceSnapshot): number =>
+  snapshot.entries.reduce((sum, entry) => sum + entry.bytes, 0)
 
 export interface ScanProgress {
   stage: string
@@ -306,6 +336,38 @@ export function tasksForSessionDeletion(sessions: SessionItem[]): CleanupTask[] 
   }))
 }
 
+export function tasksForSessionSlimming(sessions: SessionItem[], mode: SessionSlimMode): CleanupTask[] {
+  return sessions.map((session) => ({
+    id: `slim:${mode}:${session.id}`,
+    title: sessionDisplayName(session),
+    detail: session.fileURL,
+    url: session.fileURL,
+    method: 'slimSession',
+    expectedBytes: mode === 'deduplicate' ? session.duplicateImageBytes : session.embeddedImageBytes,
+    threadID: session.threadID,
+    companionURLs: [],
+    slimMode: mode,
+    minimumIdleSeconds: null,
+    requiresCodexStopped: false
+  }))
+}
+
+export function tasksForWorkspace(entries: WorkspaceFolder[]): CleanupTask[] {
+  return entries.map((entry) => ({
+    id: `workspace:${entry.id}`,
+    title: entry.name,
+    detail: entry.path,
+    url: entry.path,
+    method: 'trash',
+    expectedBytes: entry.bytes,
+    threadID: null,
+    companionURLs: [],
+    slimMode: null,
+    minimumIdleSeconds: null,
+    requiresCodexStopped: false
+  }))
+}
+
 export type CleanupStatus =
   | { kind: 'succeeded' }
   | { kind: 'skipped'; reason: string }
@@ -391,4 +453,37 @@ export function formatBytes(bytes: number): string {
 export interface AppInfo {
   version: string
   platform: string
+}
+
+export interface AutomationSettings {
+  enabled: boolean
+  intervalDays: number
+  cleanCaches: boolean
+  cleanOldPlugins: boolean
+  cleanArchivedSessions: boolean
+  archivedRetentionDays: number
+  cleanActiveSessions: boolean
+  activeRetentionDays: number
+  skipRecentSessions: boolean
+  notifyWhenFinished: boolean
+  launchAtLogin: boolean
+}
+
+export interface AutomaticRunRecord {
+  finishedAt: number
+  freedBytes: number
+  succeeded: number
+  failed: number
+  skippedReason: string | null
+  deferred: number
+  deferredNote: string | null
+}
+
+export interface AutomationState {
+  settings: AutomationSettings
+  installed: boolean
+  loaded: boolean
+  nextRunAt: number | null
+  lastRun: AutomaticRunRecord | null
+  supported: boolean
 }

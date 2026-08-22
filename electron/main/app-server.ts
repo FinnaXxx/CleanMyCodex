@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessByStdio } from 'node:child_process'
+import { spawn, spawnSync, type ChildProcessByStdio } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { statSync } from 'node:fs'
 import { join } from 'node:path'
@@ -26,8 +26,12 @@ export interface AppServerError {
 export function locateCodexExecutable(env: NodeJS.ProcessEnv = process.env): string | null {
   const candidates: string[] = []
   if (env['CODEX_BINARY'] && env['CODEX_BINARY'].length) candidates.push(env['CODEX_BINARY'])
+  if (process.platform === 'win32') {
+    const located = spawnSync('where.exe', ['codex'], { encoding: 'utf8', windowsHide: true, timeout: 3_000 })
+    if (located.status === 0) candidates.push(...located.stdout.split(/\r?\n/).filter(Boolean))
+  }
   for (const dir of (env['PATH'] ?? '').split(process.platform === 'win32' ? ';' : ':')) {
-    if (dir.length) candidates.push(join(dir, 'codex'))
+    if (dir.length) candidates.push(join(dir, process.platform === 'win32' ? 'codex.exe' : 'codex'))
   }
   candidates.push('/opt/homebrew/bin/codex', '/usr/local/bin/codex', join(homedir(), '.codex/bin/codex'), join(homedir(), '.local/bin/codex'))
   return candidates.find((p) => fileIsExecutable(p)) ?? null
@@ -35,7 +39,8 @@ export function locateCodexExecutable(env: NodeJS.ProcessEnv = process.env): str
 
 function fileIsExecutable(path: string): boolean {
   try {
-    return (statSync(path).mode & 0o111) !== 0
+    const stats = statSync(path)
+    return stats.isFile() && (process.platform === 'win32' || (stats.mode & 0o111) !== 0)
   } catch {
     return false
   }
@@ -59,6 +64,8 @@ export class AppServerSession {
     const env = { ...process.env, CODEX_HOME: codexHome }
     this.process = spawn(executable, ['app-server'], {
       env,
+      shell: process.platform === 'win32' && /\.(cmd|bat)$/i.test(executable),
+      windowsHide: true,
       stdio: ['pipe', 'pipe', 'ignore']
     })
 
@@ -73,6 +80,15 @@ export class AppServerSession {
       }
       this.pending.clear()
     })
+    this.process.on('error', (error) => {
+      this.closed = true
+      for (const call of this.pending.values()) {
+        clearTimeout(call.timer)
+        call.reject(new Error(`无法启动 codex app-server：${error.message}`))
+      }
+      this.pending.clear()
+    })
+    this.process.stdin.on('error', () => undefined)
   }
 
   async handshake(): Promise<void> {
@@ -173,7 +189,10 @@ export class AppServerClient {
       const session = await this.openSession()
       try {
         const response = await session.listPlugins()
-        return parsePlugins(response)
+        const plugins = parsePlugins(response)
+        // An empty inventory is indistinguishable from an unknown response shape. Never
+        // turn every on-disk plugin into an "orphan" on that evidence.
+        return plugins.length ? plugins : null
       } finally {
         session.close()
       }
@@ -219,6 +238,7 @@ export function parsePlugins(response: unknown): InstalledPlugin[] {
       if (!directory && row['source'] && typeof row['source'] === 'object') {
         directory = firstString(row['source'] as Record<string, unknown>, ['path', 'directory', 'root', 'location'])
       }
+      if (directory?.startsWith('~/')) directory = join(homedir(), directory.slice(2))
       return { name, version: version ?? null, directory: directory ?? null }
     })
     .filter((p): p is InstalledPlugin => p !== null)

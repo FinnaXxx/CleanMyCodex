@@ -1,8 +1,11 @@
-import { readdirSync, statSync } from 'node:fs'
+import { lstatSync, readdirSync, statSync } from 'node:fs'
 import { join, basename } from 'node:path'
 import { CodexLocations } from './locations'
 import { directoryAllocatedSize, fileAllocatedSize } from './fs-size'
 import { scanSessions } from './sessions'
+import { inspectDatabase } from './sqlite-maintenance'
+import { pluginStorageCategory, scanPluginVersions } from './plugins'
+import type { InstalledPlugin } from './app-server'
 import type { ScanSnapshot, StorageCategory, StorageEntry } from '../../shared/types'
 
 const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
@@ -14,6 +17,23 @@ function entryExists(path: string): boolean {
   } catch {
     return false
   }
+}
+
+function measureTree(path: string): { bytes: number; latestActivity: number } {
+  let stats
+  try { stats = lstatSync(path) } catch { return { bytes: 0, latestActivity: 0 } }
+  if (stats.isSymbolicLink()) return { bytes: 0, latestActivity: stats.mtimeMs }
+  if (!stats.isDirectory()) return { bytes: fileAllocatedSize(path), latestActivity: stats.mtimeMs }
+  let bytes = 0
+  let latestActivity = stats.mtimeMs
+  let children: string[] = []
+  try { children = readdirSync(path) } catch { return { bytes, latestActivity } }
+  for (const name of children) {
+    const measured = measureTree(join(path, name))
+    bytes += measured.bytes
+    latestActivity = Math.max(latestActivity, measured.latestActivity)
+  }
+  return { bytes, latestActivity }
 }
 
 function entry(
@@ -70,15 +90,17 @@ function logDatabases(home: string): { path: string; bytes: number }[] {
 }
 
 /**
- * A first vertical slice: real sizes for the storage categories the cleaner acts on,
- * with sessions and plugins left empty (filled in by later passes). Runs on the main
- * process; `onProgress` gets the path being measured so the UI can show activity.
+ * Builds the complete Codex snapshot. Workspace output remains opt-in because reading
+ * Documents may trigger an OS permission prompt; it is scanned by `scanWorkspace` when
+ * that page opens. `onProgress` lets the renderer show the path currently measured.
  */
 export async function scanSnapshot(
   locations: CodexLocations,
+  installedPlugins: InstalledPlugin[] | null,
   onProgress?: (path: string) => void
 ): Promise<ScanSnapshot> {
   const categories: StorageCategory[] = []
+  const notes: string[] = []
 
   const measure = (path: string): number => {
     onProgress?.(path)
@@ -87,18 +109,29 @@ export async function scanSnapshot(
 
   // --- Recommended: reclaimable or lossless ---
 
-  if (entryExists(locations.temporary)) {
-    categories.push(
-      category(
-        'temporary',
-        '过期临时目录',
-        '旧 staging、失败的 clone 和无人使用的临时目录；只在 Codex 退出后清理',
-        'recommended',
-        'safe',
-        [entry('.tmp', '安装暂存与任务临时目录', locations.temporary, measure(locations.temporary), 'safe', 'trash', { requiresCodexStopped: true })]
-      )
-    )
+  const staleTemporary: StorageEntry[] = []
+  const marketplaceCaches: StorageEntry[] = []
+  let temporaryNames: string[] = []
+  try { temporaryNames = readdirSync(locations.temporary) } catch { /* missing */ }
+  for (const name of temporaryNames) {
+    const path = join(locations.temporary, name)
+    if (path === locations.bundledMarketplaces) continue
+    onProgress?.(path)
+    const measured = measureTree(path)
+    if (!measured.bytes) continue
+    if (name.toLowerCase().includes('marketplace')) {
+      marketplaceCaches.push(entry(name, '插件市场副本，离线时需要重新下载', path, measured.bytes, 'rebuildable'))
+      continue
+    }
+    const staging = name.includes('.staging-') || name.startsWith('plugins-clone-')
+    const idleSeconds = staging ? 3_600 : 3 * 86_400
+    if (Date.now() - measured.latestActivity < idleSeconds * 1000) continue
+    staleTemporary.push(entry(name, staging ? '安装暂存或克隆残留' : '3 天内没有改动的临时目录', path, measured.bytes, 'safe', 'trash', {
+      minimumIdleSeconds: idleSeconds, requiresCodexStopped: true
+    }))
   }
+  categories.push(category('temporary', '过期临时目录', '旧 staging、失败的 clone 和无人使用的临时目录；只在 Codex 退出后清理', 'recommended', 'safe', staleTemporary))
+  categories.push(category('marketplaceCache', '插件市场缓存', '可以重新下载，但离线时会影响插件安装', 'review', 'rebuildable', marketplaceCaches))
   await yieldToEventLoop()
 
   if (entryExists(locations.generatedImages)) {
@@ -144,22 +177,35 @@ export async function scanSnapshot(
   }
   await yieldToEventLoop()
 
-  const logs = logDatabases(locations.home)
+  const logs = logDatabases(locations.home).flatMap((db) => {
+    try {
+      const inspection = inspectDatabase(db.path)
+      if (inspection.reclaimableBytes <= 1024 * 1024) return []
+      return [{ ...db, inspection }]
+    } catch (err) {
+      notes.push(`${basename(db.path)} 暂时无法读取：${err instanceof Error ? err.message : String(err)}`)
+      return []
+    }
+  })
   categories.push(
-    category('logDatabase', '日志数据库', 'logs_*.sqlite 的空闲页，压缩回收不影响诊断记录', 'recommended', 'lossless', logs.map((db) => entry(basename(db.path), '日志数据库（仅压缩空闲页）', db.path, db.bytes, 'lossless', 'compactDatabase')))
+    category('logDatabase', '日志数据库空闲页', 'checkpoint 和 VACUUM 只回收空闲页，不删除诊断记录', 'recommended', 'lossless', logs.map((db) => ({
+      ...entry(basename(db.path), `已使用 ${db.inspection.usedBytes} B，空闲 ${db.inspection.freeListCount} 页`, db.path, db.bytes, 'lossless', 'compactDatabase'),
+      reclaimableBytes: db.inspection.reclaimableBytes
+    })))
   )
+  await yieldToEventLoop()
+
+  const pluginVersions = scanPluginVersions(locations.plugins, installedPlugins, onProgress)
+  const pluginCategory = pluginStorageCategory(pluginVersions)
+  if (pluginCategory.entries.length) categories.push(pluginCategory)
+  if (installedPlugins === null && pluginVersions.length) {
+    notes.push('没有连接到 codex app server，插件的当前版本未确认，已全部标记为受保护。')
+  }
   await yieldToEventLoop()
 
   // --- Review: rebuildable but affects offline use ---
 
-  if (entryExists(locations.bundledMarketplaces)) {
-    categories.push(
-      category('marketplaceCache', '插件市场缓存', '可以重新下载，但离线时会影响插件安装', 'review', 'rebuildable', [
-        entry('bundled-marketplaces', '随版本内置的插件市场副本', locations.bundledMarketplaces, measure(locations.bundledMarketplaces), 'rebuildable')
-      ])
-    )
-  }
-  await yieldToEventLoop()
+  // bundled-marketplaces is a live source referenced by config.toml, not disposable cache.
 
   // --- Protected: shown for awareness, never selected ---
 
@@ -168,7 +214,9 @@ export async function scanSnapshot(
     const path = join(locations.home, name)
     if (entryExists(path)) protectedConfigEntries.push(entry(name, '配置与登录信息，永不清理', path, fileAllocatedSize(path), 'shielded'))
   }
-  for (const db of readdirSync(locations.home).filter((n) => n.startsWith('state_') && n.endsWith('.sqlite'))) {
+  let homeEntries: string[] = []
+  try { homeEntries = readdirSync(locations.home) } catch { /* missing home */ }
+  for (const db of homeEntries.filter((n) => n.startsWith('state_') && n.endsWith('.sqlite'))) {
     const path = join(locations.home, db)
     protectedConfigEntries.push(entry(db, 'Codex 状态数据库，永不清理', path, fileAllocatedSize(path), 'shielded'))
   }
@@ -190,8 +238,8 @@ export async function scanSnapshot(
     externalBytes,
     categories: categories.filter((c) => c.entries.length > 0),
     sessions,
-    pluginVersions: [],
+    pluginVersions,
     workspace: { root: locations.workspace, isScanned: false, entries: [] },
-    notes: []
+    notes
   }
 }

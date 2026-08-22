@@ -5,6 +5,7 @@ import {
   type CleanupReport,
   type CleanupProgress,
   type CleanupTask,
+  type WorkspaceSnapshot,
   reportFreedBytes,
   reportProblems,
   cleanupStatusLabel,
@@ -13,9 +14,12 @@ import {
 } from '../shared/types'
 import OverviewView from './views/OverviewView'
 import SessionsView from './views/SessionsView'
+import PluginsView from './views/PluginsView'
+import WorkspaceView from './views/WorkspaceView'
+import AutomationView from './views/AutomationView'
 import './App.css'
 
-type Tab = 'overview' | 'sessions'
+type Tab = 'overview' | 'sessions' | 'plugins' | 'workspace' | 'automation'
 
 function App() {
   const [tab, setTab] = useState<Tab>('overview')
@@ -25,18 +29,33 @@ function App() {
   const [cleaning, setCleaning] = useState(false)
   const [cleanProgress, setCleanProgress] = useState<CleanupProgress | null>(null)
   const [report, setReport] = useState<CleanupReport | null>(null)
+  const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null)
+  const [workspaceScanning, setWorkspaceScanning] = useState(false)
+  const [workspaceAttempted, setWorkspaceAttempted] = useState(false)
 
   const runScan = useCallback(async () => {
     setError(null)
     setReport(null)
     setProgress({ stage: '扫描中', currentPath: '', scannedBytes: 0, fraction: 0 })
     try {
-      setSnapshot(await window.cleanmycodex.scan())
+      const next = await window.cleanmycodex.scan()
+      setSnapshot(next)
+      setWorkspace((current) => current?.isScanned ? current : next.workspace)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setProgress(null)
     }
+  }, [])
+
+  const runWorkspaceScan = useCallback(async () => {
+    setWorkspaceAttempted(true)
+    setWorkspaceScanning(true)
+    setProgress({ stage: '工作产出', currentPath: '', scannedBytes: 0, fraction: 0 })
+    setError(null)
+    try { setWorkspace(await window.cleanmycodex.scanWorkspace()) }
+    catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+    finally { setWorkspaceScanning(false); setProgress(null) }
   }, [])
 
   const runCleanup = useCallback(
@@ -46,8 +65,10 @@ function App() {
       setReport(null)
       setCleanProgress({ completed: 0, total: tasks.length, currentTitle: '' })
       try {
-        setReport(await window.cleanmycodex.cleanup(tasks))
+        const nextReport = await window.cleanmycodex.cleanup(tasks)
         await runScan()
+        if (tasks.some((task) => task.id.startsWith('workspace:'))) await runWorkspaceScan()
+        setReport(nextReport)
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
       } finally {
@@ -55,7 +76,7 @@ function App() {
         setCleanProgress(null)
       }
     },
-    [cleaning, runScan]
+    [cleaning, runScan, runWorkspaceScan]
   )
 
   useEffect(() => {
@@ -67,6 +88,10 @@ function App() {
       offClean()
     }
   }, [runScan])
+
+  useEffect(() => {
+    if (tab === 'workspace' && workspace && !workspace.isScanned && !workspaceScanning && !workspaceAttempted) void runWorkspaceScan()
+  }, [runWorkspaceScan, tab, workspace, workspaceAttempted, workspaceScanning])
 
   return (
     <main className="app">
@@ -91,6 +116,9 @@ function App() {
         >
           会话记录{snapshot && snapshot.sessions.length > 0 ? ` (${snapshot.sessions.length})` : ''}
         </button>
+        <button className={tab === 'plugins' ? 'tab active' : 'tab'} onClick={() => setTab('plugins')}>插件{snapshot?.pluginVersions.length ? ` (${snapshot.pluginVersions.length})` : ''}</button>
+        <button className={tab === 'workspace' ? 'tab active' : 'tab'} onClick={() => setTab('workspace')}>工作产出</button>
+        <button className={tab === 'automation' ? 'tab active' : 'tab'} onClick={() => setTab('automation')}>自动清理</button>
       </nav>
 
       {progress && <p className="progress">正在查看 {progress.currentPath}</p>}
@@ -98,12 +126,15 @@ function App() {
 
       {report && <CleanupBanner report={report} />}
 
-      {snapshot &&
-        (tab === 'overview' ? (
+      {snapshot && (tab === 'overview' ? (
           <OverviewView snapshot={snapshot} cleaning={cleaning} cleanProgress={cleanProgress} onCleanup={runCleanup} />
-        ) : (
+        ) : tab === 'sessions' ? (
           <SessionsView snapshot={snapshot} cleaning={cleaning} cleanProgress={cleanProgress} onCleanup={runCleanup} />
-        ))}
+        ) : tab === 'plugins' ? (
+          <PluginsView snapshot={snapshot} cleaning={cleaning} cleanProgress={cleanProgress} onCleanup={runCleanup} />
+        ) : tab === 'workspace' && workspace ? (
+          <WorkspaceView snapshot={workspace} scanning={workspaceScanning} cleaning={cleaning} cleanProgress={cleanProgress} onScan={runWorkspaceScan} onCleanup={runCleanup} />
+        ) : tab === 'automation' ? <AutomationView /> : null)}
     </main>
   )
 }
