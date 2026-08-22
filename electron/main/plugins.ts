@@ -75,7 +75,10 @@ export function pluginStorageCategory(plugins: PluginVersionItem[]): StorageCate
     entries: plugins.filter((plugin) => plugin.status === 'outdated' || plugin.status === 'orphaned').map((plugin): StorageEntry => ({
       id: `trash:${plugin.directoryURL}`,
       title: `${plugin.plugin} · ${plugin.version}`,
-      detail: plugin.status === 'orphaned' ? '插件已卸载，只剩下运行环境' : '已有更新的版本在使用中',
+      detail: '',
+      tags: [plugin.status === 'orphaned'
+        ? { label: '卸载残留', tone: 'caution' as const }
+        : { label: '旧版本', tone: 'neutral' as const }],
       url: plugin.directoryURL,
       bytes: plugin.bytes,
       reclaimableBytes: plugin.bytes,
