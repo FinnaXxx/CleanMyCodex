@@ -123,7 +123,6 @@ struct CodexStorageScanner: Sendable {
     ) -> [StorageCategory] {
         let manager = FileManager()
         let children = contents(of: places.temporary, manager: manager)
-        let cutoff = Calendar.current.date(byAdding: .day, value: -temporaryGraceDays, to: .now) ?? .distantPast
 
         var stale: [StorageEntry] = []
         var marketplace: [StorageEntry] = []
