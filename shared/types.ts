@@ -30,7 +30,7 @@ export const CleanupMethodLabel: Record<CleanupMethod, string> = {
   trash: '移到废纸篓',
   compactDatabase: '压缩数据库',
   deleteThread: '删除会话',
-  slimSession: '会话瘦身'
+  slimSession: '清理图片'
 }
 
 export type StorageKind =
@@ -315,13 +315,13 @@ export const snapshotEmbeddedImageBytes = (s: ScanSnapshot): number =>
 export type SessionSlimMode = 'deduplicate' | 'stripAll'
 
 export const SessionSlimModeLabel: Record<SessionSlimMode, string> = {
-  deduplicate: '去除重复图片',
-  stripAll: '剥离全部内嵌图片'
+  deduplicate: '清理重复图片',
+  stripAll: '清理所有图片'
 }
 
 export const SessionSlimModeDetail: Record<SessionSlimMode, string> = {
   deduplicate: '每张图片保留第一份，删除后续重复副本',
-  stripAll: '移除会话里的全部图片数据，文字记录保持不变'
+  stripAll: '删除会话里的全部图片，文字记录保持不变'
 }
 
 export interface CleanupTask {

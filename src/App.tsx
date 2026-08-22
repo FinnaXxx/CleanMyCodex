@@ -168,7 +168,7 @@ function App() {
         actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup} onOpenDetail={setDetail} />}
       {detail && <div className="detail-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !cleaning) setDetail(null) }}>
         <section className="detail-sheet" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="detail-toolbar"><button className="btn" onClick={() => setDetail(null)}>‹ 返回</button></div>
+        <div className="detail-toolbar"><button className="btn" onClick={() => setDetail(null)}><span className="back-arrow">‹</span>返回</button></div>
         {snapshot && detail === 'sessions' ? <SessionsView snapshot={snapshot} appServerAvailable={!!appInfo?.appServerAvailable} cleaning={cleaning} actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup} />
           : snapshot && detail === 'plugins' ? <PluginsView snapshot={snapshot} cleaning={cleaning} actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup} />
           : detail === 'workspace' && workspace ? <WorkspaceView snapshot={workspace} scanning={workspaceScanning} cleaning={cleaning} actionsDisabled={!!progress} cleanProgress={cleanProgress} onScan={runWorkspaceScan} onCleanup={requestCleanup} />

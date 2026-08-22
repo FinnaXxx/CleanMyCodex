@@ -75,13 +75,14 @@ export default function OverviewView({ snapshot, workspace, appInfo, cleaning, a
       <section className="hero">
         <div className="hero-metrics">
           <div className="metric">
-            <span className="metric-label">Codex 总占用</span>
+            <span className="metric-label">总占用</span>
             <span className="metric-value">{formatBytes(snapshot.totalCodexBytes)}</span>
           </div>
           <div className="metric">
             <span className="metric-label">已选择</span>
-            <span className="metric-value accent">{formatBytes(selectedBytes)}</span>
-            <small>{selectedEntries.length} 项</small>
+            <span className="metric-value accent">
+              {formatBytes(selectedBytes)}<small>{selectedEntries.length} 项</small>
+            </span>
           </div>
         </div>
         <button
@@ -97,7 +98,7 @@ export default function OverviewView({ snapshot, workspace, appInfo, cleaning, a
       {snapshot.notes.map((note) => <p className="notice" key={note}>{note}</p>)}
 
       <section className="shortcuts">
-        <Shortcut title="会话记录" detail="查看、瘦身或删除会话" value={`${snapshot.sessions.length} 个 · ${formatBytes(snapshotSessionBytes(snapshot))}`}
+        <Shortcut title="会话记录" detail="查看、清理图片或删除会话" value={`${snapshot.sessions.length} 个 · ${formatBytes(snapshotSessionBytes(snapshot))}`}
           disabled={!snapshot.sessions.length} onClick={() => onOpenDetail('sessions')} />
         <Shortcut title="插件版本" detail="清理旧版本与卸载残留" value={`${snapshot.pluginVersions.length} 个版本`}
           onClick={() => onOpenDetail('plugins')} />

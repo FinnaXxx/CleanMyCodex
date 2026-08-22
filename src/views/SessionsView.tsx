@@ -52,6 +52,7 @@ export default function SessionsView({ snapshot, appServerAvailable, cleaning, a
   const [sort, setSort] = useState<Sort>('total')
   const [query, setQuery] = useState('')
   const [olderThanDays, setOlderThanDays] = useState(0)
+  const [confirmStripAll, setConfirmStripAll] = useState(false)
 
   useEffect(() => {
     const current = new Set(snapshot.sessions.map((session) => session.id))
@@ -91,9 +92,23 @@ export default function SessionsView({ snapshot, appServerAvailable, cleaning, a
     const next = new Set(previous); next.has(id) ? next.delete(id) : next.add(id); return next
   })
 
+  const runSlim = (mode: SessionSlimMode): void =>
+    onCleanup({ kind: 'sessions-slim', ids: slimTargets(mode).map((session) => session.id), mode })
+
+  useEffect(() => {
+    if (!confirmStripAll) return
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      event.stopPropagation()
+      setConfirmStripAll(false)
+    }
+    document.addEventListener('keydown', onKeyDown, true)
+    return () => document.removeEventListener('keydown', onKeyDown, true)
+  }, [confirmStripAll])
+
   return <>
     <section className="page-heading">
-      <div><h2>会话记录</h2><p>归档只是隐藏，不释放空间。</p></div>
+      <div><h2>会话记录</h2></div>
     </section>
 
     <section className="filters">
@@ -107,7 +122,7 @@ export default function SessionsView({ snapshot, appServerAvailable, cleaning, a
       </select>
       <select value={sort} onChange={(event) => setSort(event.target.value as Sort)} aria-label="排序方式">
         <option value="total">按总占用</option><option value="images">按内嵌图片</option><option value="date">按最后活动</option>
-        <option value="name">按名称</option><option value="slimmable">按可瘦身空间</option>
+        <option value="name">按名称</option><option value="slimmable">按重复图片</option>
       </select>
       <input className="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题或项目" />
     </section>
@@ -135,19 +150,33 @@ export default function SessionsView({ snapshot, appServerAvailable, cleaning, a
     {selectedSessions.length > 0 && <div className="action-bar">
       <span>已选 {selectedSessions.length} 个会话 · {formatBytes(selectedBytes)}</span>
       <div className="action-buttons">
-        <SlimMenu disabled={cleaning || actionsDisabled} bytesFor={slimBytes} countFor={(mode) => slimTargets(mode).length}
-          onPick={(mode) => onCleanup({ kind: 'sessions-slim', ids: slimTargets(mode).map((session) => session.id), mode })} />
+        <ImageCleanupMenu disabled={cleaning || actionsDisabled} bytesFor={slimBytes} countFor={(mode) => slimTargets(mode).length}
+          onPick={(mode) => mode === 'stripAll' ? setConfirmStripAll(true) : runSlim('deduplicate')} />
         <button className="btn danger" disabled={cleaning || actionsDisabled}
           onClick={() => onCleanup({ kind: 'sessions-delete', ids: selectedSessions.map((session) => session.id), mode: appServerAvailable ? 'appServer' : 'trash' })}>
           {cleaning ? `删除中… ${cleanProgress?.completed ?? 0}/${selectedSessions.length}` : '删除所选会话'}
         </button>
       </div>
     </div>}
+
+    {confirmStripAll && <div className="modal-backdrop" onMouseDown={() => setConfirmStripAll(false)}>
+      <section className="cleanup-dialog confirm-dialog" role="alertdialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+        <h2>清理所有图片</h2>
+        <p className="dialog-lead">
+          将从 {slimTargets('stripAll').length} 个会话里删除全部图片，可回收 {formatBytes(slimBytes('stripAll'))}。
+        </p>
+        <p className="notice warning">图片删除后无法恢复，会话的文字记录保持不变。</p>
+        <div className="dialog-actions">
+          <button className="btn" onClick={() => setConfirmStripAll(false)}>取消</button>
+          <button className="btn danger" onClick={() => { setConfirmStripAll(false); runSlim('stripAll') }}>确认删除</button>
+        </div>
+      </section>
+    </div>}
   </>
 }
 
-/** Slimming has two strategies; the button owns that choice instead of a stray dropdown. */
-function SlimMenu({ disabled, bytesFor, countFor, onPick }: {
+/** Two strengths of the same action, so the button owns the choice instead of a stray dropdown. */
+function ImageCleanupMenu({ disabled, bytesFor, countFor, onPick }: {
   disabled: boolean
   bytesFor: (mode: SessionSlimMode) => number
   countFor: (mode: SessionSlimMode) => number
@@ -174,7 +203,7 @@ function SlimMenu({ disabled, bytesFor, countFor, onPick }: {
 
   return <div className="menu-anchor" ref={container}>
     <button className="btn" disabled={disabled || !available} aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-      会话瘦身 <span className="chevron">⌄</span>
+      清理图片 <span className="chevron">⌄</span>
     </button>
     {open && <div className="menu" role="menu">
       {modes.map((mode) => {
@@ -195,10 +224,10 @@ function SessionRow({ session, checked, onToggle }: { session: SessionItem; chec
     <input type="checkbox" aria-label={sessionDisplayName(session)} checked={checked} onChange={onToggle} />
     <div className="session-title">
       <span className="session-name">{sessionDisplayName(session)}</span>
-      {session.tags.length > 0 && <span className="session-tags">{session.tags.map((tag) => <span key={tag} className="tag">{SessionTagLabel[tag]}</span>)}</span>}
+      {session.tags.length > 0 && <span className="session-tags">{session.tags.map((tag) => <span key={tag} className={`tag tag-${tag}`}>{SessionTagLabel[tag]}</span>)}</span>}
       <span className="session-path">{sessionProjectName(session) ? `${sessionProjectName(session)} · ` : ''}{session.fileURL}{session.isUnstable ? ' · 正在写入' : ''}</span>
     </div>
-    <span className="col-status">{SessionLocationLabel[session.location]}</span>
+    <span className="col-status"><span className={`pill loc-${session.location}`}>{SessionLocationLabel[session.location]}</span></span>
     <span className="col-date" title={new Date(session.modifiedAt).toLocaleString()}>{formatDate(session.modifiedAt)}</span>
     <span className="col-num">{formatBytes(session.fileBytes)}</span>
     <span className="col-num">{session.embeddedImageCount ? <>{formatBytes(session.embeddedImageBytes)}{duplicates > 0 && <small> · 重复 {duplicates}</small>}</> : '—'}</span>
