@@ -6,11 +6,19 @@ struct CleanupEngine: Sendable {
     let locations: CodexLocations
     let guards: ProtectedPaths
     let appServer: CodexAppServerClient
+    /// Injectable so the deferral rules can be tested without a running Codex.
+    let isCodexRunning: @Sendable () -> Bool
 
-    init(locations: CodexLocations, activePluginDirectories: [URL] = [], appServer: CodexAppServerClient? = nil) {
+    init(
+        locations: CodexLocations,
+        activePluginDirectories: [URL] = [],
+        appServer: CodexAppServerClient? = nil,
+        isCodexRunning: (@Sendable () -> Bool)? = nil
+    ) {
         self.locations = locations
         self.guards = ProtectedPaths(locations: locations, activePluginDirectories: activePluginDirectories)
         self.appServer = appServer ?? CodexAppServerClient(codexHome: locations.home)
+        self.isCodexRunning = isCodexRunning ?? { CodexRuntimeProbe.isCodexRunning() }
     }
 
     func run(
@@ -22,7 +30,9 @@ struct CleanupEngine: Sendable {
         var session: CodexAppServerSession?
         defer { session?.close() }
 
-        let codexRunning = CodexRuntimeProbe.isCodexRunning()
+// Checked once for the whole batch: only the operations that need exclusive
+        // access to a file care, everything else runs regardless.
+        let codexRunning = isCodexRunning()
 
         for (index, task) in tasks.enumerated() {
             progress(CleanupProgress(completed: index, total: tasks.count, currentTitle: task.title))

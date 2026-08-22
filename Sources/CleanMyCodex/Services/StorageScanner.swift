@@ -24,6 +24,9 @@ struct CodexStorageScanner: Sendable {
         self.logRetentionDays = logRetentionDays
     }
 
+    /// How long an upgrade leftover has to sit still before it counts as abandoned.
+    static let leftoverGraceSeconds: TimeInterval = 3_600
+
     func locations(for codexHome: URL) -> CodexLocations {
         CodexLocations(home: codexHome, library: libraryDirectory, documents: documentsDirectory)
     }
@@ -133,7 +136,10 @@ struct CodexStorageScanner: Sendable {
                 continue
             }
 
-            let isLeftover = name.contains(".staging-") || name.hasPrefix("plugins-clone-")
+            // Staging and clone directories are leftovers only once nothing is using them;
+            // an upgrade unpacking right now looks exactly the same from the outside.
+            let isLeftover = (name.contains(".staging-") || name.hasPrefix("plugins-clone-"))
+                && modified < Date(timeIntervalSinceNow: -Self.leftoverGraceSeconds)
             guard isLeftover || modified < cutoff else { continue }
             stale.append(
                 StorageEntry(

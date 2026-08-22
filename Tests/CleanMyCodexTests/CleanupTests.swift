@@ -155,6 +155,104 @@ struct SQLiteMaintenanceTests {
     }
 }
 
+struct CodexRunningTests {
+    private func locations(_ fixture: TemporaryFixture) -> CodexLocations {
+        CodexLocations(
+            home: fixture.directory("codex"),
+            library: fixture.directory("Library"),
+            documents: fixture.directory("Documents")
+        )
+    }
+
+    /// Codex being open must not hold up the work that does not need the file to itself.
+    @Test func cachesAreCleanedWhileCodexRunsAndOnlyExclusiveWorkIsDeferred() throws {
+        let fixture = try TemporaryFixture()
+        defer { fixture.remove() }
+        let places = locations(fixture)
+
+        let cache = fixture.directory("codex/.tmp/openai-bundled.staging-1")
+        try Data(repeating: 0x41, count: 30_000).write(to: cache.appending(path: "payload.bin"))
+        let database = fixture.file("codex/logs_2.sqlite")
+        SQLiteFixture.makeLogDatabase(at: database)
+
+        let engine = CleanupEngine(locations: places, isCodexRunning: { true })
+        let report = engine.run(tasks: [
+            CleanupTask(
+                id: "cache",
+                title: "staging",
+                detail: "",
+                url: cache,
+                method: .trash,
+                expectedBytes: 30_000
+            ),
+            CleanupTask(
+                id: "db",
+                title: "logs_2.sqlite",
+                detail: "",
+                url: database,
+                method: .compactDatabase,
+                expectedBytes: 1_000
+            )
+        ])
+
+        let cacheOutcome = try #require(report.outcomes.first { $0.id == "cache" })
+        #expect(cacheOutcome.status == .succeeded)
+        #expect(cacheOutcome.freedBytes > 0)
+        #expect(!FileManager.default.fileExists(atPath: cache.path))
+
+        let databaseOutcome = try #require(report.outcomes.first { $0.id == "db" })
+        if case let .skipped(reason) = databaseOutcome.status {
+            #expect(reason.contains("Codex"))
+        } else {
+            Issue.record("压缩应该被推迟，实际是 \(databaseOutcome.status)")
+        }
+        // Deferred means untouched, not lost.
+        #expect(FileManager.default.fileExists(atPath: database.path))
+    }
+
+    @Test func everythingRunsWhenCodexIsClosed() throws {
+        let fixture = try TemporaryFixture()
+        defer { fixture.remove() }
+        let places = locations(fixture)
+        let database = fixture.file("codex/logs_2.sqlite")
+        SQLiteFixture.makeLogDatabase(at: database)
+
+        let engine = CleanupEngine(locations: places, isCodexRunning: { false })
+        let report = engine.run(tasks: [
+            CleanupTask(
+                id: "db",
+                title: "logs_2.sqlite",
+                detail: "",
+                url: database,
+                method: .compactDatabase,
+                expectedBytes: 1_000
+            )
+        ])
+
+        #expect(report.outcomes.first?.status == .succeeded)
+        #expect(FileManager.default.fileExists(atPath: database.path))
+    }
+
+    /// An upgrade unpacking right now looks like a leftover; it must be left alone.
+    @Test func freshStagingDirectoriesAreNotTreatedAsLeftovers() throws {
+        let fixture = try TemporaryFixture()
+        defer { fixture.remove() }
+        let inFlight = fixture.directory(".tmp/openai-bundled.staging-inflight")
+        try Data(repeating: 0x41, count: 50_000).write(to: inFlight.appending(path: "payload.bin"))
+        let abandoned = fixture.directory(".tmp/openai-bundled.staging-old")
+        try Data(repeating: 0x42, count: 50_000).write(to: abandoned.appending(path: "payload.bin"))
+        fixture.age(".tmp/openai-bundled.staging-old", hours: 6)
+
+        let snapshot = try CodexStorageScanner(libraryDirectory: fixture.directory("Library"))
+            .scan(codexHome: fixture.root)
+        let temporary = try #require(snapshot.categories.first { $0.kind == .temporary })
+        let names = temporary.entries.map(\.title)
+
+        #expect(names.contains("openai-bundled.staging-old"))
+        #expect(!names.contains("openai-bundled.staging-inflight"))
+    }
+}
+
 struct CleanupPlannerTests {
     private func snapshot(with sessions: [SessionItem]) -> ScanSnapshot {
         ScanSnapshot(

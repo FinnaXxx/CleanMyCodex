@@ -10,18 +10,12 @@ enum AutomaticCleanupRunner {
             AutomationStore.appendLog("自动清理未开启，跳过。")
             return 0
         }
-        guard !CodexRuntimeProbe.isCodexRunning() else {
-            AutomationStore.appendLog("Codex 正在运行，本次跳过，等待下一次计划任务。")
-            AutomationStore.save(
-                AutomaticRunRecord(
-                    finishedAt: .now,
-                    freedBytes: 0,
-                    succeeded: 0,
-                    failed: 0,
-                    skippedReason: "Codex 正在运行"
-                )
-            )
-            return 0
+        // Codex running is not a reason to skip the pass. Caches, temporary directories,
+        // old plugin versions and expired sessions are all safe to clean while it runs;
+        // only the operations that need exclusive access to a file defer themselves, and
+        // the engine decides that per task.
+        if CodexRuntimeProbe.isCodexRunning() {
+            AutomationStore.appendLog("Codex 正在运行：照常清理，需要独占文件的项目会推迟到下一次。")
         }
 
         let home = CodexLocations.resolveHome()
@@ -50,16 +44,27 @@ enum AutomaticCleanupRunner {
                 appServer: client
             )
             let report = engine.run(tasks: tasks)
+            let deferred = report.outcomes.filter { outcome in
+                if case .skipped = outcome.status { return true }
+                return false
+            }
+            let failures = report.problems.count - deferred.count
             AutomationStore.appendLog(
-                "完成：\(report.summary)，成功 \(report.succeeded.count) 项，未完成 \(report.problems.count) 项。"
+                "完成：\(report.summary)，成功 \(report.succeeded.count) 项，"
+                    + "推迟 \(deferred.count) 项，失败 \(max(0, failures)) 项。"
             )
+            for outcome in deferred {
+                AutomationStore.appendLog("  推迟：\(outcome.title) — \(outcome.status.message ?? "")")
+            }
             AutomationStore.save(
                 AutomaticRunRecord(
                     finishedAt: .now,
                     freedBytes: report.freedBytes,
                     succeeded: report.succeeded.count,
-                    failed: report.problems.count,
-                    skippedReason: nil
+                    failed: max(0, failures),
+                    skippedReason: nil,
+                    deferred: deferred.count,
+                    deferredNote: deferred.first?.status.message
                 )
             )
             if settings.notifyWhenFinished {

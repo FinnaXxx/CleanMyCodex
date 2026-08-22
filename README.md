@@ -20,6 +20,7 @@ Codex 的数据分散在 `~/.codex`、`~/Library/Application Support/Codex`、`~
 - 分成「建议清理 / 谨慎清理 / 受保护」三组，点整行即可展开看到具体路径和大小。
 - 生成图片按线程分组，直接显示是哪个会话产生的；会话已删除的图片会单独标出，可以安全清理。
 - 扫描过程显示当前路径与进度，可以随时停止。
+- `.staging-*` / `plugins-clone-*` 要静置 1 小时以上才算残留——正在解包的升级从外面看长得一模一样。
 
 ### 会话记录
 
@@ -62,7 +63,9 @@ Codex 的数据分散在 `~/.codex`、`~/Library/Application Support/Codex`、`~
 ### 自动清理
 
 - 写入用户级 LaunchAgent（`com.finnaxxx.clean-my-codex.autoclean`），按设定周期运行 `CleanMyCodex --auto-clean`。
-- Codex 正在运行时整体跳过，等待下一次计划任务。
+- **Codex 开着也照常运行**。缓存、临时文件、旧插件版本、过期会话都不需要关掉 Codex；
+  只有需要独占文件的两件事会推迟到下一次：日志数据库压缩（`VACUUM` 必须独占）和会话瘦身
+  （改写正在被追加的 rollout 会毁文件）。推迟的项目会写进日志和上次运行记录，不是失败。
 - 可分别设置归档与未归档会话的保留天数，默认关闭；缓存与旧版本插件默认开启。
 - 可选登录时启动（SMAppService）与完成后通知，运行记录写入 `~/Library/Logs/CleanMyCodex/autoclean.log`。
 
@@ -70,7 +73,7 @@ Codex 的数据分散在 `~/.codex`、`~/Library/Application Support/Codex`、`~
 
 - 普通文件一律**移到废纸篓**，不做不可恢复的删除。会话瘦身也一样：被替换的原始会话文件进废纸篓。
 - 日志数据库只做 `wal_checkpoint(TRUNCATE)` → `VACUUM` → `integrity_check`，不删除诊断记录；
-  Codex 运行时自动跳过。
+  Codex 运行时这一项推迟，其余照常清理。
 - `config.toml` 里 `[marketplaces.*]` 声明的本地 source 目录一律受保护。Codex 把随版本内置的
   插件市场解包到 `~/.codex/.tmp/bundled-marketplaces/`，名字看着像临时文件，实际是
   `@openai-bundled` 那批插件（browser、computer-use、visualize 等）当前的加载来源；

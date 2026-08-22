@@ -31,6 +31,15 @@ struct TemporaryFixture {
         return url
     }
 
+    /// Backdates a path so grace-period rules treat it as settled.
+    func age(_ relativePath: String, hours: Double) {
+        let url = file(relativePath)
+        try? FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: -hours * 3_600)],
+            ofItemAtPath: url.path
+        )
+    }
+
     func remove() {
         try? FileManager.default.removeItem(at: root)
     }

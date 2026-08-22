@@ -212,6 +212,7 @@ struct StorageScannerTests {
 
         let staging = fixture.directory(".tmp/openai-bundled.staging-1234")
         try Data(repeating: 0x41, count: 200_000).write(to: staging.appending(path: "payload.bin"))
+        fixture.age(".tmp/openai-bundled.staging-1234", hours: 6)
         let marketplace = fixture.directory(".tmp/plugins-marketplace-cache")
         try Data(repeating: 0x42, count: 120_000).write(to: marketplace.appending(path: "index.json"))
         let fresh = fixture.directory(".tmp/in-flight")
@@ -259,6 +260,7 @@ struct StorageScannerTests {
 
         let staging = fixture.directory(".tmp/openai-bundled.staging-64e5ba9c")
         try Data(repeating: 0x42, count: 90_000).write(to: staging.appending(path: "payload.bin"))
+        fixture.age(".tmp/openai-bundled.staging-64e5ba9c", hours: 6)
 
         let snapshot = try CodexStorageScanner(libraryDirectory: library).scan(codexHome: fixture.root)
 
