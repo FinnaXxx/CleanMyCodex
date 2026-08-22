@@ -332,6 +332,17 @@ struct SessionPreviewTests {
     @Test func skipsInjectedContextTurns() {
         let line = Data(#"{"payload":{"role":"user","content":[{"type":"input_text","text":"<environment_context>cwd=/tmp</environment_context>"}]}}"#.utf8)
         #expect(SessionContentScanner.parsePreview(line) == nil)
+
+        let instructions = Data(#"{"payload":{"type":"user_message","message":"Here are the user_instructions:\n<user_instructions>be nice</user_instructions>"}}"#.utf8)
+        #expect(SessionContentScanner.parsePreview(instructions) == nil)
+
+        let agents = Data(#"{"payload":{"type":"user_message","message":"# AGENTS.md\nAlways run the tests."}}"#.utf8)
+        #expect(SessionContentScanner.parsePreview(agents) == nil)
+    }
+
+    @Test func unwrapsTheRealRequestFromAPreamble() {
+        let line = Data(#"{"payload":{"type":"user_message","message":"context blah blah My request for Codex: 把进度条修好"}}"#.utf8)
+        #expect(SessionContentScanner.parsePreview(line) == "把进度条修好")
     }
 
     @Test func collapsesWhitespaceAndTruncates() throws {

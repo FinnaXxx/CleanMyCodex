@@ -50,6 +50,10 @@ struct CodexStorageScanner: Sendable {
         reporter.enter(stage: "会话", base: 0.43, span: 0.49)
         let sessions = try sessionItems(in: places, reporter: reporter)
 
+        if !sessions.isEmpty, !sessions.contains(where: { $0.title != nil }) {
+            notes.append("没能从 state_*.sqlite 读到 Codex 的会话标题，列表会回落到会话首句和项目名。")
+        }
+
         reporter.enter(stage: "资产目录", base: 0.92, span: 0.05)
         let assetItems = assetCategories(in: places, sessions: sessions, reporter: reporter)
 
@@ -576,6 +580,8 @@ struct CodexStorageScanner: Sendable {
             + sessionFiles(at: places.archivedSessions, location: .archived)
         let totalBytes = max(1, files.reduce(Int64(0)) { $0 + FileSize.of($1.url) })
 
+        // Codex' own thread titles, read straight from its state database.
+        let titles = CodexThreadIndex.load(codexHome: places.home)
         var cache = SessionScanCache.load(from: places.scanCache)
         var processed: Int64 = 0
         var result: [SessionItem] = []
@@ -583,7 +589,7 @@ struct CodexStorageScanner: Sendable {
         for file in files {
             if Task.isCancelled { cancelled = true; break }
             reporter?.note(file.url.path, fraction: Double(processed) / Double(totalBytes))
-            result.append(sessionItem(for: file, in: places, cache: &cache))
+            result.append(sessionItem(for: file, in: places, titles: titles, cache: &cache))
             processed += FileSize.of(file.url)
         }
         // A cancelled pass has not seen every file, so pruning would throw away good records.
@@ -613,6 +619,7 @@ struct CodexStorageScanner: Sendable {
     private func sessionItem(
         for file: (url: URL, location: SessionLocation),
         in places: CodexLocations,
+        titles: CodexThreadIndex,
         cache: inout SessionScanCache
     ) -> SessionItem {
         let url = file.url
@@ -675,7 +682,7 @@ struct CodexStorageScanner: Sendable {
             embeddedImageBytes: content.images.uriBytes,
             embeddedImageCount: content.images.count,
             workingDirectory: metadata.workingDirectory,
-            title: metadata.title,
+            title: titles.title(forThreadID: threadID, rolloutPath: url) ?? metadata.title,
             preview: metadata.preview,
             tags: tags,
             isCompressed: compressed,
@@ -872,13 +879,33 @@ struct SessionContentScanner: Sendable {
         return cleanPreview(text)
     }
 
+    /// Markers that mean the turn is machine preamble rather than something the user typed.
+    private static let preambleMarkers = [
+        "<environment_context",
+        "<user_instructions",
+        "<user_shell",
+        "<agents",
+        "# agents.md",
+        "you are a coding agent"
+    ]
+
+    /// Only used when Codex has no title of its own for the thread. Codex opens every
+    /// thread with injected context turns, so most of what comes first is not a summary
+    /// of anything — drop those instead of showing their first line as a title.
     static func cleanPreview(_ raw: String?) -> String? {
         guard let raw else { return nil }
-        // Codex opens every thread with <environment_context> and <user_instructions>
-        // turns; those are machine preamble, not something the user would recognise.
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !trimmed.hasPrefix("<") else { return nil }
-        let collapsed = trimmed.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+        var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return nil }
+
+        // Some Codex builds wrap the real request in a preamble on the first turn.
+        if let marker = value.range(of: "My request for Codex:") {
+            value = String(value[marker.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard !value.hasPrefix("<") else { return nil }
+        let head = value.prefix(400).lowercased()
+        for marker in preambleMarkers where head.contains(marker) { return nil }
+
+        let collapsed = value.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
         guard !collapsed.isEmpty else { return nil }
         return collapsed.count > 90 ? String(collapsed.prefix(90)) + "…" : collapsed
     }
