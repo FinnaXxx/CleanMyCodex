@@ -2,6 +2,7 @@ import { readdirSync, statSync } from 'node:fs'
 import { join, basename } from 'node:path'
 import { CodexLocations } from './locations'
 import { directoryAllocatedSize, fileAllocatedSize } from './fs-size'
+import { scanSessions } from './sessions'
 import type { ScanSnapshot, StorageCategory, StorageEntry } from '../../shared/types'
 
 const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
@@ -180,13 +181,15 @@ export async function scanSnapshot(
     .reduce((sum, path) => sum + directoryAllocatedSize(path), 0)
   const totalCodexBytes = directoryAllocatedSize(locations.home) + externalBytes
 
+  const sessions = await scanSessions(locations, onProgress)
+
   return {
     codexHome: locations.home,
     scannedAt: Date.now(),
     totalCodexBytes,
     externalBytes,
     categories: categories.filter((c) => c.entries.length > 0),
-    sessions: [],
+    sessions,
     pluginVersions: [],
     workspace: { root: locations.workspace, isScanned: false, entries: [] },
     notes: []

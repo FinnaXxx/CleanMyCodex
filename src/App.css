@@ -210,3 +210,98 @@ h1 {
 .empty {
   color: #86868b;
 }
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #e5e5ea;
+}
+.tab {
+  font: inherit;
+  padding: 8px 16px;
+  border: none;
+  background: none;
+  color: #6e6e73;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.tab.active {
+  color: #1d1d1f;
+  border-bottom-color: #007aff;
+}
+.tab:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Sessions table */
+.table-head {
+  display: grid;
+  grid-template-columns: 22px 1fr 72px 110px 88px 110px 88px;
+  gap: 10px;
+  align-items: center;
+  padding: 0 14px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #86868b;
+}
+.col-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.col-status,
+.col-date {
+  font-variant-numeric: tabular-nums;
+}
+.session-list {
+  list-style: none;
+  margin: 0 0 80px;
+  padding: 0;
+}
+.session-row {
+  display: grid;
+  grid-template-columns: 22px 1fr 72px 110px 88px 110px 88px;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 14px;
+  border-top: 1px solid #f0f0f2;
+  font-size: 13px;
+}
+.session-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.session-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-path {
+  font-size: 11px;
+  color: #a1a1a6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-tags {
+  display: flex;
+  gap: 4px;
+}
+.tag {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #ebebed;
+  color: #6e6e73;
+}
+
+/* Danger variant for the destructive action */
+.clean.danger {
+  background: #d20b34;
+}

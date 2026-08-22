@@ -3,8 +3,7 @@ import type {
   CleanupTask,
   CleanupOutcome,
   CleanupReport,
-  CleanupStatus,
-  StorageEntry
+  CleanupStatus
 } from '../../shared/types'
 import { ProtectedPaths, ProtectedPathError } from './guard'
 
@@ -13,29 +12,17 @@ export interface CleanupDeps {
   trash: (path: string) => Promise<void>
   /** Whether Codex is currently running — gates work that needs it fully stopped. */
   isCodexRunning: () => boolean
+  /** Codex app server, used to delete threads cleanly (drops derived metadata + children). */
+  appServer: {
+    isAvailable: boolean
+    deleteThread: (threadID: string) => Promise<void>
+  }
 }
 
 export interface CleanupProgress {
   completed: number
   total: number
   currentTitle: string
-}
-
-/** Build cleanup tasks from the entries the user selected in the UI. */
-export function tasksFromEntries(entries: StorageEntry[]): CleanupTask[] {
-  return entries.map((entry) => ({
-    id: entry.id,
-    title: entry.title,
-    detail: entry.detail,
-    url: entry.url,
-    method: entry.method,
-    expectedBytes: entry.reclaimableBytes,
-    threadID: null,
-    companionURLs: [],
-    slimMode: null,
-    minimumIdleSeconds: entry.minimumIdleSeconds,
-    requiresCodexStopped: entry.requiresCodexStopped
-  }))
 }
 
 function pathExists(path: string): boolean {
@@ -88,7 +75,7 @@ async function runOne(
     case 'compactDatabase':
       return deferred(task, '压缩数据库将在后续版本支持')
     case 'deleteThread':
-      return deferred(task, '会话删除将在后续版本支持')
+      return runDeleteThread(task, guards, deps)
     case 'slimSession':
       return deferred(task, '会话瘦身将在后续版本支持')
   }
@@ -128,6 +115,53 @@ async function runTrash(
 
 function deferred(task: CleanupTask, reason: string): CleanupOutcome {
   return outcome(task, { kind: 'skipped', reason }, 0)
+}
+
+/**
+ * Delete a session through the app server when available — that also drops the derived
+ * metadata and spawned child threads — then trash anything left behind (the rollout file
+ * and its generated-image assets). Falls back to trashing directly when there is no
+ * `codex` CLI.
+ */
+async function runDeleteThread(
+  task: CleanupTask,
+  guards: ProtectedPaths,
+  deps: CleanupDeps
+): Promise<CleanupOutcome> {
+  const targets = [task.url, ...task.companionURLs]
+  const beforeBytes = targets.filter(pathExists).reduce((sum, t) => sum + fileAllocated(t), 0)
+
+  if (deps.appServer.isAvailable && task.threadID) {
+    try {
+      await deps.appServer.deleteThread(task.threadID)
+    } catch (err) {
+      // Fall through to trashing the rollout directly, but surface that the app server failed.
+      return outcome(task, { kind: 'failed', reason: errorMessage(err) }, 0)
+    }
+  }
+
+  let freed = 0
+  for (const target of targets) {
+    if (!pathExists(target)) continue
+    try {
+      guards.validate(target)
+      const bytes = fileAllocated(target)
+      await deps.trash(target)
+      freed += bytes
+    } catch (err) {
+      if (err instanceof ProtectedPathError) {
+        return outcome(task, { kind: 'failed', reason: err.message }, freed)
+      }
+      return outcome(task, { kind: 'failed', reason: errorMessage(err) }, freed)
+    }
+  }
+
+  const afterBytes = targets.filter(pathExists).reduce((sum, t) => sum + fileAllocated(t), 0)
+  freed = Math.max(0, beforeBytes - afterBytes)
+  if (freed === 0) {
+    return outcome(task, { kind: 'skipped', reason: '路径已不存在' }, 0)
+  }
+  return outcome(task, { kind: 'succeeded' }, freed)
 }
 
 function outcome(task: CleanupTask, status: CleanupStatus, freedBytes: number): CleanupOutcome {
