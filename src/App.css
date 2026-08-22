@@ -335,6 +335,8 @@ label.entry-label { cursor: pointer; }
 /* --- filters --- */
 .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
 .filters .search { flex: 1; min-width: 180px; }
+.filter-days { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 13px; }
+.filter-days .number { width: 76px; }
 .filters label { color: var(--text-secondary); font-size: 13px; }
 .filters select, .filters input, .number, .form-card input[type='number'] {
   font: inherit;
@@ -401,7 +403,7 @@ label.entry-label { cursor: pointer; }
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 12px max(32px, calc((100vw - 940px) / 2));
+  padding: 12px max(32px, calc((100vw - 1180px) / 2));
   background: var(--surface-raised);
   backdrop-filter: blur(18px);
   border-top: 1px solid var(--line);
@@ -450,19 +452,14 @@ label.entry-label { cursor: pointer; }
   position: fixed;
   inset: 0;
   z-index: 50;
-  padding: 28px;
-  background: rgba(10, 10, 15, 0.32);
-  backdrop-filter: blur(4px);
+  background: var(--bg);
 }
 .detail-sheet {
-  width: min(1140px, calc(100vw - 56px));
-  height: calc(100vh - 56px);
-  margin: 0 auto;
+  width: 100%;
+  height: 100%;
   overflow: auto;
-  padding: 0 28px 100px;
-  border-radius: var(--radius-lg);
+  padding: 0 max(32px, calc((100vw - 1180px) / 2)) 100px;
   background: var(--bg);
-  box-shadow: var(--shadow-lg);
 }
 .detail-toolbar {
   position: sticky;
@@ -470,8 +467,8 @@ label.entry-label { cursor: pointer; }
   z-index: 5;
   display: flex;
   align-items: center;
-  margin: 0 -28px 16px;
-  padding: 12px 28px;
+  margin: 0 calc(-1 * max(32px, calc((100vw - 1180px) / 2))) 16px;
+  padding: 12px max(32px, calc((100vw - 1180px) / 2));
   background: var(--surface-raised);
   backdrop-filter: blur(18px);
   border-bottom: 1px solid var(--line);
@@ -622,8 +619,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 @media (max-width: 1080px) {
   .app { padding-left: 20px; padding-right: 20px; }
   .action-bar, .page-footer { padding-left: 20px; padding-right: 20px; }
-  .detail-backdrop { padding: 12px; }
-  .detail-sheet { width: calc(100vw - 24px); height: calc(100vh - 24px); padding-left: 18px; padding-right: 18px; }
+  .detail-sheet { padding-left: 18px; padding-right: 18px; }
   .detail-toolbar { margin-left: -18px; margin-right: -18px; padding-left: 18px; padding-right: 18px; }
   .table-head, .session-row { grid-template-columns: 16px minmax(0, 1fr) 60px 96px 84px 92px 30px; }
   .table-head .col-num:nth-of-type(2), .session-row .col-num:nth-of-type(2) { display: none; }

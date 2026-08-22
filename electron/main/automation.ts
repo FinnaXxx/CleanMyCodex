@@ -11,9 +11,9 @@ export const DEFAULT_AUTOMATION_SETTINGS: AutomationSettings = {
   cleanCaches: true,
   cleanOldPlugins: true,
   cleanArchivedSessions: false,
-  archivedRetentionDays: 180,
+  archivedRetentionDays: 60,
   cleanActiveSessions: false,
-  activeRetentionDays: 365,
+  activeRetentionDays: 60,
   skipRecentSessions: true,
   notifyWhenFinished: true,
   launchAtLogin: false
