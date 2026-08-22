@@ -36,6 +36,8 @@ let latestSnapshot: ScanSnapshot | null = null
 let latestWorkspace: WorkspaceSnapshot = { root: locations.workspace, isScanned: false, entries: [] }
 let scanWorker: Worker | null = null
 let scanController: AbortController | null = null
+let scanRevision = 0
+const cancelledWorkers = new WeakSet<Worker>()
 
 ipcMain.handle('app:info', () => {
   const environment = codexEnvironment()
@@ -48,30 +50,52 @@ ipcMain.handle('app:info', () => {
   }
 })
 
-ipcMain.handle('scan:run', async () => {
+ipcMain.handle('scan:run', () => runInteractiveScan(async (signal) => {
+  const installedPlugins = await appServer.installedPlugins(signal)
+  throwIfScanCancelled(signal)
+  const snapshot = await runWorker<ScanSnapshot>({ type: 'scan', installedPlugins })
+  latestSnapshot = snapshot
+  latestWorkspace = snapshot.workspace
+  guards = guardsFor(snapshot)
+  return snapshot
+}))
+
+ipcMain.handle('scan:cancel', () => {
+  scanRevision += 1
+  return cancelActiveScan()
+})
+
+ipcMain.handle('workspace:scan', () => runInteractiveScan(async () => {
+  latestWorkspace = await runWorker<WorkspaceSnapshot>({ type: 'workspace' })
+  return latestWorkspace
+}))
+
+async function runInteractiveScan<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T | null> {
+  const revision = ++scanRevision
   await cancelActiveScan()
+  if (revision !== scanRevision) return null
+
   const controller = new AbortController()
   scanController = controller
   try {
-    const installedPlugins = await appServer.installedPlugins(controller.signal)
-    if (controller.signal.aborted) throw new DOMException('扫描已停止', 'AbortError')
-    const snapshot = await runWorker<ScanSnapshot>({ type: 'scan', installedPlugins })
-    latestSnapshot = snapshot
-    latestWorkspace = snapshot.workspace
-    guards = guardsFor(snapshot)
-    return snapshot
+    return await operation(controller.signal)
+  } catch (error) {
+    // Cancellation is a normal IPC outcome. Rejecting here makes Electron log it as
+    // an unhandled handler error even though the renderer deliberately requested it.
+    if (controller.signal.aborted || revision !== scanRevision || isScanCancellation(error)) return null
+    throw error
   } finally {
     if (scanController === controller) scanController = null
   }
-})
+}
 
-ipcMain.handle('scan:cancel', () => cancelActiveScan())
+function throwIfScanCancelled(signal: AbortSignal): void {
+  if (signal.aborted) throw new DOMException('扫描已停止', 'AbortError')
+}
 
-ipcMain.handle('workspace:scan', async () => {
-  await cancelActiveScan()
-  latestWorkspace = await runWorker<WorkspaceSnapshot>({ type: 'workspace' })
-  return latestWorkspace
-})
+function isScanCancellation(error: unknown): boolean {
+  return error instanceof Error && (error.name === 'AbortError' || error.message === '扫描已停止')
+}
 
 function runWorker<T>(request: object): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -91,7 +115,7 @@ function runWorker<T>(request: object): Promise<T> {
     })
     worker.on('error', (error) => finish(() => reject(error)))
     worker.on('exit', (code) => {
-      finish(() => reject(new Error(code === 1 ? '扫描已停止' : `扫描进程已退出（${code}）`)))
+      finish(() => reject(new Error(cancelledWorkers.has(worker) ? '扫描已停止' : `扫描进程已退出（${code}）`)))
     })
     worker.postMessage(request)
   })
@@ -100,6 +124,7 @@ function runWorker<T>(request: object): Promise<T> {
 async function stopScanWorker(): Promise<void> {
   const worker = scanWorker
   if (!worker) return
+  cancelledWorkers.add(worker)
   await worker.terminate()
   if (scanWorker === worker) scanWorker = null
 }
