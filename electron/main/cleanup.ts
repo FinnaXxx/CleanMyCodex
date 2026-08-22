@@ -106,10 +106,10 @@ async function runTrash(
   codexRunning: boolean
 ): Promise<CleanupOutcome> {
   if (task.requiresCodexStopped && codexRunning) {
-    return outcome(task, { kind: 'skipped', reason: 'Codex 正在运行，暂存目录可能正在使用' }, 0)
+    return outcome(task, { kind: 'skipped', reason: 'Codex 正在运行，请退出后重新清理' }, 0)
   }
   if (task.minimumIdleSeconds !== null && Date.now() - latestActivity(task.url) < task.minimumIdleSeconds * 1000) {
-    return outcome(task, { kind: 'skipped', reason: '扫描后路径又有写入，已推迟清理' }, 0)
+    return outcome(task, { kind: 'skipped', reason: '扫描后路径又有写入，请稍后重新扫描并清理' }, 0)
   }
 
   const targets = [task.url, ...task.companionURLs]
@@ -146,7 +146,7 @@ function runCompactDatabase(
     return outcome(task, { kind: 'skipped', reason: `数据库正在被使用（${usage.processes.join('、')}）` }, 0)
   }
   if (usage.kind === 'unknown' && codexRunning) {
-    return outcome(task, { kind: 'skipped', reason: '无法确认数据库是否被占用，Codex 正在运行，压缩已推迟' }, 0)
+    return outcome(task, { kind: 'skipped', reason: '无法确认数据库是否被占用，请退出 Codex 后重新清理' }, 0)
   }
   try {
     guards.validate(task.url)
@@ -170,7 +170,7 @@ async function runSlimSession(
     return outcome(task, { kind: 'skipped', reason: `这个会话正在被使用（${usage.processes.join('、')}）` }, 0)
   }
   if (usage.kind === 'unknown' && codexRunning) {
-    return outcome(task, { kind: 'skipped', reason: '无法确认会话是否正在写入，Codex 正在运行，本次跳过' }, 0)
+    return outcome(task, { kind: 'skipped', reason: '无法确认会话是否正在写入，请退出 Codex 后重新清理' }, 0)
   }
   try {
     guards.validate(task.url)

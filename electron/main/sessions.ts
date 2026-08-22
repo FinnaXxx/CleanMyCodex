@@ -7,7 +7,7 @@ import { CodexThreadIndex } from './thread-index'
 import { SessionScanCache, type CachedSessionContent } from './session-cache'
 import { cleanPreview } from './preview'
 import type { SessionItem, SessionLocation, SessionTag } from '../../shared/types'
-import { sessionTotalBytes } from '../../shared/types'
+import { sessionImageBytes, sessionTotalBytes } from '../../shared/types'
 
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
 const PREFIXES = [Buffer.from('data:image/'), Buffer.from('data:image\\/')]
@@ -215,6 +215,7 @@ function groupSubagents(items: SessionItem[]): void {
     if (!parent) continue
     parent.childThreadCount += 1
     parent.childBytes += sessionTotalBytes(child)
+    parent.childImageBytes += sessionImageBytes(child)
     parent.childURLs.push(child.fileURL, ...child.assetURLs)
   }
 }
@@ -275,7 +276,7 @@ export async function scanSessions(
       workingDirectory: content.cwd, title: titles.title(threadID, file.url) ?? content.metadataTitle,
       preview: content.preview, tags, isCompressed: compressed, isUnstable: unstable, parseWarnings: content.parseWarnings,
       isSubagent: content.isSubagent, parentThreadID: content.parentThreadID,
-      childThreadCount: 0, childBytes: 0, childURLs: []
+      childThreadCount: 0, childBytes: 0, childImageBytes: 0, childURLs: []
     })
     processedBytes += before.logicalBytes
   }

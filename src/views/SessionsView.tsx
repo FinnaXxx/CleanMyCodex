@@ -10,6 +10,7 @@ import {
   SessionSlimModeLabel,
   SessionTagLabel,
   sessionDisplayName,
+  sessionImageBytes,
   sessionProjectName,
   sessionTotalBytes,
   listableSessions,
@@ -27,7 +28,7 @@ interface Props {
 }
 
 type Scope = 'all' | 'active' | 'archived'
-type Sort = 'total' | 'images' | 'date' | 'name' | 'slimmable'
+type Sort = 'total' | 'imageSize' | 'date' | 'name'
 
 /** Compact enough for one line: this year keeps the time, older entries keep the year. */
 function formatDate(ms: number): string {
@@ -66,10 +67,9 @@ export default function SessionsView({ snapshot, appServerAvailable, cleaning, a
         .filter(Boolean).join(' ').toLocaleLowerCase().includes(needle)
     })
     return items.sort((a, b) => {
-      if (sort === 'images') return b.embeddedImageBytes - a.embeddedImageBytes
+      if (sort === 'imageSize') return sessionImageBytes(b) - sessionImageBytes(a)
       if (sort === 'date') return b.modifiedAt - a.modifiedAt
       if (sort === 'name') return sessionDisplayName(a).localeCompare(sessionDisplayName(b))
-      if (sort === 'slimmable') return b.duplicateImageBytes - a.duplicateImageBytes
       return sessionTotalBytes(b) - sessionTotalBytes(a)
     })
   }, [olderThanDays, query, scope, listable, sort])
@@ -119,8 +119,8 @@ export default function SessionsView({ snapshot, appServerAvailable, cleaning, a
         天前
       </label>
       <select value={sort} onChange={(event) => setSort(event.target.value as Sort)} aria-label="排序方式">
-        <option value="total">按总占用</option><option value="images">按内嵌图片</option><option value="date">按最后活动</option>
-        <option value="name">按名称</option><option value="slimmable">按重复图片</option>
+        <option value="total">按总占用</option><option value="imageSize">按图片大小</option><option value="date">按最后活动</option>
+        <option value="name">按名称</option>
       </select>
       <input className="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题或项目" />
     </section>
@@ -137,7 +137,7 @@ export default function SessionsView({ snapshot, appServerAvailable, cleaning, a
             return next
           })} />
         <span>会话</span><span className="col-status">状态</span><span className="col-date">最后活动</span>
-        <span className="col-num">会话文件</span><span className="col-num">内嵌图片</span><span className="col-num">总占用</span><span />
+        <span className="col-num">会话文件</span><span className="col-num">图片</span><span className="col-num">总占用</span><span />
       </div>
       <ul className="session-list">
         {visible.map((session) => <SessionRow key={session.id} session={session} checked={selected.has(session.id)} onToggle={() => toggle(session.id)} />)}
@@ -228,7 +228,7 @@ function SessionRow({ session, checked, onToggle }: { session: SessionItem; chec
     <span className="col-status"><span className={`pill loc-${session.location}`}>{SessionLocationLabel[session.location]}</span></span>
     <span className="col-date" title={new Date(session.modifiedAt).toLocaleString()}>{formatDate(session.modifiedAt)}</span>
     <span className="col-num">{formatBytes(session.fileBytes)}</span>
-    <span className="col-num">{session.embeddedImageCount ? <>{formatBytes(session.embeddedImageBytes)}{duplicates > 0 && <small>重复 {duplicates}</small>}</> : '—'}</span>
+    <span className="col-num">{sessionImageBytes(session) ? <>{formatBytes(sessionImageBytes(session))}{duplicates > 0 && <small>重复 {duplicates}</small>}</> : '—'}</span>
     <span className="col-num">{formatBytes(sessionTotalBytes(session))}</span>
     <button className="icon-button" title="在文件管理器中显示" aria-label="在文件管理器中显示" onClick={() => window.cleanmycodex.revealPath(session.fileURL)}><FolderIcon /></button>
   </li>

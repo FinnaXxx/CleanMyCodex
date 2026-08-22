@@ -12,7 +12,7 @@ function session(id: string, overrides: Partial<SessionItem> = {}): SessionItem 
     modifiedAt: 0, fileBytes: 100, assetBytes: 0, assetURLs: [], embeddedImageBytes: 60, embeddedImageCount: 2,
     distinctImageCount: 1, duplicateImageBytes: 30, workingDirectory: null, title: id, preview: null, tags: [],
     isCompressed: false, isUnstable: false, parseWarnings: 0, isSubagent: false, parentThreadID: null,
-    childThreadCount: 0, childBytes: 0, childURLs: [], ...overrides
+    childThreadCount: 0, childBytes: 0, childImageBytes: 0, childURLs: [], ...overrides
   }
 }
 

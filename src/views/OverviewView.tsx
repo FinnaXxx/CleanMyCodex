@@ -98,7 +98,7 @@ export default function OverviewView({ snapshot, workspace, appInfo, cleaning, a
         </button>
       </section>
 
-      {appInfo?.codexRunning && <p className="notice warning">{appInfo.runtimeSummary ?? 'Codex 正在运行'}，需要独占文件的项目会推迟到下次清理。</p>}
+      {appInfo?.codexRunning && <p className="notice warning">{appInfo.runtimeSummary ?? 'Codex 正在运行'}，需要独占文件的项目本次会跳过；退出 Codex 后需重新清理。</p>}
       {snapshot.notes.map((note) => <p className="notice" key={note}>{note}</p>)}
 
       <section className="shortcuts">
