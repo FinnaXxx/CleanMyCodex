@@ -12,6 +12,7 @@ import {
   sessionDisplayName,
   sessionProjectName,
   sessionTotalBytes,
+  listableSessions,
   formatBytes
 } from '../../shared/types'
 import { FolderIcon } from '../icons'
@@ -43,7 +44,7 @@ export default function SessionsView({ snapshot, appServerAvailable, cleaning, a
   const [sort, setSort] = useState<Sort>('total')
   const [query, setQuery] = useState('')
   /** Empty keeps every session; otherwise it is "last active more than N days ago". */
-  const [olderThanDays, setOlderThanDays] = useState('60')
+  const [olderThanDays, setOlderThanDays] = useState('')
   const [confirmStripAll, setConfirmStripAll] = useState(false)
 
   useEffect(() => {
@@ -51,11 +52,13 @@ export default function SessionsView({ snapshot, appServerAvailable, cleaning, a
     setSelected((previous) => new Set([...previous].filter((id) => current.has(id))))
   }, [snapshot.scannedAt, snapshot.sessions])
 
+  const listable = useMemo(() => listableSessions(snapshot), [snapshot])
+
   const visible = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase()
     const days = Number(olderThanDays)
     const cutoff = days > 0 ? Date.now() - days * 86_400_000 : null
-    const items = snapshot.sessions.filter((session) => {
+    const items = listable.filter((session) => {
       if (scope !== 'all' && session.location !== scope) return false
       if (cutoff !== null && session.modifiedAt > cutoff) return false
       if (!needle) return true
@@ -69,7 +72,7 @@ export default function SessionsView({ snapshot, appServerAvailable, cleaning, a
       if (sort === 'slimmable') return b.duplicateImageBytes - a.duplicateImageBytes
       return sessionTotalBytes(b) - sessionTotalBytes(a)
     })
-  }, [olderThanDays, query, scope, snapshot.sessions, sort])
+  }, [olderThanDays, query, scope, listable, sort])
 
   const selectedSessions = useMemo(() => snapshot.sessions.filter((session) => selected.has(session.id)), [snapshot.sessions, selected])
   const selectedBytes = selectedSessions.reduce((sum, session) => sum + sessionTotalBytes(session), 0)
@@ -106,14 +109,14 @@ export default function SessionsView({ snapshot, appServerAvailable, cleaning, a
 
     <section className="filters">
       <select value={scope} onChange={(event) => setScope(event.target.value as Scope)}>
-        <option value="all">全部 {snapshot.sessions.length}</option>
-        <option value="active">未归档 {snapshot.sessions.filter((session) => session.location === 'active').length}</option>
-        <option value="archived">已归档 {snapshot.sessions.filter((session) => session.location === 'archived').length}</option>
+        <option value="all">全部 {listable.length}</option>
+        <option value="active">未归档 {listable.filter((session) => session.location === 'active').length}</option>
+        <option value="archived">已归档 {listable.filter((session) => session.location === 'archived').length}</option>
       </select>
-      <label className="filter-days">最后活动早于
+      <label className="filter-days">
         <input className="number" type="number" min="0" max="3650" placeholder="不限" value={olderThanDays}
           onChange={(event) => setOlderThanDays(event.target.value.replace(/[^0-9]/g, ''))} />
-        天
+        天前
       </label>
       <select value={sort} onChange={(event) => setSort(event.target.value as Sort)} aria-label="排序方式">
         <option value="total">按总占用</option><option value="images">按内嵌图片</option><option value="date">按最后活动</option>

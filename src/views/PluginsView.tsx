@@ -40,7 +40,7 @@ export default function PluginsView({ snapshot, cleaning, actionsDisabled, clean
     {!groups.length && <p className="empty-panel">没有找到本地插件</p>}
     <div className="card-stack">
       {groups.map(([name, versions]) => <section className="card" key={name}>
-        <div className="panel-title"><strong>◫ {name}</strong><span>{versions.length} 个版本 · {formatBytes(versions.reduce((sum, item) => sum + item.bytes, 0))}</span></div>
+        <div className="panel-title"><strong>{name}</strong><span>{versions.length} 个版本 · {formatBytes(versions.reduce((sum, item) => sum + item.bytes, 0))}</span></div>
         {versions.sort((a, b) => b.modifiedAt - a.modifiedAt).map((item) => <div className="plugin-row" key={item.directoryURL}>
           {pluginStatusIsRemovable(item.status)
             ? <input type="checkbox" aria-label={`${item.plugin} ${item.version}`} checked={selected.has(item.directoryURL)} onChange={() => toggle(item.directoryURL)} />

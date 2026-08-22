@@ -1,9 +1,10 @@
 import Database from 'better-sqlite3'
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, isAbsolute, join, normalize, relative, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { WorkspaceThreadReference } from '../../shared/types'
+import { cleanPreview } from './preview'
 
 export interface CodexWorkspaceThread extends WorkspaceThreadReference {
   cwd: string
@@ -17,7 +18,7 @@ export class CodexThreadIndex {
   get size(): number { return Math.max(this.byID.size, this.byRollout.size, this.workspaceRows.length) }
 
   title(threadID: string, rolloutPath: string): string | null {
-    return this.byRollout.get(normalize(rolloutPath)) ?? this.byID.get(threadID) ?? null
+    return this.byID.get(threadID) ?? this.byRollout.get(normalize(rolloutPath)) ?? null
   }
 
   workspaceThreads(root: string): CodexWorkspaceThread[] {
@@ -29,13 +30,22 @@ export class CodexThreadIndex {
   }
 
   static load(codexHome: string): CodexThreadIndex {
+    const generatedNames = readSessionNames(codexHome)
     for (const path of stateDatabases(codexHome).slice(0, 3)) {
       const direct = readIndex(path, true)
-      if (direct && direct.size) return direct
+      if (direct && direct.size) {
+        direct.applyGeneratedNames(generatedNames)
+        return direct
+      }
       const copied = readCopiedIndex(path)
-      if (copied && copied.size) return copied
+      if (copied && copied.size) {
+        copied.applyGeneratedNames(generatedNames)
+        return copied
+      }
     }
-    return new CodexThreadIndex()
+    const index = new CodexThreadIndex()
+    index.applyGeneratedNames(generatedNames)
+    return index
   }
 
   add(id: string | null, rollout: string | null, title: string): void {
@@ -46,6 +56,31 @@ export class CodexThreadIndex {
   addWorkspace(thread: CodexWorkspaceThread): void {
     this.workspaceRows.push({ ...thread, cwd: normalize(thread.cwd) })
   }
+
+  private applyGeneratedNames(names: Map<string, string>): void {
+    for (const [id, title] of names) this.byID.set(id, title)
+    for (const thread of this.workspaceRows) thread.title = names.get(thread.id) ?? thread.title
+  }
+}
+
+/** Codex writes its final generated/edited sidebar titles here even when the
+ * state database's `name` column is still null. Later rows win. */
+function readSessionNames(home: string): Map<string, string> {
+  const names = new Map<string, string>()
+  const path = join(home, 'session_index.jsonl')
+  try {
+    if (statSync(path).size > 16 * 1024 * 1024) return names
+    for (const line of readFileSync(path, 'utf8').split('\n')) {
+      if (!line.trim()) continue
+      try {
+        const row = JSON.parse(line) as Record<string, unknown>
+        const id = stringValue(row['id'])
+        const title = cleanPreview(row['thread_name'])
+        if (id && title) names.set(id, title)
+      } catch { /* ignore one corrupt index row */ }
+    }
+  } catch { /* index is optional */ }
+  return names
 }
 
 function stateDatabases(home: string): string[] {
@@ -84,16 +119,20 @@ function readIndex(path: string, readonly: boolean): CodexThreadIndex | null {
     const table = findThreadTable(db)
     if (!table) return new CodexThreadIndex()
     const selected = [...new Set([
-      table.id, table.title, table.rollout, table.cwd, table.preview, table.firstUserMessage,
+      table.id, table.generatedName, table.title, table.rollout, table.cwd, table.preview, table.firstUserMessage,
       table.threadSource, table.source, table.archived, table.archivedAt, table.updatedAtMs, table.updatedAt
     ].filter((value): value is string => !!value))]
     const rows = db.prepare(`SELECT ${selected.map(quote).join(', ')} FROM ${quote(table.name)} LIMIT 50000`).all() as Record<string, unknown>[]
     const index = new CodexThreadIndex()
     for (const row of rows) {
       const id = stringValue(table.id ? row[table.id] : null)
-      const title = cleanTitle(row[table.title]) ??
-        cleanTitle(table.preview ? row[table.preview] : null) ??
-        cleanTitle(table.firstUserMessage ? row[table.firstUserMessage] : null)
+      // `name` is the concise title generated (or edited) by Codex. `title` and
+      // `preview` commonly contain the full first user message, so use them only
+      // when a generated name is unavailable.
+      const title = cleanPreview(table.generatedName ? row[table.generatedName] : null) ??
+        cleanPreview(table.title ? row[table.title] : null) ??
+        cleanPreview(table.preview ? row[table.preview] : null) ??
+        cleanPreview(table.firstUserMessage ? row[table.firstUserMessage] : null)
       if (title) index.add(id, stringValue(table.rollout ? row[table.rollout] : null), title)
       const cwd = stringValue(table.cwd ? row[table.cwd] : null)
       if (id && cwd) {
@@ -116,7 +155,8 @@ function readIndex(path: string, readonly: boolean): CodexThreadIndex | null {
 interface ThreadTable {
   name: string
   id: string | null
-  title: string
+  generatedName: string | null
+  title: string | null
   rollout: string | null
   cwd: string | null
   preview: string | null
@@ -134,12 +174,14 @@ function findThreadTable(db: Database.Database): ThreadTable | null {
   const ordered = [...names.filter((name) => name === 'threads'), ...names.filter((name) => name !== 'threads')]
   for (const name of ordered) {
     const columns = new Set((db.prepare(`PRAGMA table_info(${quote(name)})`).all() as Array<{ name: string }>).map((row) => row.name))
-    const title = ['title', 'name', 'summary'].find((column) => columns.has(column))
+    const nameColumn = firstColumn(columns, ['name'])
+    const title = firstColumn(columns, ['title', 'summary'])
     const id = ['id', 'thread_id', 'conversation_id', 'uuid'].find((column) => columns.has(column)) ?? null
     const rollout = ['rollout_path', 'rollout', 'path', 'file_path'].find((column) => columns.has(column)) ?? null
-    if (title && (id || rollout)) return {
+    if ((nameColumn || title) && (id || rollout)) return {
       name,
       id,
+      generatedName: nameColumn,
       title,
       rollout,
       cwd: firstColumn(columns, ['cwd', 'working_directory', 'workingDirectory']),
@@ -168,10 +210,4 @@ function epochMilliseconds(value: unknown): number {
   const number = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(number) || number <= 0) return 0
   return number >= 1_000_000_000_000 ? number : number * 1000
-}
-function cleanTitle(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const collapsed = value.trim().replace(/\s+/g, ' ')
-  if (!collapsed) return null
-  return collapsed.length > 90 ? `${collapsed.slice(0, 90)}…` : collapsed
 }
