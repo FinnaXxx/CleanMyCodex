@@ -1,15 +1,17 @@
 # CleanMyCodex
 
-CleanMyCodex 是一个用 Electron、React 和 TypeScript 编写的 Codex 空间扫描与清理工具。
+CleanMyCodex 用于扫描和清理 Codex 产生的缓存、会话数据、插件旧版本和工作产出，支持 macOS、Windows 和 Linux。
 
-它会区分可重建缓存、需要确认的数据和永不清理的配置/凭据，并提供：
+## 扫描设计
 
-- Codex 缓存、临时目录、日志和 SQLite 空闲页扫描
-- 通过 `codex app-server` 的 `plugin/list` 识别当前、旧版和卸载残留插件
-- 会话列表、会话删除，以及 rollout 内嵌图片流式去重/剥离
-- `~/Documents/Codex` 工作产出按需扫描和 git 未提交/未推送保护提示
-- macOS LaunchAgent 定期自动清理
-- macOS、Windows、Linux 安装包与 GitHub Actions CI/Release
+扫描由 Electron 主进程统一调度，耗时的文件遍历放在 worker 中执行，避免阻塞界面。扫描结果分为四部分：
+
+- Codex 数据目录：识别缓存、日志、临时文件和 SQLite 可回收空间。
+- 会话：流式读取 rollout，统计会话信息、关联资产和内嵌图片，避免一次加载大文件。
+- 插件：结合磁盘目录和 `codex app-server` 返回的信息，区分当前版本、旧版本和卸载残留。
+- 工作产出：仅在用户打开对应页面后扫描，并标记 git 未提交或未推送状态。
+
+扫描结果只是只读快照。执行清理时，主进程会根据快照重新生成任务并校验路径；配置、凭据、状态库、当前插件和工作产出不会进入自动清理范围。
 
 ## 开发
 
@@ -20,24 +22,16 @@ pnpm install
 pnpm dev
 ```
 
-`better-sqlite3` 是 Electron native module；安装后会由 `electron-rebuild` 按当前 Electron ABI 重建。
-
-## 验证
+完整检查：
 
 ```bash
-pnpm typecheck
-pnpm test
-pnpm build
+pnpm check
 ```
 
-## 打包
+打包：
 
 ```bash
 pnpm build:mac
 pnpm build:win
 pnpm build:linux
 ```
-
-产物写入 `dist-electron/`。macOS 使用 `Support/AppIcon.icns`，若本机钥匙串存在可用签名身份，electron-builder 会自动签名；正式发布仍需配置 Apple notarization 凭据。
-
-所有清理目标都在主进程再次经过路径保护。普通文件移入系统废纸篓；数据库压缩只执行 checkpoint/VACUUM；会话瘦身会保留原文件于废纸篓，并在替换前校验源文件未变化和 JSONL 行结构有效。

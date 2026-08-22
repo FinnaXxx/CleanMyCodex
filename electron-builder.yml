@@ -1,4 +1,4 @@
-appId: com.finnaxxx.clean-my-codex
+appId: com.finnaxxx.cleanmycodex
 productName: CleanMyCodex
 directories:
   output: dist-electron
