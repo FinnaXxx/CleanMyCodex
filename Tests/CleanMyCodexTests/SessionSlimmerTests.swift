@@ -322,6 +322,32 @@ struct SlimGatingTests {
         #expect(FileManager.default.fileExists(atPath: database.path))
     }
 
+    /// Regression: `lsof` exits 1 with no output when nothing holds the file. That was
+    /// being read as a failure, so every free rollout came back "cannot tell" and, with
+    /// Codex running, every single session was skipped.
+    @Test func nothingHoldingTheFileIsAnAnswerNotAFailure() {
+        #expect(FileUsageProbe.interpret(output: "", terminationStatus: 1, timedOut: false) == .free)
+        #expect(FileUsageProbe.interpret(output: "", terminationStatus: 0, timedOut: false) == .free)
+    }
+
+    @Test func onlyATimeoutOrAnUnexpectedExitIsUnknown() {
+        #expect(FileUsageProbe.interpret(output: "", terminationStatus: 1, timedOut: true) == .unknown)
+        #expect(FileUsageProbe.interpret(output: "", terminationStatus: 127, timedOut: false) == .unknown)
+    }
+
+    @Test func holdersAreReportedWhateverTheExitStatus() {
+        let output = "p900\nccodex\nn/tmp/rollout.jsonl\n"
+        #expect(
+            FileUsageProbe.interpret(output: output, terminationStatus: 0, timedOut: false)
+                == .inUse(processes: ["codex"])
+        )
+        // lsof can report a holder and still exit non-zero after a permission warning.
+        #expect(
+            FileUsageProbe.interpret(output: output, terminationStatus: 1, timedOut: false)
+                == .inUse(processes: ["codex"])
+        )
+    }
+
     @Test func lsofOutputIsParsedIntoProcessNames() {
         let output = """
         p8123
