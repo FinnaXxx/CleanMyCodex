@@ -38,7 +38,7 @@ struct CleanupEngine: Sendable {
             progress(CleanupProgress(completed: index, total: tasks.count, currentTitle: task.title))
             switch task.method {
             case .trash:
-                outcomes.append(runTrash(task))
+                outcomes.append(runTrash(task, codexRunning: codexRunning))
             case .compactDatabase:
                 outcomes.append(runCompaction(task, codexRunning: codexRunning))
             case .deleteThread:
@@ -75,7 +75,13 @@ struct CleanupEngine: Sendable {
         }
     }
 
-    private func runTrash(_ task: CleanupTask) -> CleanupOutcome {
+    private func runTrash(_ task: CleanupTask, codexRunning: Bool) -> CleanupOutcome {
+        // Codex' own scratch space is off limits while it is up: a directory being
+        // unpacked into looks exactly like an abandoned one from the outside.
+        if task.requiresCodexStopped, codexRunning {
+            return outcome(task, status: .skipped("Codex 正在运行，暂存目录可能正在使用"), freed: 0)
+        }
+
         // The scan that produced this task may be minutes old. If the target was only
         // safe because nothing had written to it in a while, prove that is still true
         // before removing it — an upgrade could have started in between.

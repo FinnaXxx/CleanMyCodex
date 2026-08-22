@@ -25,6 +25,8 @@ Codex 的数据分散在 `~/.codex`、`~/Library/Application Support/Codex`、`~
 - `.staging-*` / `plugins-clone-*` 要整棵树静置 1 小时以上才算残留，普通临时目录是 3 天。
 - 这个条件在**真正删除前会再验证一次**：扫描结果可能已经是几分钟前的，中间足够开始一次升级。
   期间被写过就推迟，不删。
+- 更强的一层：`~/.codex/.tmp` 是 Codex 解包升级的地方，**只在 Codex 退出后才清理**，
+  和会话瘦身同一条规则。静置时间只是额外的保险，不再是唯一依据。
 
 ### 会话记录
 
@@ -68,8 +70,9 @@ Codex 的数据分散在 `~/.codex`、`~/Library/Application Support/Codex`、`~
 
 - 写入用户级 LaunchAgent（`com.finnaxxx.clean-my-codex.autoclean`），按设定周期运行 `CleanMyCodex --auto-clean`。
 - **Codex 开着也照常运行**。缓存、临时文件、旧插件版本、过期会话都不需要关掉 Codex；
-  只有需要独占文件的两件事会推迟到下一次：日志数据库压缩（`VACUUM` 必须独占）和会话瘦身
-  （改写正在被追加的 rollout 会毁文件）。推迟的项目会写进日志和上次运行记录，不是失败。
+  只有需要独占文件的三件事会推迟到下一次：`~/.codex/.tmp` 里的暂存目录（正在解包的升级
+  和废弃残骸从外面看一模一样）、日志数据库压缩（`VACUUM` 必须独占）和会话瘦身（改写正在被
+  追加的 rollout 会毁文件）。推迟的项目会写进日志和上次运行记录，不是失败。
 - 可分别设置归档与未归档会话的保留天数，默认关闭；缓存与旧版本插件默认开启。
 - 可选登录时启动（SMAppService）与完成后通知，运行记录写入 `~/Library/Logs/CleanMyCodex/autoclean.log`。
 

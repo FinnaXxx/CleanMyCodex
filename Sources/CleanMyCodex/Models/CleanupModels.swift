@@ -16,6 +16,8 @@ struct CleanupTask: Identifiable, Sendable {
     let slimMode: SessionSlimMode?
     /// Verified again right before the file is touched, not just when it was scanned.
     let minimumIdleSeconds: TimeInterval?
+    /// Deferred to a later run while Codex is up.
+    let requiresCodexStopped: Bool
 
     init(
         id: String,
@@ -27,7 +29,8 @@ struct CleanupTask: Identifiable, Sendable {
         threadID: String? = nil,
         companionURLs: [URL] = [],
         slimMode: SessionSlimMode? = nil,
-        minimumIdleSeconds: TimeInterval? = nil
+        minimumIdleSeconds: TimeInterval? = nil,
+        requiresCodexStopped: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -39,6 +42,7 @@ struct CleanupTask: Identifiable, Sendable {
         self.companionURLs = companionURLs
         self.slimMode = slimMode
         self.minimumIdleSeconds = minimumIdleSeconds
+        self.requiresCodexStopped = requiresCodexStopped
     }
 
     init(entry: StorageEntry) {
@@ -49,7 +53,8 @@ struct CleanupTask: Identifiable, Sendable {
             url: entry.url,
             method: entry.method,
             expectedBytes: entry.reclaimableBytes,
-            minimumIdleSeconds: entry.minimumIdleSeconds
+            minimumIdleSeconds: entry.minimumIdleSeconds,
+            requiresCodexStopped: entry.requiresCodexStopped
         )
     }
 }

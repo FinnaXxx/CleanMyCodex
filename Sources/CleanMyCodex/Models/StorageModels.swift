@@ -107,6 +107,9 @@ struct StorageEntry: Identifiable, Hashable, Sendable {
     /// When set, the target must still have been untouched this long at the moment of
     /// deletion — not merely when it was scanned.
     let minimumIdleSeconds: TimeInterval?
+    /// Codex' own scratch space: only safe to touch once Codex is not running, because a
+    /// directory being unpacked into is indistinguishable from an abandoned one.
+    let requiresCodexStopped: Bool
     let method: CleanupMethod
     let risk: CleanupRisk
 
@@ -117,6 +120,7 @@ struct StorageEntry: Identifiable, Hashable, Sendable {
         bytes: Int64,
         reclaimableBytes: Int64? = nil,
         minimumIdleSeconds: TimeInterval? = nil,
+        requiresCodexStopped: Bool = false,
         method: CleanupMethod = .trash,
         risk: CleanupRisk
     ) {
@@ -127,6 +131,7 @@ struct StorageEntry: Identifiable, Hashable, Sendable {
         self.bytes = bytes
         self.reclaimableBytes = reclaimableBytes ?? bytes
         self.minimumIdleSeconds = minimumIdleSeconds
+        self.requiresCodexStopped = requiresCodexStopped
         self.method = method
         self.risk = risk
     }

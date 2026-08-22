@@ -162,7 +162,11 @@ struct CodexStorageScanner: Sendable {
                     risk: .safe,
                     // Re-checked immediately before deletion: a scan result can be minutes
                     // old, and an upgrade can start in that window.
-                    minimumIdleSeconds: idleRequirement
+                    minimumIdleSeconds: idleRequirement,
+                    // `.tmp` is where Codex unpacks upgrades. Nothing here is touched
+                    // while it is running — an idle-time heuristic cannot tell an
+                    // abandoned staging directory from one being written into.
+                    requiresCodexStopped: true
                 )
             )
         }
@@ -171,7 +175,7 @@ struct CodexStorageScanner: Sendable {
             StorageCategory(
                 kind: .temporary,
                 title: "过期临时目录",
-                detail: "旧 staging、失败的 clone 和无人使用的临时目录",
+                detail: "旧 staging、失败的 clone 和无人使用的临时目录；只在 Codex 退出后清理",
                 group: .recommended,
                 risk: .safe,
                 entries: stale.sorted { $0.bytes > $1.bytes }
