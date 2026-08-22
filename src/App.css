@@ -289,7 +289,7 @@ progress { width: 100%; height: 5px; border-radius: 3px; overflow: hidden; }
   position: sticky;
   top: 0;
   z-index: 4;
-  overflow: hidden;
+  overflow: visible;
   margin-bottom: 22px;
   padding: 28px 30px 30px;
   border-radius: 18px;
@@ -338,8 +338,45 @@ progress { width: 100%; height: 5px; border-radius: 3px; overflow: hidden; }
   padding: 0;
   background: transparent;
 }
-.distribution-bar { display: flex; width: 100%; height: 54px; overflow: hidden; border-radius: 12px; background: transparent; }
-.distribution-bar > span { min-width: 3px; transition: width 0.35s ease; }
+.distribution-bar { display: flex; width: 100%; height: 54px; border-radius: 12px; background: transparent; }
+.distribution-segment { position: relative; min-width: 3px; transition: width 0.35s ease, filter 0.12s ease; }
+.distribution-segment:first-child { border-radius: 12px 0 0 12px; }
+.distribution-segment:last-child { border-radius: 0 12px 12px 0; }
+.distribution-segment:only-child { border-radius: 12px; }
+.distribution-segment:hover, .distribution-segment:focus-visible { z-index: 1; filter: brightness(1.08); }
+.distribution-segment:focus-visible { outline: 2px solid var(--text); outline-offset: -3px; }
+.distribution-tooltip {
+  position: absolute;
+  top: calc(100% + 9px);
+  left: 50%;
+  display: grid;
+  gap: 2px;
+  width: max-content;
+  max-width: min(320px, calc(100vw - 40px));
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #202126;
+  color: #fff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+  font-size: 12px;
+  line-height: 1.35;
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, -3px);
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0.12s ease;
+  pointer-events: none;
+}
+.distribution-tooltip strong { font-weight: 650; }
+.distribution-tooltip > span { color: #d8d9df; font-variant-numeric: tabular-nums; }
+.distribution-tooltip small { max-width: 300px; color: #aeb0ba; font-size: 11px; white-space: normal; }
+.distribution-segment:first-child .distribution-tooltip { left: 0; transform: translate(0, -3px); }
+.distribution-segment:last-child .distribution-tooltip { right: 0; left: auto; transform: translate(0, -3px); }
+.distribution-segment:hover .distribution-tooltip,
+.distribution-segment:focus-visible .distribution-tooltip { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
+.distribution-segment:first-child:hover .distribution-tooltip,
+.distribution-segment:first-child:focus-visible .distribution-tooltip,
+.distribution-segment:last-child:hover .distribution-tooltip,
+.distribution-segment:last-child:focus-visible .distribution-tooltip { transform: translate(0, 0); }
 .distribution-tone-1 { background: #4285f4; }
 .distribution-tone-2 { background: #68c7b5; }
 .distribution-tone-3 { background: #9a7de1; }
@@ -683,7 +720,7 @@ label.entry-label { cursor: pointer; }
 .save-icon-button:not(:disabled):hover { background: color-mix(in srgb, var(--accent-soft) 72%, var(--accent)); color: var(--accent); }
 
 /* --- settings --- */
-.settings-content { max-width: 900px; width: 100%; margin: 0 auto; }
+.settings-content { width: 100%; }
 .settings-group { margin-top: 24px; }
 .settings-group > h3 { margin: 0 4px 8px; color: var(--text-tertiary); font-size: 12px; font-weight: 600; }
 .settings-card { overflow: visible; }

@@ -17,7 +17,8 @@ export interface CleanupDeps {
   isCodexRunning: () => boolean
   sessionDatabase?: {
     preflightDelete?: (threadID: string, relatedURLs: string[]) => void
-    deleteThread: (threadID: string, relatedURLs: string[]) => { removedRows: number; freedBytes: number }
+    deleteThreadWithProtocol?: (threadID: string, relatedURLs: string[]) => Promise<boolean>
+    deleteThreadLocally: (threadID: string, relatedURLs: string[]) => { removedRows: number; freedBytes: number }
   }
 }
 
@@ -89,34 +90,55 @@ async function runTrash(
   const targets = [task.url, ...task.companionURLs]
   try {
     for (const target of targets) guards.validate(target)
-    if (task.threadID) deps.sessionDatabase?.preflightDelete?.(task.threadID, targets)
   } catch (err) {
     return outcome(task, { kind: 'failed', reason: failure(err) }, 0)
   }
   let freed = 0
-  let trashed = 0
-  for (const target of targets) {
-    if (!pathExists(target)) continue
+  // Counts targets this task actually removed, by protocol or by trash. Bytes cannot
+  // stand in for that: an emptied directory is removed while freeing nothing.
+  let removed = 0
+  const bytesBefore = new Map(targets.map((target) => [target, fileAllocated(target)]))
+  let protocolDeleted = false
+  if (task.threadID && deps.sessionDatabase?.deleteThreadWithProtocol) {
     try {
-      const bytes = fileAllocated(target)
+      // Codex's protocol needs the rollout to still exist and permanently deletes it.
+      protocolDeleted = await deps.sessionDatabase.deleteThreadWithProtocol(task.threadID, targets)
+    } catch { /* use the compatibility path below */ }
+  }
+  if (task.threadID && deps.sessionDatabase && !protocolDeleted) {
+    try {
+      // Only the direct-database fallback depends on our known SQLite schemas.
+      // A newer official protocol must not be blocked by an older local preflight.
+      deps.sessionDatabase.preflightDelete?.(task.threadID, targets)
+    } catch (err) {
+      return outcome(task, { kind: 'failed', reason: failure(err) }, 0)
+    }
+  }
+  for (const target of targets) {
+    if (!pathExists(target)) {
+      // The official thread/delete protocol may already have removed the rollout.
+      if (protocolDeleted) { removed += 1; freed += bytesBefore.get(target) ?? 0 }
+      continue
+    }
+    try {
       await deps.trash(target)
-      trashed += 1
-      freed += bytes
+      removed += 1
+      freed += bytesBefore.get(target) ?? 0
     } catch (err) {
       return outcome(task, { kind: 'failed', reason: failure(err) }, freed)
     }
   }
-  let removedRows = 0
-  if (task.threadID && deps.sessionDatabase) {
+  let removedRows = protocolDeleted ? 1 : 0
+  if (task.threadID && deps.sessionDatabase && !protocolDeleted) {
     try {
-      const report = deps.sessionDatabase.deleteThread(task.threadID, targets)
+      const report = deps.sessionDatabase.deleteThreadLocally(task.threadID, targets)
       removedRows = report.removedRows
       freed += report.freedBytes
     } catch (err) {
-      return outcome(task, { kind: 'failed', reason: message('cleanup.sqliteFailed', { reason: errorText(err) }) }, freed)
+      return outcome(task, { kind: 'failed', reason: message('cleanup.localIndexFailed', { reason: errorText(err) }) }, freed)
     }
   }
-  if (trashed === 0 && removedRows === 0) {
+  if (removed === 0 && removedRows === 0) {
     return outcome(task, { kind: 'skipped', reason: message('cleanup.skipMissing') }, 0)
   }
   return outcome(task, { kind: 'succeeded' }, freed)

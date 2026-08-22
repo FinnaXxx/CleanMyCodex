@@ -20,7 +20,22 @@ export interface InstalledPlugin {
 export function locateCodexExecutable(env: NodeJS.ProcessEnv = process.env): string | null {
   const candidates: string[] = []
   if (env['CODEX_BINARY'] && env['CODEX_BINARY'].length) candidates.push(env['CODEX_BINARY'])
+  // Prefer the desktop-bundled CLI because its app-server protocol matches the
+  // installed desktop UI. A separately installed Homebrew/npm CLI can lag behind.
+  if (process.platform === 'darwin') {
+    candidates.push(
+      '/Applications/ChatGPT.app/Contents/Resources/codex',
+      '/Applications/Codex.app/Contents/Resources/codex',
+      join(homedir(), 'Applications/ChatGPT.app/Contents/Resources/codex'),
+      join(homedir(), 'Applications/Codex.app/Contents/Resources/codex')
+    )
+  }
   if (process.platform === 'win32') {
+    const localAppData = env['LOCALAPPDATA'] ?? join(homedir(), 'AppData', 'Local')
+    candidates.push(
+      join(localAppData, 'Programs', 'ChatGPT', 'resources', 'codex.exe'),
+      join(localAppData, 'Programs', 'Codex', 'resources', 'codex.exe')
+    )
     const located = spawnSync('where.exe', ['codex'], { encoding: 'utf8', windowsHide: true, timeout: 3_000 })
     if (located.status === 0) candidates.push(...located.stdout.split(/\r?\n/).filter(Boolean))
   }
@@ -97,6 +112,10 @@ export class AppServerSession {
 
   async listPlugins(): Promise<unknown> {
     return this.call('plugin/list', {})
+  }
+
+  async deleteThread(threadID: string): Promise<unknown> {
+    return this.call('thread/delete', { threadId: threadID })
   }
 
   call(method: string, params: Record<string, unknown>): Promise<unknown> {
@@ -205,6 +224,21 @@ export class AppServerClient {
       return null
     } finally {
       signal?.removeEventListener('abort', abort)
+      session?.close()
+    }
+  }
+
+  /** Prefer Codex's own deletion protocol. Each subagent is an independent thread,
+   * so callers provide the complete root/subagent set in child-first order. */
+  async deleteThreads(threadIDs: string[]): Promise<boolean> {
+    let session: AppServerSession | null = null
+    try {
+      session = await this.openSession()
+      for (const threadID of threadIDs) await session.deleteThread(threadID)
+      return true
+    } catch {
+      return false
+    } finally {
       session?.close()
     }
   }
