@@ -3,11 +3,15 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { CodexLocations } from './locations'
 import { scanSnapshot } from './scanner'
-import type { ScanProgress } from '../../shared/types'
+import { ProtectedPaths } from './guard'
+import { runCleanup, tasksFromEntries } from './cleanup'
+import { codexIsRunning } from './probes'
+import type { ScanProgress, StorageEntry, CleanupProgress } from '../../shared/types'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 
 let locations = CodexLocations.standard()
+let guards = new ProtectedPaths(locations)
 let mainWindow: BrowserWindow | null = null
 
 ipcMain.handle('app:info', () => ({
@@ -22,6 +26,16 @@ ipcMain.handle('scan:run', async () => {
     mainWindow?.webContents.send('scan:progress', progress)
   })
   return snapshot
+})
+
+ipcMain.handle('cleanup:run', async (_event, entries: StorageEntry[]) => {
+  const report = await runCleanup(tasksFromEntries(entries), guards, {
+    trash: (path) => shell.trashItem(path),
+    isCodexRunning: codexIsRunning
+  }, (progress: CleanupProgress) => {
+    mainWindow?.webContents.send('cleanup:progress', progress)
+  })
+  return report
 })
 
 function createWindow() {
