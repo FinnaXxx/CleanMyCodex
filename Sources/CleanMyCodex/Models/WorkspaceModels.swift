@@ -63,9 +63,17 @@ struct WorkspaceEntry: Identifiable, Sendable {
 struct WorkspaceSnapshot: Sendable {
     let root: URL
     let entries: [WorkspaceEntry]
+    /// False until the user asks for it: reading Documents costs a permission prompt.
+    let isScanned: Bool
+
+    init(root: URL, entries: [WorkspaceEntry], isScanned: Bool = true) {
+        self.root = root
+        self.entries = entries
+        self.isScanned = isScanned
+    }
 
     static func empty(at root: URL) -> WorkspaceSnapshot {
-        WorkspaceSnapshot(root: root, entries: [])
+        WorkspaceSnapshot(root: root, entries: [], isScanned: false)
     }
 
     var bytes: Int64 { entries.reduce(Int64(0)) { $0 + $1.bytes } }

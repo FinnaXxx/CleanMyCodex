@@ -176,7 +176,7 @@ struct OverviewView: View {
     @ViewBuilder
     private var workspaceCard: some View {
         let workspace = model.snapshot.workspace
-        if !workspace.isEmpty {
+        if !workspace.isScanned || !workspace.isEmpty {
             CleanerCard(padding: 0) {
                 HStack(spacing: 14) {
                     RoundedRectangle(cornerRadius: 9, style: .continuous)
@@ -188,23 +188,33 @@ struct OverviewView: View {
                         }
                     VStack(alignment: .leading, spacing: 3) {
                         Text("工作产出 · \(workspace.root.lastPathComponent)").font(.headline)
-                        Text("会话的工作目录和产出文件，属于你的成果。默认不勾选，自动清理不会碰。")
+                        Text(workspace.isScanned
+                            ? "会话的工作目录和产出文件，属于你的成果。默认不勾选，自动清理不会碰。"
+                            : "会话的工作目录和产出文件。读取它需要「文件与文件夹 → 文稿」权限，所以只在你打开时才统计。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 12)
-                    if workspace.repositoryCount > 0 {
-                        StatusPill(text: "\(workspace.repositoryCount) 个 git 仓库", color: .cleanerBlue)
-                    }
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(ByteFormat.string(workspace.bytes))
-                            .font(.body.weight(.semibold))
-                            .monospacedDigit()
-                        Text("\(workspace.fileCount) 个文件")
-                            .font(.caption2)
+                    if workspace.isScanned {
+                        if workspace.repositoryCount > 0 {
+                            StatusPill(text: "\(workspace.repositoryCount) 个 git 仓库", color: .cleanerBlue)
+                        }
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(ByteFormat.string(workspace.bytes))
+                                .font(.body.weight(.semibold))
+                                .monospacedDigit()
+                            Text("\(workspace.fileCount) 个文件")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Text("尚未统计")
+                            .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    Button("查看并选择") { model.activeSheet = .workspace }
+                    Button(workspace.isScanned ? "查看并选择" : "统计并查看") {
+                        model.activeSheet = .workspace
+                    }
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 12)

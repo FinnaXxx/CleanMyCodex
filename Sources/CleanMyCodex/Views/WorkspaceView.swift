@@ -18,7 +18,14 @@ struct WorkspaceView: View {
                 title: "工作产出",
                 subtitle: "Codex 每次会话的工作目录和产出文件，按日期分组。"
             ) {
-                SheetCloseButton()
+                HStack(spacing: 10) {
+                    if model.isScanningWorkspace {
+                        ProgressView().controlSize(.small)
+                    } else if snapshot.isScanned {
+                        Button("重新统计") { model.rescanWorkspace() }
+                    }
+                    SheetCloseButton()
+                }
             }
 
             NoticeBanner(
@@ -32,9 +39,11 @@ struct WorkspaceView: View {
 
             if snapshot.isEmpty {
                 ContentUnavailableView(
-                    model.isScanning ? "正在扫描" : "没有找到工作产出目录",
+                    model.isScanningWorkspace ? "正在统计" : "没有找到工作产出目录",
                     systemImage: "folder",
-                    description: Text(snapshot.root.path).font(.caption.monospaced())
+                    description: Text(model.isScanningWorkspace
+                        ? "第一次读取会请求「文稿」文件夹的访问权限"
+                        : snapshot.root.path).font(.caption.monospaced())
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -43,6 +52,7 @@ struct WorkspaceView: View {
 
             footer
         }
+        .task { model.scanWorkspaceIfNeeded() }
         .padding(24)
         .frame(minWidth: 900, idealWidth: 980, minHeight: 600, idealHeight: 700)
         .sheet(isPresented: $showingCleanup) {
