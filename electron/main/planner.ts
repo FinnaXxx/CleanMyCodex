@@ -91,7 +91,7 @@ export function makeCleanupPreview(
   if (selection.kind === 'sessions-slim') {
     warnings.push(selection.mode === 'deduplicate'
       ? '重复出现的图片只保留第一份，会话内容不变。'
-      : '会话里的图片会被移除，之后无法再查看，文字记录保留。')
+      : '会话里的图片会被删除且无法恢复，文字记录保留。')
     warnings.push('会话文件会被改写；原文件先移到废纸篓，校验通过后才替换。')
   }
   if (selection.kind === 'workspace') warnings.push('请确认未提交或未推送的内容已经保存。')
