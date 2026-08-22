@@ -82,7 +82,7 @@ describe('trusted cleanup planner', () => {
     const selection = { kind: 'sessions-delete', ids: [snap.sessions[0].id], mode: 'trash' } as const
     const tasks = buildTrustedTasks(selection, snap, snap.workspace, true)
     const preview = makeCleanupPreview(selection, tasks, { running: true, detectionKnown: true, desktopRunning: false, cliCommands: ['codex'], canRestart: false, blockerSummary: 'codex 正在运行' })
-    expect(preview.warnings.join(' ')).toContain('会话索引')
+    expect(preview.warnings.join(' ')).toContain('历史列表')
     expect(preview.blockerSummary).toContain('运行')
   })
 })
