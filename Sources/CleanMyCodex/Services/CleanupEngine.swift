@@ -76,6 +76,20 @@ struct CleanupEngine: Sendable {
     }
 
     private func runTrash(_ task: CleanupTask) -> CleanupOutcome {
+        // The scan that produced this task may be minutes old. If the target was only
+        // safe because nothing had written to it in a while, prove that is still true
+        // before removing it — an upgrade could have started in between.
+        if let required = task.minimumIdleSeconds {
+            let activity = CodexStorageScanner.measure(task.url, reporter: nil, isCancelled: { false })
+            if activity.latestActivity > Date(timeIntervalSinceNow: -required) {
+                return outcome(
+                    task,
+                    status: .skipped("扫描之后又被写入过，本次不动它"),
+                    freed: 0
+                )
+            }
+        }
+
         var freed: Int64 = 0
         for url in [task.url] + task.companionURLs {
             switch trash(url) {

@@ -241,7 +241,7 @@ struct CodexRunningTests {
         try Data(repeating: 0x41, count: 50_000).write(to: inFlight.appending(path: "payload.bin"))
         let abandoned = fixture.directory(".tmp/openai-bundled.staging-old")
         try Data(repeating: 0x42, count: 50_000).write(to: abandoned.appending(path: "payload.bin"))
-        fixture.age(".tmp/openai-bundled.staging-old", hours: 6)
+        fixture.ageTree(".tmp/openai-bundled.staging-old", hours: 6)
 
         let snapshot = try CodexStorageScanner(libraryDirectory: fixture.directory("Library"))
             .scan(codexHome: fixture.root)
@@ -250,6 +250,81 @@ struct CodexRunningTests {
 
         #expect(names.contains("openai-bundled.staging-old"))
         #expect(!names.contains("openai-bundled.staging-inflight"))
+    }
+
+    /// The hazard the timestamp rule exists for: a directory whose own mtime is old
+    /// while an unpack is writing deep inside it.
+    @Test func activityDeepInsideCountsEvenWhenTheFolderLooksOld() throws {
+        let fixture = try TemporaryFixture()
+        defer { fixture.remove() }
+        let staging = fixture.directory(".tmp/openai-bundled.staging-deep")
+        let nested = fixture.directory(".tmp/openai-bundled.staging-deep/plugins/browser")
+        try Data(repeating: 0x41, count: 50_000).write(to: nested.appending(path: "payload.bin"))
+        // Backdate only the top folder, the way a subdirectory write leaves it.
+        fixture.age(".tmp/openai-bundled.staging-deep", hours: 6)
+        fixture.age(".tmp/openai-bundled.staging-deep/plugins", hours: 6)
+
+        let measured = CodexStorageScanner.measure(staging, reporter: nil, isCancelled: { false })
+        #expect(measured.latestActivity > Date(timeIntervalSinceNow: -600))
+
+        let snapshot = try CodexStorageScanner(libraryDirectory: fixture.directory("Library"))
+            .scan(codexHome: fixture.root)
+        let temporary = snapshot.categories.first { $0.kind == .temporary }
+        #expect(temporary?.entries.contains { $0.title == "openai-bundled.staging-deep" } != true)
+    }
+
+    /// Between the scan and the deletion, something started writing again.
+    @Test func aTargetTouchedAfterTheScanIsNotDeleted() throws {
+        let fixture = try TemporaryFixture()
+        defer { fixture.remove() }
+        let places = locations(fixture)
+        let staging = fixture.directory("codex/.tmp/openai-bundled.staging-race")
+        try Data(repeating: 0x41, count: 50_000).write(to: staging.appending(path: "payload.bin"))
+
+        let engine = CleanupEngine(locations: places, isCodexRunning: { false })
+        let report = engine.run(tasks: [
+            CleanupTask(
+                id: "staging",
+                title: "openai-bundled.staging-race",
+                detail: "",
+                url: staging,
+                method: .trash,
+                expectedBytes: 50_000,
+                minimumIdleSeconds: 3_600
+            )
+        ])
+
+        if case let .skipped(reason) = report.outcomes.first?.status {
+            #expect(reason.contains("写入"))
+        } else {
+            Issue.record("应该被推迟，实际是 \(String(describing: report.outcomes.first?.status))")
+        }
+        #expect(FileManager.default.fileExists(atPath: staging.path))
+    }
+
+    @Test func aTargetThatStayedIdleIsStillDeleted() throws {
+        let fixture = try TemporaryFixture()
+        defer { fixture.remove() }
+        let places = locations(fixture)
+        let staging = fixture.directory("codex/.tmp/openai-bundled.staging-settled")
+        try Data(repeating: 0x41, count: 50_000).write(to: staging.appending(path: "payload.bin"))
+        fixture.ageTree("codex/.tmp/openai-bundled.staging-settled", hours: 6)
+
+        let engine = CleanupEngine(locations: places, isCodexRunning: { false })
+        let report = engine.run(tasks: [
+            CleanupTask(
+                id: "staging",
+                title: "openai-bundled.staging-settled",
+                detail: "",
+                url: staging,
+                method: .trash,
+                expectedBytes: 50_000,
+                minimumIdleSeconds: 3_600
+            )
+        ])
+
+        #expect(report.outcomes.first?.status == .succeeded)
+        #expect(!FileManager.default.fileExists(atPath: staging.path))
     }
 }
 

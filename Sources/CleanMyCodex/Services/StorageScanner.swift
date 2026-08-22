@@ -27,6 +27,13 @@ struct CodexStorageScanner: Sendable {
     /// How long an upgrade leftover has to sit still before it counts as abandoned.
     static let leftoverGraceSeconds: TimeInterval = 3_600
 
+    static func idleDescription(since date: Date) -> String {
+        let hours = Date().timeIntervalSince(date) / 3_600
+        if hours >= 48 { return "\(Int(hours / 24)) 天" }
+        if hours >= 1 { return "\(Int(hours)) 小时" }
+        return "不到 1 小时"
+    }
+
     func locations(for codexHome: URL) -> CodexLocations {
         CodexLocations(home: codexHome, library: libraryDirectory, documents: documentsDirectory)
     }
@@ -116,8 +123,9 @@ struct CodexStorageScanner: Sendable {
         for url in children {
             reporter?.note(url.path)
             let name = url.lastPathComponent
-            let modified = modificationDate(of: url)
-            let bytes = directorySize(url, reporter: reporter)
+            let measured = measure(url, reporter: reporter)
+            let modified = measured.latestActivity
+            let bytes = measured.bytes
             guard bytes > 0 else { continue }
             // A marketplace Codex loads plugins from is not scratch, whatever it is called
             // or where it sits. It is listed under 受保护 instead.
@@ -136,20 +144,25 @@ struct CodexStorageScanner: Sendable {
                 continue
             }
 
-            // Staging and clone directories are leftovers only once nothing is using them;
-            // an upgrade unpacking right now looks exactly the same from the outside.
-            let isLeftover = (name.contains(".staging-") || name.hasPrefix("plugins-clone-"))
-                && modified < Date(timeIntervalSinceNow: -Self.leftoverGraceSeconds)
-            guard isLeftover || modified < cutoff else { continue }
+            // Staging and clone directories are leftovers only once nothing is writing to
+            // them; an upgrade unpacking right now looks exactly the same from outside.
+            let looksLikeLeftover = name.contains(".staging-") || name.hasPrefix("plugins-clone-")
+            let idleRequirement = looksLikeLeftover
+                ? Self.leftoverGraceSeconds
+                : TimeInterval(temporaryGraceDays) * 86_400
+            guard modified < Date(timeIntervalSinceNow: -idleRequirement) else { continue }
             stale.append(
                 StorageEntry(
                     title: name,
-                    detail: isLeftover
-                        ? "未完成的安装暂存或克隆残留"
+                    detail: looksLikeLeftover
+                        ? "安装暂存或克隆残留，已 \(Self.idleDescription(since: modified)) 没有写入"
                         : "\(temporaryGraceDays) 天内没有改动的临时目录",
                     url: url,
                     bytes: bytes,
-                    risk: .safe
+                    risk: .safe,
+                    // Re-checked immediately before deletion: a scan result can be minutes
+                    // old, and an upgrade can start in that window.
+                    minimumIdleSeconds: idleRequirement
                 )
             )
         }
@@ -869,27 +882,64 @@ struct CodexStorageScanner: Sendable {
     }
 
     func directorySize(_ url: URL, reporter: ProgressReporter?) -> Int64 {
+        measure(url, reporter: reporter).bytes
+    }
+
+    /// Size and, just as importantly, the most recent modification time **anywhere** in
+    /// the subtree.
+    ///
+    /// A directory's own timestamp only moves when an entry is added or removed directly
+    /// inside it, so an unpack writing into `staging-x/plugins/browser/…` leaves
+    /// `staging-x` looking untouched since whenever `plugins/` was created. Judging
+    /// "nothing is using this" from the top-level timestamp is therefore not a
+    /// conservative guess, it is the wrong measurement.
+    static func measure(
+        _ url: URL,
+        reporter: ProgressReporter?,
+        isCancelled: () -> Bool = { Task.isCancelled }
+    ) -> (bytes: Int64, latestActivity: Date) {
         let manager = FileManager()
         var isDirectory: ObjCBool = false
-        guard manager.fileExists(atPath: url.path, isDirectory: &isDirectory) else { return 0 }
-        guard isDirectory.boolValue else { return FileSize.of(url) }
+        guard manager.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            return (0, .distantPast)
+        }
+
+        let ownModified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+            .contentModificationDate ?? .distantPast
+        guard isDirectory.boolValue else { return (FileSize.of(url), ownModified) }
 
         guard let enumerator = manager.enumerator(
             at: url,
-            includingPropertiesForKeys: [.isRegularFileKey, .totalFileAllocatedSizeKey, .fileAllocatedSizeKey, .fileSizeKey],
+            includingPropertiesForKeys: [
+                .isRegularFileKey,
+                .contentModificationDateKey,
+                .totalFileAllocatedSizeKey,
+                .fileAllocatedSizeKey,
+                .fileSizeKey
+            ],
             options: [.skipsPackageDescendants]
-        ) else { return 0 }
+        ) else { return (0, ownModified) }
 
         var total: Int64 = 0
+        var latest = ownModified
         var counter = 0
         for case let fileURL as URL in enumerator {
-            if Task.isCancelled { break }
-            guard (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
+            if isCancelled() { break }
+            let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey])
+            // Directories count towards activity too: a new subdirectory is a write.
+            if let modified = values?.contentModificationDate, modified > latest {
+                latest = modified
+            }
+            guard values?.isRegularFile == true else { continue }
             total += FileSize.of(fileURL)
             counter += 1
             if counter % 256 == 0 { reporter?.note(fileURL.path) }
         }
-        return total
+        return (total, latest)
+    }
+
+    func measure(_ url: URL, reporter: ProgressReporter?) -> (bytes: Int64, latestActivity: Date) {
+        Self.measure(url, reporter: reporter)
     }
 }
 

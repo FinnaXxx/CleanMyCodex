@@ -14,6 +14,8 @@ struct CleanupTask: Identifiable, Sendable {
     let companionURLs: [URL]
     /// Only set for `.slimSession`.
     let slimMode: SessionSlimMode?
+    /// Verified again right before the file is touched, not just when it was scanned.
+    let minimumIdleSeconds: TimeInterval?
 
     init(
         id: String,
@@ -24,7 +26,8 @@ struct CleanupTask: Identifiable, Sendable {
         expectedBytes: Int64,
         threadID: String? = nil,
         companionURLs: [URL] = [],
-        slimMode: SessionSlimMode? = nil
+        slimMode: SessionSlimMode? = nil,
+        minimumIdleSeconds: TimeInterval? = nil
     ) {
         self.id = id
         self.title = title
@@ -35,6 +38,7 @@ struct CleanupTask: Identifiable, Sendable {
         self.threadID = threadID
         self.companionURLs = companionURLs
         self.slimMode = slimMode
+        self.minimumIdleSeconds = minimumIdleSeconds
     }
 
     init(entry: StorageEntry) {
@@ -44,7 +48,8 @@ struct CleanupTask: Identifiable, Sendable {
             detail: entry.detail,
             url: entry.url,
             method: entry.method,
-            expectedBytes: entry.reclaimableBytes
+            expectedBytes: entry.reclaimableBytes,
+            minimumIdleSeconds: entry.minimumIdleSeconds
         )
     }
 }

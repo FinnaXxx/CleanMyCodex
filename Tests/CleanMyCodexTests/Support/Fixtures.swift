@@ -40,6 +40,23 @@ struct TemporaryFixture {
         )
     }
 
+    /// Backdates a whole subtree, so activity-based rules see it as settled.
+    func ageTree(_ relativePath: String, hours: Double) {
+        let root = file(relativePath)
+        let date = Date(timeIntervalSinceNow: -hours * 3_600)
+        var paths = [root]
+        if let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil) {
+            for case let url as URL in enumerator { paths.append(url) }
+        }
+        // Deepest first: touching a child updates its parent's timestamp.
+        for url in paths.sorted(by: { $0.pathComponents.count > $1.pathComponents.count }) {
+            try? FileManager.default.setAttributes(
+                [.modificationDate: date],
+                ofItemAtPath: url.path
+            )
+        }
+    }
+
     func remove() {
         try? FileManager.default.removeItem(at: root)
     }
