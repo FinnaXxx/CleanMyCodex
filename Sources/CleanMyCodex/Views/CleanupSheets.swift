@@ -19,6 +19,9 @@ struct CleanupFlowSheet: View {
     let rows: [CleanupPreviewRow]
     let confirmLabel: String
     let isDestructive: Bool
+    /// Items that will be deferred unless Codex is closed first. Empty means nothing here
+    /// needs exclusive access, and no restart choice is offered.
+    let blockedTitles: [String]
     let start: () -> Void
 
     @State private var started = false
@@ -30,6 +33,7 @@ struct CleanupFlowSheet: View {
         rows: [CleanupPreviewRow],
         confirmLabel: String,
         isDestructive: Bool = false,
+        blockedTitles: [String] = [],
         start: @escaping () -> Void
     ) {
         self.title = title
@@ -38,7 +42,47 @@ struct CleanupFlowSheet: View {
         self.rows = rows
         self.confirmLabel = confirmLabel
         self.isDestructive = isDestructive
+        self.blockedTitles = blockedTitles
         self.start = start
+    }
+
+    /// Shown only when something in this batch needs Codex closed and Codex is up.
+    @ViewBuilder
+    private var restartChoice: some View {
+        CleanerCard {
+            VStack(alignment: .leading, spacing: 10) {
+                Label(
+                    "有 \(blockedTitles.count) 项需要 Codex 完全退出",
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(Color.cleanerAmber)
+
+                Text(blockedTitles.prefix(4).joined(separator: "、")
+                    + (blockedTitles.count > 4 ? " 等" : ""))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if model.canRestartCodex {
+                    Toggle(isOn: $model.restartCodexForCleanup) {
+                        Text("先退出 Codex，清理完成后自动重新打开")
+                    }
+                    .toggleStyle(.checkbox)
+                    Text("会像按 ⌘Q 一样请求退出，不会强制结束进程。有未保存内容而退不掉时会中止清理并告诉你。")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text((model.codexBlockerSummary ?? "Codex 正在运行")
+                        + "。终端里的 codex 可能正在执行任务，不会被自动结束——"
+                        + "请自己退出后再来一次。现在继续的话，这几项会推迟到下一次。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
     }
 
     var body: some View {
@@ -53,6 +97,7 @@ struct CleanupFlowSheet: View {
                     message: confirmMessage,
                     rows: rows
                 )
+                if !blockedTitles.isEmpty { restartChoice }
             }
 
             HStack {
@@ -67,7 +112,7 @@ struct CleanupFlowSheet: View {
                         .buttonStyle(.borderedProminent)
                         .keyboardShortcut(.defaultAction)
                 } else if started {
-                    Button("正在清理…") {}
+                    Button(model.restartStage ?? "正在清理…") {}
                         .disabled(true)
                 } else {
                     Button("取消") { dismiss() }
@@ -83,7 +128,8 @@ struct CleanupFlowSheet: View {
             }
         }
         .padding(24)
-        .frame(width: 660, height: 480)
+        .frame(width: 660, height: blockedTitles.isEmpty ? 480 : 620)
+        .task { model.refreshEnvironment() }
         .navigationTitle(title)
         .interactiveDismissDisabled(model.isCleaning)
     }

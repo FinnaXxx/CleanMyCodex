@@ -15,11 +15,26 @@ struct CodexRuntimeProbe: Sendable {
 
     /// Works from background work too, and also catches a bare `codex` CLI session.
     static func isCodexRunning() -> Bool {
-        runningCommands().contains { command in
-            guard let executable = command.split(separator: " ").first else { return false }
-            if executable == "codex" || executable.hasSuffix("/codex") { return true }
-            return command.contains("Codex.app/Contents/MacOS")
+        runningCommands().contains(where: isCodexCommand)
+    }
+
+    /// Terminal sessions only. These hold work in flight that no quit request can save,
+    /// so the app offers to close the desktop app but never these.
+    static func runningCLICommands() -> [String] {
+        cliCommands(from: runningCommands())
+    }
+
+    static func cliCommands(from commands: [String]) -> [String] {
+        commands.filter { command in
+            guard isCodexCommand(command) else { return false }
+            return !command.contains("Codex.app/Contents/MacOS")
         }
+    }
+
+    static func isCodexCommand(_ command: String) -> Bool {
+        guard let executable = command.split(separator: " ").first else { return false }
+        if executable == "codex" || executable.hasSuffix("/codex") { return true }
+        return command.contains("Codex.app/Contents/MacOS")
     }
 
     private static func runningCommands() -> [String] {

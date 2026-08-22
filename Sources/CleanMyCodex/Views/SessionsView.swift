@@ -47,7 +47,8 @@ struct SessionsView: View {
                     )
                 },
                 confirmLabel: "确认改写",
-                isDestructive: true
+                isDestructive: true,
+                blockedTitles: model.blockedTasks(in: model.slimTasks).map(\.title)
             ) {
                 model.slimSelectedSessions()
             }
@@ -211,9 +212,9 @@ struct SessionsView: View {
             Button("取消选择") { model.clearSessionSelection() }
                 .disabled(model.selectedSessionIDs.isEmpty)
             Button("瘦身 · \(ByteFormat.string(model.slimmableBytes))") { showingSlim = true }
-                .disabled(model.slimTasks.isEmpty || model.isCleaning || model.codexRunning)
+                .disabled(model.slimTasks.isEmpty || model.isCleaning)
                 .help(model.codexRunning
-                    ? "Codex 正在运行，改写会话文件不安全"
+                    ? "保留会话，只处理内嵌图片。需要 Codex 退出，确认时可以让它自动退出并重开"
                     : "保留会话，只处理内嵌图片")
             Button("删除所选会话") { showingDelete = true }
                 .buttonStyle(.borderedProminent)

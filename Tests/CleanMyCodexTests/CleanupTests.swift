@@ -380,6 +380,74 @@ struct CodexRunningTests {
     }
 }
 
+struct CodexLifecycleTests {
+    /// A terminal session may be mid-task, so it is never something we offer to close.
+    @Test func onlyTerminalSessionsCountAsCommandLineBlockers() {
+        let commands = [
+            "/Applications/Codex.app/Contents/MacOS/Codex",
+            "/Applications/Codex.app/Contents/MacOS/Codex Helper (Renderer)",
+            "codex",
+            "/opt/homebrew/bin/codex app-server",
+            "/Users/someone/.codex/bin/codex exec 'fix the tests'",
+            "/usr/bin/ssh codex-host",
+            "vim codex.swift"
+        ]
+
+        let cli = CodexRuntimeProbe.cliCommands(from: commands)
+
+        #expect(cli.contains("codex"))
+        #expect(cli.contains("/opt/homebrew/bin/codex app-server"))
+        #expect(cli.contains("/Users/someone/.codex/bin/codex exec 'fix the tests'"))
+        #expect(!cli.contains(where: { $0.contains("Codex.app/Contents/MacOS") }))
+        // Neither of these is Codex.
+        #expect(!cli.contains("/usr/bin/ssh codex-host"))
+        #expect(!cli.contains("vim codex.swift"))
+    }
+
+    @Test func exclusiveWorkIsIdentifiedForTheRestartPrompt() {
+        let tasks = [
+            CleanupTask(
+                id: "cache",
+                title: "浏览器缓存",
+                detail: "",
+                url: URL(fileURLWithPath: "/tmp/codex/cache"),
+                method: .trash,
+                expectedBytes: 1
+            ),
+            CleanupTask(
+                id: "staging",
+                title: "openai-bundled.staging-1",
+                detail: "",
+                url: URL(fileURLWithPath: "/tmp/codex/.tmp/staging"),
+                method: .trash,
+                expectedBytes: 1,
+                requiresCodexStopped: true
+            ),
+            CleanupTask(
+                id: "db",
+                title: "logs_2.sqlite",
+                detail: "",
+                url: URL(fileURLWithPath: "/tmp/codex/logs_2.sqlite"),
+                method: .compactDatabase,
+                expectedBytes: 1
+            ),
+            CleanupTask(
+                id: "slim",
+                title: "会话",
+                detail: "",
+                url: URL(fileURLWithPath: "/tmp/codex/sessions/a.jsonl"),
+                method: .slimSession,
+                expectedBytes: 1,
+                slimMode: .deduplicate
+            )
+        ]
+
+        let blocked = AppModel.requiresCodexStopped(tasks).map(\.id)
+
+        #expect(blocked == ["staging", "db", "slim"])
+    }
+}
+
 struct CleanupPlannerTests {
     private func snapshot(with sessions: [SessionItem]) -> ScanSnapshot {
         ScanSnapshot(

@@ -40,7 +40,9 @@ struct OverviewView: View {
                         bytes: $0.reclaimableBytes
                     )
                 },
-                confirmLabel: "确认清理"
+                confirmLabel: "确认清理",
+                blockedTitles: model.blockedTasks(in: CleanupPlanner.tasks(for: model.selectedEntries))
+                    .map(\.title)
             ) {
                 model.cleanSelectedStorage()
             }
