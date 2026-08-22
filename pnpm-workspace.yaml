@@ -1,0 +1,10 @@
+allowBuilds:
+  electron: true
+  esbuild: true
+  better-sqlite3: true
+
+# Keep fresh transitive releases behind pnpm's minimum-release-age window so a clean
+# install works with supply-chain policy enforcement enabled.
+overrides:
+  "@xmldom/xmldom": 0.9.11
+  baseline-browser-mapping: 2.11.16

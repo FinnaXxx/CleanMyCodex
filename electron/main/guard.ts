@@ -1,4 +1,5 @@
-import { resolve, normalize, sep } from 'node:path'
+import { basename, dirname, join, normalize, sep } from 'node:path'
+import { realpathSync } from 'node:fs'
 import { CodexLocations } from './locations'
 
 /**
@@ -53,13 +54,22 @@ export class ProtectedPaths {
     const urls: string[] = []
     for (const name of ProtectedPaths.protectedHomeEntries) urls.push(normalize(`${this.locations.home}/${name}`))
     for (const name of ProtectedPaths.protectedAppSupportEntries) urls.push(normalize(`${this.locations.appSupport}/${name}`))
-    urls.push(normalize(`${this.locations.documents}/Codex`))
+    urls.push(normalize(this.locations.bundledMarketplaces))
     urls.push(...this.activePluginDirectories)
     return urls
   }
 
   private get writableRoots(): string[] {
     return this.locations.writableRoots.map(normalize)
+  }
+
+  private canonical(path: string): string {
+    const target = normalize(path)
+    try { return normalize(realpathSync(target)) } catch {
+      const parent = dirname(target)
+      if (parent === target) return target
+      return join(this.canonical(parent), basename(target))
+    }
   }
 
   /** True when `candidate` is `root` itself or lives below it. */
@@ -71,11 +81,11 @@ export class ProtectedPaths {
   }
 
   isProtected(url: string): boolean {
-    const target = normalize(url)
-    if (this.protectedURLs.some((p) => ProtectedPaths.contains(p, target))) return true
+    const target = this.canonical(url)
+    if (this.protectedURLs.map((path) => this.canonical(path)).some((p) => ProtectedPaths.contains(p, target) || ProtectedPaths.contains(target, p))) return true
     // state_*.sqlite, history.jsonl … directly inside ~/.codex.
     const parent = normalize(target + '/..')
-    if (normalize(parent) === normalize(this.locations.home)) {
+    if (normalize(parent) === this.canonical(this.locations.home)) {
       const name = target.split(sep).pop() ?? ''
       if (ProtectedPaths.protectedHomePrefixes.some((prefix) => name.startsWith(prefix))) return true
     }
@@ -85,7 +95,8 @@ export class ProtectedPaths {
   /** Resolves symlinks so a link cannot point the engine somewhere outside the roots. */
   validate(url: string): void {
     const target = normalize(url)
-    if (this.writableRoots.some((root) => root === target)) {
+    const canonicalRoots = this.writableRoots.map((root) => this.canonical(root))
+    if (this.writableRoots.some((root) => root === target) || canonicalRoots.some((root) => root === this.canonical(target))) {
       throw new ProtectedPathError(`不能整体删除数据目录：${target}`)
     }
     if (!this.writableRoots.some((root) => ProtectedPaths.contains(root, target))) {
@@ -96,12 +107,12 @@ export class ProtectedPaths {
     }
     let resolved: string
     try {
-      resolved = resolve(target)
+      resolved = this.canonical(target)
     } catch {
       resolved = target
     }
     if (resolved !== target) {
-      if (!this.writableRoots.some((root) => ProtectedPaths.contains(root, resolved)) || this.isProtected(resolved)) {
+      if (!canonicalRoots.some((root) => ProtectedPaths.contains(root, resolved)) || this.isProtected(resolved)) {
         throw new ProtectedPathError(`符号链接指向数据目录外：${resolved}`)
       }
     }

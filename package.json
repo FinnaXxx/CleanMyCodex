@@ -9,18 +9,25 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
+    "postinstall": "electron-rebuild -f -w better-sqlite3",
+    "rebuild:native": "electron-rebuild -f -w better-sqlite3",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "pnpm typecheck:node && pnpm typecheck:web",
-    "build:mac": "pnpm build && electron-builder --mac",
-    "build:win": "pnpm build && electron-builder --win",
-    "build:linux": "pnpm build && electron-builder --linux"
+    "test": "vitest run",
+    "check": "pnpm typecheck && pnpm test && pnpm build",
+    "build:mac": "pnpm rebuild:native && pnpm build && electron-builder --mac",
+    "build:win": "pnpm rebuild:native && pnpm build && electron-builder --win",
+    "build:linux": "pnpm rebuild:native && pnpm build && electron-builder --linux"
   },
   "dependencies": {
+    "better-sqlite3": "^11.8.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.2.0",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
@@ -28,14 +35,10 @@
     "electron": "^33.0.0",
     "electron-builder": "^25.1.0",
     "electron-vite": "^3.0.0",
+    "esbuild": "0.25.12",
     "typescript": "^5.7.0",
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "vitest": "^4.1.11"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "electron",
-      "esbuild"
-    ]
-  },
-  "packageManager": "pnpm@10.14.0+sha512.ad27a79641b49c3e481a16a805baa71817a04bbe06a38d17e60e2eaee83f6a146c6a688125f5792e48dd5ba30e7da52a5cda4c3992b9ccf333f9ce223af84748"
+  "packageManager": "pnpm@11.19.0"
 }

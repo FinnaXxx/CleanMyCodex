@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   type ScanSnapshot,
   type CleanupTask,
@@ -32,6 +32,14 @@ export default function OverviewView({ snapshot, cleaning, cleanProgress, onClea
     [allEntries, selected]
   )
   const selectedBytes = selectedEntries.reduce((sum, e) => sum + e.reclaimableBytes, 0)
+
+  useEffect(() => {
+    setSelected(new Set(snapshot.categories
+      .filter((category) => category.group === 'recommended')
+      .flatMap((category) => category.entries)
+      .filter((item) => isSelectable(item.risk))
+      .map((item) => item.id)))
+  }, [snapshot.scannedAt])
 
   const toggle = (id: string): void => {
     setSelected((prev) => {
@@ -92,7 +100,9 @@ export default function OverviewView({ snapshot, cleaning, cleanProgress, onClea
           <span>
             已选 {selectedEntries.length} 项 · 可回收 {formatBytes(selectedBytes)}
           </span>
-          <button className="clean" onClick={() => onCleanup(tasksFromEntries(selectedEntries))} disabled={cleaning}>
+          <button className="clean" onClick={() => {
+            if (window.confirm(`确认清理 ${selectedEntries.length} 项，预计释放 ${formatBytes(selectedBytes)}？`)) onCleanup(tasksFromEntries(selectedEntries))
+          }} disabled={cleaning}>
             {cleaning ? `清理中… (${cleanProgress?.completed ?? 0}/${selectedEntries.length})` : '清理已选'}
           </button>
         </div>
