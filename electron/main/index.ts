@@ -4,14 +4,16 @@ import { fileURLToPath } from 'node:url'
 import { CodexLocations } from './locations'
 import { scanSnapshot } from './scanner'
 import { ProtectedPaths } from './guard'
-import { runCleanup, tasksFromEntries } from './cleanup'
+import { runCleanup } from './cleanup'
+import { AppServerClient } from './app-server'
 import { codexIsRunning } from './probes'
-import type { ScanProgress, StorageEntry, CleanupProgress } from '../../shared/types'
+import type { ScanProgress, CleanupTask, CleanupProgress } from '../../shared/types'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 
 let locations = CodexLocations.standard()
 let guards = new ProtectedPaths(locations)
+let appServer = new AppServerClient(locations.home)
 let mainWindow: BrowserWindow | null = null
 
 ipcMain.handle('app:info', () => ({
@@ -28,10 +30,21 @@ ipcMain.handle('scan:run', async () => {
   return snapshot
 })
 
-ipcMain.handle('cleanup:run', async (_event, entries: StorageEntry[]) => {
-  const report = await runCleanup(tasksFromEntries(entries), guards, {
+ipcMain.handle('cleanup:run', async (_event, tasks: CleanupTask[]) => {
+  const report = await runCleanup(tasks, guards, {
     trash: (path) => shell.trashItem(path),
-    isCodexRunning: codexIsRunning
+    isCodexRunning: codexIsRunning,
+    appServer: {
+      isAvailable: appServer.isAvailable,
+      deleteThread: async (threadID: string) => {
+        const session = await appServer.openSession()
+        try {
+          await session.deleteThread(threadID)
+        } finally {
+          session.close()
+        }
+      }
+    }
   }, (progress: CleanupProgress) => {
     mainWindow?.webContents.send('cleanup:progress', progress)
   })

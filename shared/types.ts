@@ -272,6 +272,40 @@ export interface CleanupTask {
   requiresCodexStopped: boolean
 }
 
+/** Build cleanup tasks from the storage entries selected in the overview. */
+export function tasksFromEntries(entries: StorageEntry[]): CleanupTask[] {
+  return entries.map((entry) => ({
+    id: entry.id,
+    title: entry.title,
+    detail: entry.detail,
+    url: entry.url,
+    method: entry.method,
+    expectedBytes: entry.reclaimableBytes,
+    threadID: null,
+    companionURLs: [],
+    slimMode: null,
+    minimumIdleSeconds: entry.minimumIdleSeconds,
+    requiresCodexStopped: entry.requiresCodexStopped
+  }))
+}
+
+/** Build delete-thread tasks from the sessions selected in the sessions list. */
+export function tasksForSessionDeletion(sessions: SessionItem[]): CleanupTask[] {
+  return sessions.map((s) => ({
+    id: s.id,
+    title: sessionDisplayName(s),
+    detail: s.fileURL,
+    url: s.fileURL,
+    method: 'deleteThread',
+    expectedBytes: sessionTotalBytes(s),
+    threadID: s.threadID,
+    companionURLs: s.assetURLs,
+    slimMode: null,
+    minimumIdleSeconds: null,
+    requiresCodexStopped: false
+  }))
+}
+
 export type CleanupStatus =
   | { kind: 'succeeded' }
   | { kind: 'skipped'; reason: string }

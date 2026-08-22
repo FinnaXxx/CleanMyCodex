@@ -1,27 +1,27 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   type ScanSnapshot,
   type ScanProgress,
   type CleanupReport,
   type CleanupProgress,
-  type StorageEntry,
-  StorageGroupLabel,
-  categoryBytes,
-  categoryReclaimable,
-  categoryIsEmpty,
-  isSelectable,
-  cleanupStatusLabel,
-  cleanupStatusMessage,
+  type CleanupTask,
   reportFreedBytes,
   reportProblems,
+  cleanupStatusLabel,
+  cleanupStatusMessage,
   formatBytes
 } from '../shared/types'
+import OverviewView from './views/OverviewView'
+import SessionsView from './views/SessionsView'
+import './App.css'
+
+type Tab = 'overview' | 'sessions'
 
 function App() {
+  const [tab, setTab] = useState<Tab>('overview')
   const [snapshot, setSnapshot] = useState<ScanSnapshot | null>(null)
   const [progress, setProgress] = useState<ScanProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [selected, setSelected] = useState<Set<string>>(new Set())
   const [cleaning, setCleaning] = useState(false)
   const [cleanProgress, setCleanProgress] = useState<CleanupProgress | null>(null)
   const [report, setReport] = useState<CleanupReport | null>(null)
@@ -29,7 +29,6 @@ function App() {
   const runScan = useCallback(async () => {
     setError(null)
     setReport(null)
-    setSelected(new Set())
     setProgress({ stage: '扫描中', currentPath: '', scannedBytes: 0, fraction: 0 })
     try {
       setSnapshot(await window.cleanmycodex.scan())
@@ -40,6 +39,25 @@ function App() {
     }
   }, [])
 
+  const runCleanup = useCallback(
+    async (tasks: CleanupTask[]) => {
+      if (tasks.length === 0 || cleaning) return
+      setCleaning(true)
+      setReport(null)
+      setCleanProgress({ completed: 0, total: tasks.length, currentTitle: '' })
+      try {
+        setReport(await window.cleanmycodex.cleanup(tasks))
+        await runScan()
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err))
+      } finally {
+        setCleaning(false)
+        setCleanProgress(null)
+      }
+    },
+    [cleaning, runScan]
+  )
+
   useEffect(() => {
     const offScan = window.cleanmycodex.onScanProgress(setProgress)
     const offClean = window.cleanmycodex.onCleanupProgress(setCleanProgress)
@@ -49,49 +67,6 @@ function App() {
       offClean()
     }
   }, [runScan])
-
-  const allEntries = useMemo<StorageEntry[]>(() => {
-    if (!snapshot) return []
-    return snapshot.categories.flatMap((c) => c.entries)
-  }, [snapshot])
-
-  const selectedEntries = useMemo(
-    () => allEntries.filter((e) => selected.has(e.id)),
-    [allEntries, selected]
-  )
-  const selectedBytes = useMemo(
-    () => selectedEntries.reduce((sum, e) => sum + e.reclaimableBytes, 0),
-    [selectedEntries]
-  )
-
-  const toggle = (id: string): void => {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
-  const runCleanup = useCallback(async () => {
-    if (selectedEntries.length === 0 || cleaning) return
-    setCleaning(true)
-    setReport(null)
-    setCleanProgress({ completed: 0, total: selectedEntries.length, currentTitle: '' })
-    try {
-      const result = await window.cleanmycodex.cleanup(selectedEntries)
-      setReport(result)
-      // Rescan to reflect what was reclaimed.
-      await runScan()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setCleaning(false)
-      setCleanProgress(null)
-    }
-  }, [selectedEntries, cleaning, runScan])
-
-  const groups: Array<keyof typeof StorageGroupLabel> = ['recommended', 'review', 'protectedData']
 
   return (
     <main className="app">
@@ -105,91 +80,31 @@ function App() {
         </button>
       </header>
 
+      <nav className="tabs">
+        <button className={tab === 'overview' ? 'tab active' : 'tab'} onClick={() => setTab('overview')}>
+          空间概览
+        </button>
+        <button
+          className={tab === 'sessions' ? 'tab active' : 'tab'}
+          onClick={() => setTab('sessions')}
+          disabled={!snapshot || snapshot.sessions.length === 0}
+        >
+          会话记录{snapshot && snapshot.sessions.length > 0 ? ` (${snapshot.sessions.length})` : ''}
+        </button>
+      </nav>
+
       {progress && <p className="progress">正在查看 {progress.currentPath}</p>}
       {error && <p className="error">出错：{error}</p>}
 
-      {snapshot && (
-        <>
-          <section className="total">
-            <span className="total-label">Codex 总占用</span>
-            <span className="total-value">{formatBytes(snapshot.totalCodexBytes)}</span>
-          </section>
+      {report && <CleanupBanner report={report} />}
 
-          {report && <CleanupBanner report={report} />}
-
-          {groups.map((group) => {
-            const cats = snapshot.categories.filter((c) => c.group === group && !categoryIsEmpty(c))
-            if (cats.length === 0) return null
-            const meta = StorageGroupLabel[group]
-            const selectableGroup = group !== 'protectedData'
-            return (
-              <section key={group} className="group">
-                <h2>{meta.title}</h2>
-                <p className="group-subtitle">{meta.subtitle}</p>
-                {cats.map((c) => (
-                  <article key={c.kind} className="category">
-                    <div className="category-head">
-                      <span className="category-title">{c.title}</span>
-                      <span className="category-bytes">{formatBytes(categoryBytes(c))}</span>
-                    </div>
-                    <p className="category-detail">{c.detail}</p>
-                    {selectableGroup && (
-                      <p className="category-reclaimable">可回收 {formatBytes(categoryReclaimable(c))}</p>
-                    )}
-                    <ul className="entries">
-                      {c.entries.map((e) => (
-                        <EntryRow
-                          key={e.id}
-                          entry={e}
-                          selectable={selectableGroup && isSelectable(e.risk)}
-                          checked={selected.has(e.id)}
-                          onToggle={() => toggle(e.id)}
-                        />
-                      ))}
-                    </ul>
-                  </article>
-                ))}
-              </section>
-            )
-          })}
-
-          {snapshot.categories.length === 0 && <p className="empty">没有扫描到可清理的内容。</p>}
-
-          {selectedEntries.length > 0 && (
-            <div className="action-bar">
-              <span>
-                已选 {selectedEntries.length} 项 · 可回收 {formatBytes(selectedBytes)}
-              </span>
-              <button className="clean" onClick={runCleanup} disabled={cleaning}>
-                {cleaning ? `清理中… (${cleanProgress?.completed ?? 0}/${selectedEntries.length})` : '清理已选'}
-              </button>
-            </div>
-          )}
-        </>
-      )}
+      {snapshot &&
+        (tab === 'overview' ? (
+          <OverviewView snapshot={snapshot} cleaning={cleaning} cleanProgress={cleanProgress} onCleanup={runCleanup} />
+        ) : (
+          <SessionsView snapshot={snapshot} cleaning={cleaning} cleanProgress={cleanProgress} onCleanup={runCleanup} />
+        ))}
     </main>
-  )
-}
-
-function EntryRow({
-  entry,
-  selectable,
-  checked,
-  onToggle
-}: {
-  entry: StorageEntry
-  selectable: boolean
-  checked: boolean
-  onToggle: () => void
-}) {
-  return (
-    <li className="entry">
-      <label>
-        <input type="checkbox" disabled={!selectable} checked={checked} onChange={onToggle} />
-        <span className="entry-title">{entry.title}</span>
-      </label>
-      <span className="entry-bytes">{formatBytes(entry.reclaimableBytes)}</span>
-    </li>
   )
 }
 
