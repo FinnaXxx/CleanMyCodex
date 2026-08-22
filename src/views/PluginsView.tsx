@@ -32,16 +32,18 @@ export default function PluginsView({ snapshot, cleaning, actionsDisabled, clean
 
   return <>
     <section className="page-heading">
-      <div><h2>插件版本</h2><p>当前启用的版本始终受保护，只清理旧版本和卸载残留。</p></div>
-      <button className="secondary" disabled={!removable.length} onClick={() => setSelected(new Set(removable.map((item) => item.directoryURL)))}>选择全部可清理版本</button>
+      <div><h2>插件版本</h2><p>只清理旧版本和卸载残留，当前版本受保护。</p></div>
+      <button className="btn" disabled={!removable.length} onClick={() => setSelected(new Set(removable.map((item) => item.directoryURL)))}>选择全部可清理版本</button>
     </section>
-    {snapshot.pluginVersions.some((item) => item.status === 'unconfirmed') && <p className="notice">没有连接到 codex app server，未确认的版本已锁定，不能清理。</p>}
+    {snapshot.pluginVersions.some((item) => item.status === 'unconfirmed') && <p className="notice">未连接 codex app server，无法确认当前版本，已全部锁定。</p>}
     {!groups.length && <p className="empty-panel">没有找到本地插件</p>}
     <div className="card-stack">
-      {groups.map(([name, versions]) => <section className="panel" key={name}>
+      {groups.map(([name, versions]) => <section className="card" key={name}>
         <div className="panel-title"><strong>◫ {name}</strong><span>{versions.length} 个版本 · {formatBytes(versions.reduce((sum, item) => sum + item.bytes, 0))}</span></div>
         {versions.sort((a, b) => b.modifiedAt - a.modifiedAt).map((item) => <div className="plugin-row" key={item.directoryURL}>
-          <input type="checkbox" disabled={!pluginStatusIsRemovable(item.status)} checked={selected.has(item.directoryURL)} onChange={() => toggle(item.directoryURL)} />
+          {pluginStatusIsRemovable(item.status)
+            ? <input type="checkbox" aria-label={`${item.plugin} ${item.version}`} checked={selected.has(item.directoryURL)} onChange={() => toggle(item.directoryURL)} />
+            : <span className="checkbox-space" />}
           <div className="grow"><code>{item.version}</code><small>最后改动 {new Date(item.modifiedAt).toLocaleDateString()}{item.environmentBytes ? ` · Python 环境 ${formatBytes(item.environmentBytes)}` : ''}</small></div>
           <span className={`pill status-${item.status}`}>{PluginStatusLabel[item.status]}</span>
           <span className="fixed-bytes">{formatBytes(item.bytes)}</span>
@@ -49,6 +51,6 @@ export default function PluginsView({ snapshot, cleaning, actionsDisabled, clean
         </div>)}
       </section>)}
     </div>
-    <div className="page-footer"><span>{chosen.length ? `已选择 ${chosen.length} 个版本 · ${formatBytes(bytes)}` : `可清理 ${removable.length} 个版本`}</span><button className="clean" disabled={!chosen.length || cleaning || actionsDisabled} onClick={cleanup}>{cleaning ? `清理中… ${cleanProgress?.completed ?? 0}/${chosen.length}` : '清理所选版本'}</button></div>
+    <div className="page-footer"><span>{chosen.length ? `已选择 ${chosen.length} 个版本 · ${formatBytes(bytes)}` : `可清理 ${removable.length} 个版本`}</span><button className="btn primary" disabled={!chosen.length || cleaning || actionsDisabled} onClick={cleanup}>{cleaning ? `清理中… ${cleanProgress?.completed ?? 0}/${chosen.length}` : '清理所选版本'}</button></div>
   </>
 }
