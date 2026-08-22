@@ -80,7 +80,8 @@ struct OverviewView: View {
     private var banners: some View {
         if model.codexRunning {
             NoticeBanner(
-                text: "Codex 正在运行。缓存、临时文件、旧插件和会话都可以照常清理；只有日志数据库压缩和会话瘦身需要独占文件，会推迟到 Codex 退出后。",
+                text: "Codex 正在运行。浏览器与应用缓存、旧日志、旧插件版本和会话都可以照常清理；"
+                    + ".tmp 里的暂存目录、日志数据库压缩和会话瘦身需要独占文件，会推迟到 Codex 退出后。",
                 symbol: "exclamationmark.triangle"
             )
         }

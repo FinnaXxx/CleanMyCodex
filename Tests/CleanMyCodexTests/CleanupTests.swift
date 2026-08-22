@@ -170,7 +170,7 @@ struct CodexRunningTests {
         defer { fixture.remove() }
         let places = locations(fixture)
 
-        let cache = fixture.directory("codex/.tmp/openai-bundled.staging-1")
+        let cache = fixture.directory("Library/Caches/Codex/blob")
         try Data(repeating: 0x41, count: 30_000).write(to: cache.appending(path: "payload.bin"))
         let database = fixture.file("codex/logs_2.sqlite")
         SQLiteFixture.makeLogDatabase(at: database)
@@ -179,7 +179,7 @@ struct CodexRunningTests {
         let report = engine.run(tasks: [
             CleanupTask(
                 id: "cache",
-                title: "staging",
+                title: "browser-cache",
                 detail: "",
                 url: cache,
                 method: .trash,
@@ -300,6 +300,58 @@ struct CodexRunningTests {
             Issue.record("应该被推迟，实际是 \(String(describing: report.outcomes.first?.status))")
         }
         #expect(FileManager.default.fileExists(atPath: staging.path))
+    }
+
+    /// The user's call: `.tmp` is Codex' unpack area, so it waits for Codex to be gone
+    /// rather than relying on an idle-time guess, the same way slimming does.
+    @Test func temporaryScratchIsDeferredWhileCodexRuns() throws {
+        let fixture = try TemporaryFixture()
+        defer { fixture.remove() }
+        let places = locations(fixture)
+        let staging = fixture.directory("codex/.tmp/openai-bundled.staging-gated")
+        try Data(repeating: 0x41, count: 50_000).write(to: staging.appending(path: "payload.bin"))
+        fixture.ageTree("codex/.tmp/openai-bundled.staging-gated", hours: 6)
+
+        let task = CleanupTask(
+            id: "staging",
+            title: "openai-bundled.staging-gated",
+            detail: "",
+            url: staging,
+            method: .trash,
+            expectedBytes: 50_000,
+            minimumIdleSeconds: 3_600,
+            requiresCodexStopped: true
+        )
+
+        let running = CleanupEngine(locations: places, isCodexRunning: { true }).run(tasks: [task])
+        if case let .skipped(reason) = running.outcomes.first?.status {
+            #expect(reason.contains("Codex"))
+        } else {
+            Issue.record("应该被推迟，实际是 \(String(describing: running.outcomes.first?.status))")
+        }
+        #expect(FileManager.default.fileExists(atPath: staging.path))
+
+        // Same task, Codex gone: it goes through.
+        let stopped = CleanupEngine(locations: places, isCodexRunning: { false }).run(tasks: [task])
+        #expect(stopped.outcomes.first?.status == .succeeded)
+        #expect(!FileManager.default.fileExists(atPath: staging.path))
+    }
+
+    @Test func scannerMarksTemporaryEntriesAsNeedingCodexStopped() throws {
+        let fixture = try TemporaryFixture()
+        defer { fixture.remove() }
+        let staging = fixture.directory(".tmp/openai-bundled.staging-old")
+        try Data(repeating: 0x41, count: 50_000).write(to: staging.appending(path: "payload.bin"))
+        fixture.ageTree(".tmp/openai-bundled.staging-old", hours: 6)
+
+        let snapshot = try CodexStorageScanner(libraryDirectory: fixture.directory("Library"))
+            .scan(codexHome: fixture.root)
+        let temporary = try #require(snapshot.categories.first { $0.kind == .temporary })
+
+        #expect(temporary.entries.allSatisfy(\.requiresCodexStopped))
+        // Caches outside ~/.codex carry no such requirement.
+        let caches = snapshot.categories.filter { $0.kind == .appCache || $0.kind == .browserCache }
+        #expect(caches.flatMap(\.entries).allSatisfy { !$0.requiresCodexStopped })
     }
 
     @Test func aTargetThatStayedIdleIsStillDeleted() throws {
