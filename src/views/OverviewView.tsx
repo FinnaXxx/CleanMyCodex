@@ -5,18 +5,23 @@ import {
   type AppInfo,
   type CleanupSelection,
   type CleanupProgress,
+  type StorageCategory,
   type StorageEntry,
-  StorageGroupLabel,
+  type StorageKind,
+  StorageSectionLabel,
+  StorageSectionOrder,
+  categoryAdvice,
   categoryBytes,
   categoryReclaimable,
   categoryIsEmpty,
+  categorySection,
   isSelectable,
-  CleanupRiskLabel,
   snapshotSessionBytes,
-  snapshotEmbeddedImageBytes,
   workspaceBytes,
   formatBytes
 } from '../../shared/types'
+
+type Detail = 'sessions' | 'plugins' | 'workspace' | 'automation'
 
 interface Props {
   snapshot: ScanSnapshot
@@ -26,22 +31,24 @@ interface Props {
   actionsDisabled: boolean
   cleanProgress: CleanupProgress | null
   onCleanup: (selection: CleanupSelection) => void
-  onOpenDetail: (detail: 'sessions' | 'plugins' | 'workspace' | 'automation') => void
+  onOpenDetail: (detail: Detail) => void
 }
 
 export default function OverviewView({ snapshot, workspace, appInfo, cleaning, actionsDisabled, cleanProgress, onCleanup, onOpenDetail }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [expanded, setExpanded] = useState<Set<StorageKind>>(new Set())
 
-  const allEntries = useMemo<StorageEntry[]>(
-    () => snapshot.categories.flatMap((c) => c.entries),
-    [snapshot]
-  )
-  const selectedEntries = useMemo(
-    () => allEntries.filter((e) => selected.has(e.id)),
-    [allEntries, selected]
-  )
+  const allEntries = useMemo<StorageEntry[]>(() => snapshot.categories.flatMap((c) => c.entries), [snapshot])
+  const selectedEntries = useMemo(() => allEntries.filter((e) => selected.has(e.id)), [allEntries, selected])
   const selectedBytes = selectedEntries.reduce((sum, e) => sum + e.reclaimableBytes, 0)
+
+  /** Sections are content types; whether an item is worth cleaning shows up per row. */
+  const sections = useMemo(() => StorageSectionOrder.map((section) => ({
+    section,
+    categories: snapshot.categories
+      .filter((category) => !categoryIsEmpty(category) && categorySection(category) === section)
+      .sort((a, b) => categoryReclaimable(b) - categoryReclaimable(a) || categoryBytes(b) - categoryBytes(a))
+  })).filter((group) => group.categories.length > 0), [snapshot])
 
   useEffect(() => {
     setSelected(new Set(snapshot.categories
@@ -51,123 +58,151 @@ export default function OverviewView({ snapshot, workspace, appInfo, cleaning, a
       .map((item) => item.id)))
   }, [snapshot.scannedAt])
 
-  const toggle = (id: string): void => {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
+  const setMany = (entries: StorageEntry[], on: boolean): void => setSelected((previous) => {
+    const next = new Set(previous)
+    for (const item of entries) on ? next.add(item.id) : next.delete(item.id)
+    return next
+  })
 
-  const groups: Array<keyof typeof StorageGroupLabel> = ['recommended', 'review', 'protectedData']
+  const toggleExpanded = (kind: StorageKind): void => setExpanded((previous) => {
+    const next = new Set(previous)
+    next.has(kind) ? next.delete(kind) : next.add(kind)
+    return next
+  })
 
   return (
     <>
-      <section className="total">
-        <div><span className="total-label">Codex 总占用</span><span className="total-value">{formatBytes(snapshot.totalCodexBytes)}</span></div>
-        <div><span className="total-label">已选择</span><span className="total-value accent">{formatBytes(selectedBytes)}</span><small>{selectedEntries.length} 项</small></div>
-        <div><span className="total-label">会话数据</span><span className="total-value">{formatBytes(snapshotSessionBytes(snapshot))}</span><small>{snapshot.sessions.length} 个 · 图片 {formatBytes(snapshotEmbeddedImageBytes(snapshot))}</small></div>
+      <section className="hero">
+        <div className="hero-metrics">
+          <div className="metric">
+            <span className="metric-label">总占用</span>
+            <span className="metric-value">{formatBytes(snapshot.totalCodexBytes)}</span>
+          </div>
+          <div className="metric">
+            <span className="metric-label">已选择</span>
+            <span className="metric-value accent">
+              {formatBytes(selectedBytes)}<small>{selectedEntries.length} 项</small>
+            </span>
+          </div>
+        </div>
+        <button
+          className="btn primary btn-large"
+          disabled={!selectedEntries.length || cleaning || actionsDisabled}
+          onClick={() => onCleanup({ kind: 'storage', ids: selectedEntries.map((entry) => entry.id) })}
+        >
+          {cleaning ? `清理中… ${cleanProgress?.completed ?? 0}/${cleanProgress?.total ?? selectedEntries.length}` : '立即清理'}
+        </button>
       </section>
 
-      {appInfo?.codexRunning && <p className="notice warning">{appInfo.runtimeSummary ?? 'Codex 正在运行'}。需要独占文件的项目会自动推迟。</p>}
+      {appInfo?.codexRunning && <p className="notice warning">{appInfo.runtimeSummary ?? 'Codex 正在运行'}，需要独占文件的项目会推迟到下次清理。</p>}
       {snapshot.notes.map((note) => <p className="notice" key={note}>{note}</p>)}
 
-      <section className="overview-links">
-        <OverviewLink title="会话记录" detail="归档只是隐藏；可按标题、项目、日期和图片占用筛选。" value={`${snapshot.sessions.length} 个 · ${formatBytes(snapshotSessionBytes(snapshot))}`} disabled={!snapshot.sessions.length} onClick={() => onOpenDetail('sessions')} />
-        <OverviewLink title="插件版本" detail="当前版本受保护，只清理旧版本和卸载残留。" value={`${snapshot.pluginVersions.length} 个版本`} onClick={() => onOpenDetail('plugins')} />
-        <OverviewLink title="工作产出" detail="属于你的成果，默认不选，自动清理永远不会碰。" value={workspace?.isScanned ? formatBytes(workspaceBytes(workspace)) : '尚未统计'} onClick={() => onOpenDetail('workspace')} />
+      <section className="shortcuts">
+        <Shortcut title="会话记录" detail="查看、清理图片或删除会话" value={`${snapshot.sessions.length} 个 · ${formatBytes(snapshotSessionBytes(snapshot))}`}
+          disabled={!snapshot.sessions.length} onClick={() => onOpenDetail('sessions')} />
+        <Shortcut title="插件版本" detail="清理旧版本与卸载残留" value={`${snapshot.pluginVersions.length} 个版本`}
+          onClick={() => onOpenDetail('plugins')} />
+        <Shortcut title="工作产出" detail="Codex 会话的工作目录" value={workspace?.isScanned ? formatBytes(workspaceBytes(workspace)) : '尚未统计'}
+          onClick={() => onOpenDetail('workspace')} />
       </section>
 
-      {groups.map((group) => {
-        const cats = snapshot.categories.filter((c) => c.group === group && !categoryIsEmpty(c))
-        if (cats.length === 0) return null
-        const meta = StorageGroupLabel[group]
-        const selectableGroup = group !== 'protectedData'
-        const groupEntries = cats.flatMap((category) => category.entries).filter((item) => isSelectable(item.risk))
-        const groupAllSelected = groupEntries.length > 0 && groupEntries.every((item) => selected.has(item.id))
-        const groupSomeSelected = groupEntries.some((item) => selected.has(item.id))
+      {sections.map(({ section, categories }) => {
+        const selectable = categories.flatMap((category) => category.entries).filter((item) => isSelectable(item.risk))
+        const allSelected = selectable.length > 0 && selectable.every((item) => selected.has(item.id))
+        const someSelected = selectable.some((item) => selected.has(item.id))
         return (
-          <section key={group} className="group">
-            <div className="group-heading"><div><h2>{meta.title}</h2><p className="group-subtitle">{meta.subtitle}</p></div>
-              {selectableGroup && <input type="checkbox" checked={groupAllSelected}
-                ref={(input) => { if (input) input.indeterminate = groupSomeSelected && !groupAllSelected }}
-                onChange={(event) => setSelected((previous) => { const next = new Set(previous); for (const item of groupEntries) event.target.checked ? next.add(item.id) : next.delete(item.id); return next })}/>}</div>
-            {cats.map((c) => (
-              <article key={c.kind} className="category">
-                <div className="category-head">
-                  {selectableGroup && (<input type="checkbox" checked={c.entries.filter((entry) => isSelectable(entry.risk)).every((entry) => selected.has(entry.id))}
-                    ref={(input) => { if (input) input.indeterminate = c.entries.some((entry) => selected.has(entry.id)) && !c.entries.every((entry) => selected.has(entry.id)) }}
-                    onChange={(event) => setSelected((previous) => {
-                      const next = new Set(previous)
-                      for (const entry of c.entries.filter((item) => isSelectable(item.risk))) event.target.checked ? next.add(entry.id) : next.delete(entry.id)
-                      return next
-                    })}/>)}
-                  <button className="category-toggle" onClick={() => setExpanded((previous) => { const next = new Set(previous); next.has(c.kind) ? next.delete(c.kind) : next.add(c.kind); return next })}>
-                    <span className="category-title">{c.title}</span><span className="risk-pill">{CleanupRiskLabel[c.risk]}</span>
-                  </button>
-                  <span className="category-bytes">{formatBytes(categoryBytes(c))}</span>
-                </div>
-                <p className="category-detail">{c.detail}</p>
-                {selectableGroup && <p className="category-reclaimable">可回收 {formatBytes(categoryReclaimable(c))}</p>}
-                {expanded.has(c.kind) && <ul className="entries">
-                  {c.entries.map((e) => (
-                    <EntryRow
-                      key={e.id}
-                      entry={e}
-                      selectable={selectableGroup && isSelectable(e.risk)}
-                      checked={selected.has(e.id)}
-                      onToggle={() => toggle(e.id)}
-                    />
-                  ))}
-                </ul>}
-              </article>
-            ))}
+          <section key={section} className="section">
+            <div className="section-head">
+              {selectable.length > 0 && <input type="checkbox" aria-label={`选择全部${StorageSectionLabel[section]}`} checked={allSelected}
+                ref={(input) => { if (input) input.indeterminate = someSelected && !allSelected }}
+                onChange={(event) => setMany(selectable, event.target.checked)} />}
+              <h2>{StorageSectionLabel[section]}</h2>
+              <span className="section-total">共 {formatBytes(categories.reduce((sum, category) => sum + categoryBytes(category), 0))}</span>
+            </div>
+            <div className="card">
+              {categories.map((category) => (
+                <CategoryRow
+                  key={category.kind}
+                  category={category}
+                  selected={selected}
+                  expanded={expanded.has(category.kind)}
+                  onExpand={() => toggleExpanded(category.kind)}
+                  onSelectAll={(on) => setMany(category.entries.filter((entry) => isSelectable(entry.risk)), on)}
+                  onToggleEntry={(entry) => setMany([entry], !selected.has(entry.id))}
+                />
+              ))}
+            </div>
           </section>
         )
       })}
 
-      {snapshot.categories.length === 0 && <p className="empty">没有扫描到可清理的内容。</p>}
-
-      {selectedEntries.length > 0 && (
-        <div className="action-bar">
-          <span>
-            已选 {selectedEntries.length} 项 · 可回收 {formatBytes(selectedBytes)}
-          </span>
-          <button className="clean" onClick={() => {
-            onCleanup({ kind: 'storage', ids: selectedEntries.map((entry) => entry.id) })
-          }} disabled={cleaning || actionsDisabled}>
-            {cleaning ? `清理中… (${cleanProgress?.completed ?? 0}/${selectedEntries.length})` : '清理已选'}
-          </button>
-        </div>
-      )}
+      {snapshot.categories.length === 0 && <p className="empty-panel">没有扫描到可清理的内容</p>}
     </>
   )
 }
 
-function OverviewLink({ title, detail, value, disabled = false, onClick }: { title: string; detail: string; value: string; disabled?: boolean; onClick: () => void }) {
-  return <article className="overview-link"><div><strong>{title}</strong><small>{detail}</small></div><span>{value}</span><button className="secondary" disabled={disabled} onClick={onClick}>查看</button></article>
+function CategoryRow({ category, selected, expanded, onExpand, onSelectAll, onToggleEntry }: {
+  category: StorageCategory
+  selected: Set<string>
+  expanded: boolean
+  onExpand: () => void
+  onSelectAll: (on: boolean) => void
+  onToggleEntry: (entry: StorageEntry) => void
+}) {
+  const selectableEntries = category.entries.filter((entry) => isSelectable(entry.risk))
+  const allSelected = selectableEntries.length > 0 && selectableEntries.every((entry) => selected.has(entry.id))
+  const someSelected = selectableEntries.some((entry) => selected.has(entry.id))
+  const reclaimable = categoryReclaimable(category)
+  return (
+    <div className={`row-block${expanded ? ' expanded' : ''}`}>
+      <div className="row">
+        {selectableEntries.length > 0
+          ? <input type="checkbox" aria-label={category.title} checked={allSelected}
+              ref={(input) => { if (input) input.indeterminate = someSelected && !allSelected }}
+              onChange={(event) => onSelectAll(event.target.checked)} />
+          : <span className="checkbox-space" />}
+        <button className="row-main" onClick={onExpand} aria-expanded={expanded}>
+          <span className="row-text">
+            <span className="row-title">{category.title}</span>
+            <span className="row-detail">{category.detail}</span>
+          </span>
+          <span className="row-meta">
+            <span className="row-bytes">{formatBytes(categoryBytes(category))}</span>
+            <span className={`advice advice-${category.group}`}>{categoryAdvice(category)}</span>
+          </span>
+          <span className="chevron">{expanded ? '⌃' : '⌄'}</span>
+        </button>
+      </div>
+      {expanded && <ul className="entries">
+        {category.entries.map((entry) => (
+          <li className="entry" key={entry.id}>
+            {isSelectable(entry.risk)
+              ? <label className="entry-label">
+                  <input type="checkbox" checked={selected.has(entry.id)} onChange={() => onToggleEntry(entry)} />
+                  <span className="entry-text"><span className="entry-title">{entry.title}</span><span className="entry-detail">{entry.detail}</span></span>
+                </label>
+              : <span className="entry-label">
+                  <span className="checkbox-space" />
+                  <span className="entry-text"><span className="entry-title">{entry.title}</span><span className="entry-detail">{entry.detail}</span></span>
+                </span>}
+            <span className="entry-bytes">{formatBytes(entry.reclaimableBytes)}</span>
+            <button className="icon-button" title={entry.url} onClick={() => window.cleanmycodex.revealPath(entry.url)}>⌕</button>
+          </li>
+        ))}
+        {reclaimable > 0 && reclaimable !== categoryBytes(category) && <li className="entry entry-summary"><span>实际可回收 {formatBytes(reclaimable)}</span></li>}
+      </ul>}
+    </div>
+  )
 }
 
-function EntryRow({
-  entry,
-  selectable,
-  checked,
-  onToggle
-}: {
-  entry: StorageEntry
-  selectable: boolean
-  checked: boolean
-  onToggle: () => void
+function Shortcut({ title, detail, value, disabled = false, onClick }: {
+  title: string; detail: string; value: string; disabled?: boolean; onClick: () => void
 }) {
   return (
-    <li className="entry">
-      <label>
-        <input type="checkbox" disabled={!selectable} checked={checked} onChange={onToggle} />
-        <span className="entry-title">{entry.title}</span>
-      </label>
-      <span className="entry-bytes">{formatBytes(entry.reclaimableBytes)}</span>
-      <button className="icon-button" title={entry.url} onClick={() => window.cleanmycodex.revealPath(entry.url)}>⌕</button>
-    </li>
+    <button className="shortcut" disabled={disabled} onClick={onClick}>
+      <span className="shortcut-text"><span className="shortcut-title">{title}</span><span className="shortcut-detail">{detail}</span></span>
+      <span className="shortcut-value">{value}</span>
+      <span className="chevron">›</span>
+    </button>
   )
 }

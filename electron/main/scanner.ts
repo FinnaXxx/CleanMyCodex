@@ -147,15 +147,15 @@ export async function scanSnapshot(
       minimumIdleSeconds: idleSeconds, requiresCodexStopped: true
     }))
   }
-  categories.push(category('temporary', '过期临时目录', '旧 staging、失败的 clone 和无人使用的临时目录；只在 Codex 退出后清理', 'recommended', 'safe', staleTemporary))
-  categories.push(category('marketplaceCache', '插件市场缓存', '可以重新下载，但离线时会影响插件安装', 'review', 'rebuildable', marketplaceCaches))
+  categories.push(category('temporary', '过期临时目录', '安装暂存和长期无改动的临时目录，Codex 退出后清理', 'recommended', 'safe', staleTemporary))
+  categories.push(category('marketplaceCache', '插件市场缓存', '可重新下载，离线时会影响插件安装', 'review', 'rebuildable', marketplaceCaches))
   await yieldToEventLoop()
 
   const browserEntries = locations.browserCacheDirectories
     .filter(entryExists)
     .map((path) => entry(basename(path), '浏览器/渲染缓存，可重建', path, measure(path, '缓存与临时文件', 0.12), 'rebuildable'))
   categories.push(
-    category('browserCache', '浏览器与渲染缓存', 'Chromium 风格缓存，桌面应用按需重建', 'recommended', 'rebuildable', browserEntries)
+    category('browserCache', '浏览器与渲染缓存', '桌面应用按需重建的浏览器缓存', 'recommended', 'rebuildable', browserEntries)
   )
   await yieldToEventLoop()
 
@@ -192,7 +192,7 @@ export async function scanSnapshot(
     }
   })
   categories.push(
-    category('logDatabase', '日志数据库空闲页', 'checkpoint 和 VACUUM 只回收空闲页，不删除诊断记录', 'recommended', 'lossless', logs.map((db) => ({
+    category('logDatabase', '日志数据库空闲页', '只回收数据库空闲页，不删除日志内容', 'recommended', 'lossless', logs.map((db) => ({
       ...entry(basename(db.path), `已使用 ${db.inspection.usedBytes} B，空闲 ${db.inspection.freeListCount} 页`, db.path, db.bytes, 'lossless', 'compactDatabase'),
       reclaimableBytes: db.inspection.reclaimableBytes
     })))
@@ -226,7 +226,7 @@ export async function scanSnapshot(
     if ((!ProtectedPaths.contains(locations.home, path) && !marketplaceSources.has(path)) || !entryExists(path)) continue
     protectedConfigEntries.push(entry(
       marketplaceSources.has(path) ? relativeToHome(path, locations.home) : basename(path),
-      marketplaceSources.has(path) ? 'config.toml 注册的本地插件市场' : '配置、凭据或用户规则，永不清理',
+      marketplaceSources.has(path) ? 'config.toml 注册的本地插件市场' : '配置、凭据或用户规则',
       path,
       pathAllocatedSize(path),
       'shielded'
@@ -236,17 +236,17 @@ export async function scanSnapshot(
   try { homeEntries = readdirSync(locations.home) } catch { /* missing home */ }
   for (const db of homeEntries.filter((name) => ProtectedPaths.protectedHomePrefixes.some((prefix) => name.startsWith(prefix)))) {
     const path = join(locations.home, db)
-    protectedConfigEntries.push(entry(db, 'Codex 状态数据库，永不清理', path, fileAllocatedSize(path), 'shielded'))
+    protectedConfigEntries.push(entry(db, 'Codex 状态数据库', path, fileAllocatedSize(path), 'shielded'))
   }
   categories.push(
-    category('protectedConfig', '受保护的配置', '凭据、配置和状态数据库，永不清理', 'protectedData', 'shielded', protectedConfigEntries)
+    category('protectedConfig', '受保护的配置', '凭据、配置和状态数据库', 'protectedData', 'shielded', protectedConfigEntries)
   )
 
   const protectedUserEntries = ProtectedPaths.protectedAppSupportEntries.flatMap((relative): StorageEntry[] => {
     const path = join(locations.appSupport, relative)
     return entryExists(path) ? [entry(relative, '浏览器配置与登录状态', path, pathAllocatedSize(path), 'shielded')] : []
   })
-  categories.push(category('protectedUserData', '用户数据', '浏览器登录状态与本地配置，永不清理', 'protectedData', 'shielded', protectedUserEntries))
+  categories.push(category('protectedUserData', '用户数据', '浏览器登录状态与本地配置', 'protectedData', 'shielded', protectedUserEntries))
 
   const externalBytes = outermostStorageRoots([locations.appSupport, ...locations.appCaches, locations.appLogs].filter(entryExists))
     .reduce((sum, path) => sum + directoryAllocatedSize(path), 0)
@@ -294,7 +294,7 @@ function assetCategories(
     const title = session?.title || session?.preview || name
     return [entry(
       title,
-      session ? `${session.location === 'archived' ? '已归档' : '未归档'}会话的生成图片` : `会话已删除，只剩下图片 · ${name.slice(0, 8)}`,
+      session ? `${session.location === 'archived' ? '已归档' : '未归档'}会话的生成图片` : `会话已删除，只剩图片 · ${name.slice(0, 8)}`,
       path,
       bytes,
       session ? 'caution' : 'safe'
@@ -305,7 +305,7 @@ function assetCategories(
     ? [entry('computer-use', 'Computer Use 辅助组件，删除后需要重新下载', locations.computerUse, measure(locations.computerUse), 'caution')]
     : []
   return [
-    category('generatedImages', '生成图片', '按线程保存；会话已删除的孤儿图片才是安全项', 'review', 'caution', images),
-    category('computerUse', 'Computer Use 组件', '不建议清理，除非确定不再使用', 'review', 'caution', computerUse)
+    category('generatedImages', '生成图片', '会话生成的图片，按会话保存', 'review', 'caution', images),
+    category('computerUse', 'Computer Use 组件', 'Computer Use 运行所需的本地组件', 'review', 'caution', computerUse)
   ]
 }

@@ -152,9 +152,11 @@ function App() {
           <h1>CleanMyCodex</h1>
           <p className="subtitle">Codex 空间扫描与清理工具</p>
         </div>
-        <button className="secondary" onClick={() => setDetail('automation')}>自动清理</button>
-        {progress ? <button className="rescan" onClick={() => window.cleanmycodex.cancelScan()}>停止扫描</button>
-          : <button className="rescan" onClick={runScan} disabled={cleaning}>重新扫描</button>}
+        <div className="action-buttons">
+          <button className="btn" onClick={() => setDetail('automation')}>自动清理</button>
+          {progress ? <button className="btn" onClick={() => window.cleanmycodex.cancelScan()}>停止扫描</button>
+            : <button className="btn" onClick={runScan} disabled={cleaning}>重新扫描</button>}
+        </div>
       </header>
 
       {progress && <div className="progress"><progress value={progress.fraction} max={1}/><span>{progress.stage} · {progress.currentPath}</span></div>}
@@ -164,8 +166,9 @@ function App() {
 
       {snapshot && <OverviewView snapshot={snapshot} workspace={workspace} appInfo={appInfo} cleaning={cleaning}
         actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup} onOpenDetail={setDetail} />}
-      {detail && <div className="detail-backdrop"><section className="detail-sheet">
-        <div className="detail-toolbar"><button className="secondary" onClick={() => setDetail(null)}>完成</button></div>
+      {detail && <div className="detail-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !cleaning) setDetail(null) }}>
+        <section className="detail-sheet" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="detail-toolbar"><button className="btn" onClick={() => setDetail(null)}><span className="back-arrow">‹</span>返回</button></div>
         {snapshot && detail === 'sessions' ? <SessionsView snapshot={snapshot} appServerAvailable={!!appInfo?.appServerAvailable} cleaning={cleaning} actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup} />
           : snapshot && detail === 'plugins' ? <PluginsView snapshot={snapshot} cleaning={cleaning} actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup} />
           : detail === 'workspace' && workspace ? <WorkspaceView snapshot={workspace} scanning={workspaceScanning} cleaning={cleaning} actionsDisabled={!!progress} cleanProgress={cleanProgress} onScan={runWorkspaceScan} onCleanup={requestCleanup} />
@@ -186,16 +189,16 @@ function CleanupDialog({ preview, report, cleaning, progress, stage, restart, on
     {report ? <><h2>清理完成</h2><CleanupBanner report={report}/></> : cleaning ? <>
       <h2>{stage || '正在清理…'}</h2><progress value={progress?.completed ?? 0} max={progress?.total || 1}/>
       <p>{progress?.currentTitle || '准备中…'} · {progress?.completed ?? 0}/{progress?.total ?? preview.items.length}</p>
-    </> : <><h2>确认清理 {preview.items.length} 项？</h2>
-      <p>预计释放 {formatBytes(preview.expectedBytes)}。普通文件会移到系统废纸篓。</p>
+    </> : <><h2>确认清理 {preview.items.length} 项</h2>
+      <p className="dialog-lead">预计释放 {formatBytes(preview.expectedBytes)}，文件会移到系统废纸篓。</p>
       <ul className="preview-list">{preview.items.map((item) => <li key={item.id}><span><strong>{item.title} <em className="method-badge">{CleanupMethodLabel[item.method]}</em></strong><small>{item.detail}</small></span><b>{formatBytes(item.expectedBytes)}</b></li>)}</ul>
       {preview.warnings.map((warning) => <p className="notice warning" key={warning}>{warning}</p>)}
       {!!preview.blockedTitles.length && <div className="notice warning"><strong>{preview.blockedTitles.length} 项需要 Codex 完全退出</strong><br/>{preview.blockedTitles.slice(0, 4).join('、')}
-        {preview.canRestartCodex ? <label><input type="checkbox" checked={restart} onChange={(event) => onRestart(event.target.checked)}/> 先请求退出 Codex，完成后自动重新打开</label>
-          : <small>{preview.blockerSummary}。继续时这些项目会推迟。</small>}</div>}
+        {preview.canRestartCodex ? <label><input type="checkbox" checked={restart} onChange={(event) => onRestart(event.target.checked)}/> 先退出 Codex，清理完成后重新打开</label>
+          : <small>{preview.blockerSummary}，这些项目会推迟到下次清理。</small>}</div>}
     </>}
-    <div className="dialog-actions">{!cleaning && <button className="secondary" onClick={onClose}>{report ? '完成' : '取消'}</button>}
-      {!report && !cleaning && <button className="clean danger" onClick={onConfirm}>确认执行</button>}</div>
+    <div className="dialog-actions">{!cleaning && <button className="btn" onClick={onClose}>{report ? '完成' : '取消'}</button>}
+      {!report && !cleaning && <button className="btn danger" onClick={onConfirm}>确认执行</button>}</div>
   </section></div>
 }
 
