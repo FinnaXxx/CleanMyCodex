@@ -175,7 +175,14 @@ struct CodexRunningTests {
         let database = fixture.file("codex/logs_2.sqlite")
         SQLiteFixture.makeLogDatabase(at: database)
 
-        let engine = CleanupEngine(locations: places, isCodexRunning: { true })
+        let engine = CleanupEngine(
+            locations: places,
+            isCodexRunning: { true },
+            // Compaction is gated per file now, not by "Codex runs": VACUUM only needs the
+            // database to itself. Model a running Codex holding the log database open,
+            // which is the case where compaction must defer.
+            fileUsage: { _ in .inUse(processes: ["Codex"]) }
+        )
         let report = engine.run(tasks: [
             CleanupTask(
                 id: "cache",
@@ -348,7 +355,7 @@ struct CodexRunningTests {
             .scan(codexHome: fixture.root)
         let temporary = try #require(snapshot.categories.first { $0.kind == .temporary })
 
-        #expect(temporary.entries.allSatisfy(\.requiresCodexStopped))
+        #expect(temporary.entries.allSatisfy { $0.requiresCodexStopped })
         // Caches outside ~/.codex carry no such requirement.
         let caches = snapshot.categories.filter { $0.kind == .appCache || $0.kind == .browserCache }
         #expect(caches.flatMap(\.entries).allSatisfy { !$0.requiresCodexStopped })
@@ -444,7 +451,9 @@ struct CodexLifecycleTests {
 
         let blocked = AppModel.requiresCodexStopped(tasks).map(\.id)
 
-        #expect(blocked == ["staging", "db", "slim"])
+        // Slimming is gated per file (lsof on the rollout), so it is not "exclusive work"
+        // that needs Codex fully stopped and does not belong on the restart prompt.
+        #expect(blocked == ["staging", "db"])
     }
 }
 
@@ -739,7 +748,7 @@ struct SessionPreviewTests {
         let instructions = Data(#"{"payload":{"type":"user_message","message":"Here are the user_instructions:\n<user_instructions>be nice</user_instructions>"}}"#.utf8)
         #expect(SessionContentScanner.parsePreview(instructions) == nil)
 
-        let agents = Data(#"{"payload":{"type":"user_message","message":"# AGENTS.md\nAlways run the tests."}}"#.utf8)
+        let agents = Data(##"{"payload":{"type":"user_message","message":"# AGENTS.md\nAlways run the tests."}"##.utf8)
         #expect(SessionContentScanner.parsePreview(agents) == nil)
     }
 
@@ -763,9 +772,7 @@ struct SessionPreviewTests {
         var reader = SessionHeaderReader()
         let meta = #"{"type":"session_meta","payload":{"id":"abc","cwd":"/Users/someone/work/api"}}"#
         let user = #"{"type":"event_msg","payload":{"type":"user_message","message":"写个测试"}}"#
-        reader.consume(Data((meta + "
-" + user + "
-").utf8))
+        reader.consume(Data((meta + "\n" + user + "\n").utf8))
         reader.finish()
 
         #expect(reader.metadata?.id == "abc")
@@ -778,9 +785,7 @@ struct SessionPreviewTests {
         var reader = SessionHeaderReader()
         let huge = #"{"payload":{"type":"user_message","message":""# + String(repeating: "A", count: 300_000) + #""}}"#
         let user = #"{"type":"event_msg","payload":{"type":"user_message","message":"真正的第一句"}}"#
-        reader.consume(Data((huge + "
-" + user + "
-").utf8))
+        reader.consume(Data((huge + "\n" + user + "\n").utf8))
         reader.finish()
 
         #expect(reader.preview == "真正的第一句")

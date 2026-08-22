@@ -65,6 +65,14 @@ struct TemporaryFixture {
 enum SQLiteFixture {
     /// Builds a database with a large free list, the situation Codex' log retention leaves behind.
     static func makeLogDatabase(at url: URL, rows: Int = 600, deleteAll: Bool = true) {
+        // sqlite3_open_v2(SQLITE_OPEN_CREATE) creates the file but not its parent
+        // directory, so a missing parent makes the open fail silently and the caller is
+        // left asserting against a path that was never written. Ensure the directory
+        // exists, the way `TemporaryFixture.write` does for plain files.
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
         var handle: OpaquePointer?
         guard sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil) == SQLITE_OK,
               let handle
