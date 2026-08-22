@@ -8,6 +8,7 @@ import {
   type StorageCategory,
   type StorageEntry,
   type StorageKind,
+  type StorageSection,
   StorageSectionLabel,
   StorageSectionOrder,
   categoryAdvice,
@@ -98,11 +99,11 @@ export default function OverviewView({ snapshot, workspace, appInfo, cleaning, a
       {snapshot.notes.map((note) => <p className="notice" key={note}>{note}</p>)}
 
       <section className="shortcuts">
-        <Shortcut title="会话记录" detail="查看、清理图片或删除会话" value={`${snapshot.sessions.length} 个 · ${formatBytes(snapshotSessionBytes(snapshot))}`}
+        <Shortcut kind="sessions" title="会话记录" detail="查看、清理图片或删除会话" value={`${snapshot.sessions.length} 个 · ${formatBytes(snapshotSessionBytes(snapshot))}`}
           disabled={!snapshot.sessions.length} onClick={() => onOpenDetail('sessions')} />
-        <Shortcut title="插件版本" detail="清理旧版本与卸载残留" value={`${snapshot.pluginVersions.length} 个版本`}
+        <Shortcut kind="plugins" title="插件版本" detail="清理旧版本与卸载残留" value={`${snapshot.pluginVersions.length} 个版本`}
           onClick={() => onOpenDetail('plugins')} />
-        <Shortcut title="工作产出" detail="Codex 会话的工作目录" value={workspace?.isScanned ? formatBytes(workspaceBytes(workspace)) : '尚未统计'}
+        <Shortcut kind="workspace" title="工作产出" detail="Codex 会话的工作目录" value={workspace?.isScanned ? formatBytes(workspaceBytes(workspace)) : '尚未统计'}
           onClick={() => onOpenDetail('workspace')} />
       </section>
 
@@ -110,14 +111,21 @@ export default function OverviewView({ snapshot, workspace, appInfo, cleaning, a
         const selectable = categories.flatMap((category) => category.entries).filter((item) => isSelectable(item.risk))
         const allSelected = selectable.length > 0 && selectable.every((item) => selected.has(item.id))
         const someSelected = selectable.some((item) => selected.has(item.id))
+        const sectionSelectedBytes = selectable
+          .filter((item) => selected.has(item.id))
+          .reduce((sum, item) => sum + item.reclaimableBytes, 0)
         return (
-          <section key={section} className="section">
+          <section key={section} className={`section section-${section}`}>
             <div className="section-head">
               {selectable.length > 0 && <input type="checkbox" aria-label={`选择全部${StorageSectionLabel[section]}`} checked={allSelected}
                 ref={(input) => { if (input) input.indeterminate = someSelected && !allSelected }}
                 onChange={(event) => setMany(selectable, event.target.checked)} />}
+              <SectionIcon section={section} />
               <h2>{StorageSectionLabel[section]}</h2>
-              <span className="section-total">共 {formatBytes(categories.reduce((sum, category) => sum + categoryBytes(category), 0))}</span>
+              <span className="section-total">
+                共 {formatBytes(categories.reduce((sum, category) => sum + categoryBytes(category), 0))}
+                {sectionSelectedBytes > 0 && <>，已选 <b>{formatBytes(sectionSelectedBytes)}</b></>}
+              </span>
             </div>
             <div className="card">
               {categories.map((category) => (
@@ -138,6 +146,24 @@ export default function OverviewView({ snapshot, workspace, appInfo, cleaning, a
 
       {snapshot.categories.length === 0 && <p className="empty-panel">没有扫描到可清理的内容</p>}
     </>
+  )
+}
+
+const SectionGlyph: Record<StorageSection, string> = {
+  caches: 'M3 5.5c0-1.4 2.7-2.5 6-2.5s6 1.1 6 2.5S12.3 8 9 8 3 6.9 3 5.5Zm0 3.1C4.3 9.5 6.5 10 9 10s4.7-.5 6-1.4v3.9c0 1.4-2.7 2.5-6 2.5s-6-1.1-6-2.5V8.6Z',
+  logs: 'M4.5 2.5h6.2L14 5.8v9.7H4.5V2.5Zm5.8 1.3v2.4h2.4M6.6 8.8h5M6.6 11.4h5',
+  plugins: 'M7.4 2.6h3.2v1.9a1.6 1.6 0 1 0 3.2 0v1.9h1.7v3.2h-1.9a1.6 1.6 0 1 0 0 3.2h1.9v2.6H7.4v-1.9a1.6 1.6 0 1 0-3.2 0v-3.9h1.9a1.6 1.6 0 1 0 0-3.2H4.2V6.4h3.2V2.6Z',
+  assets: 'M2.8 4.2h12.4v9.6H2.8V4.2Zm1.6 7.4 2.9-3.2 2.1 2.3 2-2.2 2.2 3.1H4.4Zm7.5-4.6a.9.9 0 1 1-1.8 0 .9.9 0 0 1 1.8 0Z',
+  protectedData: 'M9 2.4 14.6 4v4.6c0 3.2-2.3 5.7-5.6 7-3.3-1.3-5.6-3.8-5.6-7V4L9 2.4Z'
+}
+
+function SectionIcon({ section }: { section: StorageSection }) {
+  return (
+    <span className="section-icon" aria-hidden="true">
+      <svg viewBox="0 0 18 18" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round">
+        <path d={SectionGlyph[section]} />
+      </svg>
+    </span>
   )
 }
 
@@ -195,11 +221,23 @@ function CategoryRow({ category, selected, expanded, onExpand, onSelectAll, onTo
   )
 }
 
-function Shortcut({ title, detail, value, disabled = false, onClick }: {
+const ShortcutGlyph: Record<'sessions' | 'plugins' | 'workspace', string> = {
+  sessions: 'M3 4.6h12v7.2h-6l-3.4 2.7v-2.7H3V4.6Z',
+  plugins: 'M7.4 2.6h3.2v1.9a1.6 1.6 0 1 0 3.2 0v1.9h1.7v3.2h-1.9a1.6 1.6 0 1 0 0 3.2h1.9v2.6H7.4v-1.9a1.6 1.6 0 1 0-3.2 0v-3.9h1.9a1.6 1.6 0 1 0 0-3.2H4.2V6.4h3.2V2.6Z',
+  workspace: 'M2.8 4.4h4.4l1.4 1.8h6.6v7.4H2.8V4.4Z'
+}
+
+function Shortcut({ kind, title, detail, value, disabled = false, onClick }: {
+  kind: 'sessions' | 'plugins' | 'workspace'
   title: string; detail: string; value: string; disabled?: boolean; onClick: () => void
 }) {
   return (
-    <button className="shortcut" disabled={disabled} onClick={onClick}>
+    <button className={`shortcut shortcut-${kind}`} disabled={disabled} onClick={onClick}>
+      <span className="shortcut-icon" aria-hidden="true">
+        <svg viewBox="0 0 18 18" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round">
+          <path d={ShortcutGlyph[kind]} />
+        </svg>
+      </span>
       <span className="shortcut-text"><span className="shortcut-title">{title}</span><span className="shortcut-detail">{detail}</span></span>
       <span className="shortcut-value">{value}</span>
       <span className="chevron">›</span>
