@@ -8,17 +8,22 @@ struct CleanupEngine: Sendable {
     let appServer: CodexAppServerClient
     /// Injectable so the deferral rules can be tested without a running Codex.
     let isCodexRunning: @Sendable () -> Bool
+    /// Injectable for the same reason: asks whether one specific file is open.
+    let fileUsage: @Sendable (URL) -> FileUsageProbe.Usage
 
     init(
         locations: CodexLocations,
         activePluginDirectories: [URL] = [],
         appServer: CodexAppServerClient? = nil,
-        isCodexRunning: (@Sendable () -> Bool)? = nil
+        isCodexRunning: (@Sendable () -> Bool)? = nil,
+        fileUsage: (@Sendable (URL) -> FileUsageProbe.Usage)? = nil
     ) {
         self.locations = locations
         self.guards = ProtectedPaths(locations: locations, activePluginDirectories: activePluginDirectories)
         self.appServer = appServer ?? CodexAppServerClient(codexHome: locations.home)
         self.isCodexRunning = isCodexRunning ?? { CodexRuntimeProbe.isCodexRunning() }
+        let probe = FileUsageProbe()
+        self.fileUsage = fileUsage ?? { probe.usage(of: $0) }
     }
 
     func run(
@@ -63,8 +68,27 @@ struct CleanupEngine: Sendable {
         guard let mode = task.slimMode else {
             return outcome(task, status: .failed("没有指定瘦身方式"), freed: 0)
         }
-        guard !codexRunning else {
-            return outcome(task, status: .skipped("Codex 正在运行，改写会话文件不安全"), freed: 0)
+        // A live session appends to its own rollout and nothing else, so the question is
+        // whether *this* file is open — not whether some Codex somewhere is running. That
+        // is what lets the other sessions be slimmed while a terminal session keeps going.
+        switch fileUsage(task.url) {
+        case let .inUse(processes):
+            return outcome(
+                task,
+                status: .skipped("这个会话正在被使用（\(processes.joined(separator: "、"))）"),
+                freed: 0
+            )
+        case .unknown:
+            // No way to tell; fall back to the blunt rule rather than guessing.
+            if codexRunning {
+                return outcome(
+                    task,
+                    status: .skipped("无法确认会话是否正在被写入，Codex 正在运行，本次跳过"),
+                    freed: 0
+                )
+            }
+        case .free:
+            break
         }
         do {
             try guards.validate(task.url)
@@ -114,8 +138,21 @@ struct CleanupEngine: Sendable {
     }
 
     private func runCompaction(_ task: CleanupTask, codexRunning: Bool) -> CleanupOutcome {
-        guard !codexRunning else {
-            return outcome(task, status: .skipped("Codex 正在运行，压缩数据库需要先完全退出 Codex"), freed: 0)
+        // VACUUM needs the database to itself. A running Codex holds it open, which lsof
+        // reports directly; when it cannot answer, fall back to the blunt rule.
+        switch fileUsage(task.url) {
+        case let .inUse(processes):
+            return outcome(
+                task,
+                status: .skipped("数据库正在被使用（\(processes.joined(separator: "、"))）"),
+                freed: 0
+            )
+        case .unknown:
+            if codexRunning {
+                return outcome(task, status: .skipped("Codex 正在运行，压缩数据库需要先完全退出 Codex"), freed: 0)
+            }
+        case .free:
+            break
         }
         do {
             try guards.validate(task.url)

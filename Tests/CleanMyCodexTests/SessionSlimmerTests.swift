@@ -196,3 +196,147 @@ struct SessionSlimmerTests {
         #expect(session.hasDuplicateImages)
     }
 }
+
+
+struct SlimGatingTests {
+    private let payload = String(repeating: "QUJD", count: 1_000)
+
+    private func rollout(in fixture: TemporaryFixture) throws -> URL {
+        let url = fixture.file("codex/sessions/rollout.jsonl")
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let line = #"{"type":"response_item","payload":{"image_url":"data:image/png;base64,\#(payload)"}}"#
+        try Data(([line, line, line].joined(separator: "\n") + "\n").utf8).write(to: url)
+        return url
+    }
+
+    private func task(_ url: URL) -> CleanupTask {
+        CleanupTask(
+            id: "slim",
+            title: "会话",
+            detail: "",
+            url: url,
+            method: .slimSession,
+            expectedBytes: 1_000,
+            slimMode: .deduplicate
+        )
+    }
+
+    private func locations(_ fixture: TemporaryFixture) -> CodexLocations {
+        CodexLocations(
+            home: fixture.directory("codex"),
+            library: fixture.directory("Library"),
+            documents: fixture.directory("Documents")
+        )
+    }
+
+    /// The point of the per-file check: a terminal session keeps running, and every other
+    /// session can still be slimmed.
+    @Test func aFreeRolloutIsSlimmedEvenWhileCodexRuns() throws {
+        let fixture = try TemporaryFixture()
+        defer { fixture.remove() }
+        let url = try rollout(in: fixture)
+        let originalBytes = FileSize.of(url)
+
+        let engine = CleanupEngine(
+            locations: locations(fixture),
+            isCodexRunning: { true },
+            fileUsage: { _ in .free }
+        )
+        let report = engine.run(tasks: [task(url)])
+
+        #expect(report.outcomes.first?.status == .succeeded)
+        #expect(FileSize.of(url) < originalBytes)
+    }
+
+    @Test func theRolloutBeingWrittenIsLeftAlone() throws {
+        let fixture = try TemporaryFixture()
+        defer { fixture.remove() }
+        let url = try rollout(in: fixture)
+        let originalBytes = FileSize.of(url)
+
+        let engine = CleanupEngine(
+            locations: locations(fixture),
+            isCodexRunning: { true },
+            fileUsage: { _ in .inUse(processes: ["codex"]) }
+        )
+        let report = engine.run(tasks: [task(url)])
+
+        if case let .skipped(reason) = report.outcomes.first?.status {
+            #expect(reason.contains("codex"))
+        } else {
+            Issue.record("应该被跳过，实际是 \(String(describing: report.outcomes.first?.status))")
+        }
+        #expect(FileSize.of(url) == originalBytes)
+    }
+
+    /// Without an answer, fall back to the blunt rule rather than guessing.
+    @Test func anUnknownAnswerDefersOnlyWhileCodexRuns() throws {
+        let fixture = try TemporaryFixture()
+        defer { fixture.remove() }
+        let running = try TemporaryFixture()
+        defer { running.remove() }
+
+        let blockedURL = try rollout(in: running)
+        let blocked = CleanupEngine(
+            locations: locations(running),
+            isCodexRunning: { true },
+            fileUsage: { _ in .unknown }
+        ).run(tasks: [task(blockedURL)])
+        #expect(blocked.outcomes.first?.status != .succeeded)
+
+        let allowedURL = try rollout(in: fixture)
+        let allowed = CleanupEngine(
+            locations: locations(fixture),
+            isCodexRunning: { false },
+            fileUsage: { _ in .unknown }
+        ).run(tasks: [task(allowedURL)])
+        #expect(allowed.outcomes.first?.status == .succeeded)
+    }
+
+    @Test func anOpenDatabaseIsNotCompactedEvenWhenNoCodexIsDetected() throws {
+        let fixture = try TemporaryFixture()
+        defer { fixture.remove() }
+        let database = fixture.file("codex/logs_2.sqlite")
+        SQLiteFixture.makeLogDatabase(at: database)
+
+        let engine = CleanupEngine(
+            locations: locations(fixture),
+            isCodexRunning: { false },
+            fileUsage: { _ in .inUse(processes: ["Codex"]) }
+        )
+        let report = engine.run(tasks: [
+            CleanupTask(
+                id: "db",
+                title: "logs_2.sqlite",
+                detail: "",
+                url: database,
+                method: .compactDatabase,
+                expectedBytes: 1_000
+            )
+        ])
+
+        #expect(report.outcomes.first?.status != .succeeded)
+        #expect(FileManager.default.fileExists(atPath: database.path))
+    }
+
+    @Test func lsofOutputIsParsedIntoProcessNames() {
+        let output = """
+        p8123
+        ccodex
+        n/Users/someone/.codex/sessions/rollout.jsonl
+        p8140
+        cCodex
+        n/Users/someone/.codex/sessions/rollout.jsonl
+        p8155
+        ccodex
+        n/Users/someone/.codex/sessions/rollout.jsonl
+        """
+
+        // Duplicates collapse, and only the command lines are read.
+        #expect(FileUsageProbe.parseCommands(output) == ["codex", "Codex"])
+        #expect(FileUsageProbe.parseCommands("").isEmpty)
+    }
+}

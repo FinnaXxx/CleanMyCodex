@@ -213,9 +213,7 @@ struct SessionsView: View {
                 .disabled(model.selectedSessionIDs.isEmpty)
             Button("瘦身 · \(ByteFormat.string(model.slimmableBytes))") { showingSlim = true }
                 .disabled(model.slimTasks.isEmpty || model.isCleaning)
-                .help(model.codexRunning
-                    ? "保留会话，只处理内嵌图片。需要 Codex 退出，确认时可以让它自动退出并重开"
-                    : "保留会话，只处理内嵌图片")
+                .help("保留会话，只处理内嵌图片；正在被写入的会话会自动跳过")
             Button("删除所选会话") { showingDelete = true }
                 .buttonStyle(.borderedProminent)
                 .tint(.red)
@@ -235,6 +233,9 @@ struct SessionsView: View {
         message += model.sessionSlimMode.detail
         message += "原文件会先移到废纸篓，改写结果通过行数和 JSON 校验后才替换；"
         message += "只有 data:image 字段被替换，其它字节逐字节原样复制。"
+        if model.codexRunning {
+            message += "Codex 正在运行也可以进行：正在被写入的那个会话会自动跳过，其余照常处理。"
+        }
         return message
     }
 
