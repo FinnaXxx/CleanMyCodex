@@ -7,6 +7,7 @@ import { inspectDatabase } from './sqlite-maintenance'
 import { pluginStorageCategory, scanPluginVersions } from './plugins'
 import { ProtectedPaths } from './guard'
 import type { InstalledPlugin } from './app-server'
+import { formatBytes } from '../../shared/types'
 import type { ScanProgress, ScanSnapshot, SessionItem, StorageCategory, StorageEntry } from '../../shared/types'
 
 const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
@@ -137,23 +138,23 @@ export async function scanSnapshot(
     const measured = measureTree(path, signal)
     if (!measured.bytes) continue
     if (name.toLowerCase().includes('marketplace')) {
-      marketplaceCaches.push(entry(name, '插件市场副本，离线时需要重新下载', path, measured.bytes, 'rebuildable'))
+      marketplaceCaches.push(entry(name, '插件市场的本地副本，可重新下载', path, measured.bytes, 'rebuildable'))
       continue
     }
     const staging = name.includes('.staging-') || name.startsWith('plugins-clone-')
     const idleSeconds = staging ? 3_600 : 3 * 86_400
     if (Date.now() - measured.latestActivity < idleSeconds * 1000) continue
-    staleTemporary.push(entry(name, staging ? '安装暂存或克隆残留' : '3 天内没有改动的临时目录', path, measured.bytes, 'safe', 'trash', {
+    staleTemporary.push(entry(name, staging ? '安装或更新时留下的目录' : '超过 3 天没有改动', path, measured.bytes, 'safe', 'trash', {
       minimumIdleSeconds: idleSeconds, requiresCodexStopped: true
     }))
   }
-  categories.push(category('temporary', '过期临时目录', '安装暂存和长期无改动的临时目录，Codex 退出后清理', 'recommended', 'safe', staleTemporary))
+  categories.push(category('temporary', '过期临时目录', '安装和更新过程留下的临时目录，Codex 退出后清理', 'recommended', 'safe', staleTemporary))
   categories.push(category('marketplaceCache', '插件市场缓存', '可重新下载，离线时会影响插件安装', 'review', 'rebuildable', marketplaceCaches))
   await yieldToEventLoop()
 
   const browserEntries = locations.browserCacheDirectories
     .filter(entryExists)
-    .map((path) => entry(basename(path), '浏览器/渲染缓存，可重建', path, measure(path, '缓存与临时文件', 0.12), 'rebuildable'))
+    .map((path) => entry(basename(path), '缓存目录，可重新生成', path, measure(path, '缓存与临时文件', 0.12), 'rebuildable'))
   categories.push(
     category('browserCache', '浏览器与渲染缓存', '桌面应用按需重建的浏览器缓存', 'recommended', 'rebuildable', browserEntries)
   )
@@ -161,7 +162,7 @@ export async function scanSnapshot(
 
   const appCacheEntries = locations.appCaches
     .filter(entryExists)
-    .map((path) => entry(basename(path), '应用缓存，可重建', path, measure(path, '缓存与临时文件', 0.16), 'rebuildable'))
+    .map((path) => entry(basename(path), '缓存目录，可重新生成', path, measure(path, '缓存与临时文件', 0.16), 'rebuildable'))
   categories.push(
     category('appCache', '应用缓存', '桌面应用的本地缓存目录', 'recommended', 'rebuildable', appCacheEntries)
   )
@@ -192,8 +193,8 @@ export async function scanSnapshot(
     }
   })
   categories.push(
-    category('logDatabase', '日志数据库空闲页', '只回收数据库空闲页，不删除日志内容', 'recommended', 'lossless', logs.map((db) => ({
-      ...entry(basename(db.path), `已使用 ${db.inspection.usedBytes} B，空闲 ${db.inspection.freeListCount} 页`, db.path, db.bytes, 'lossless', 'compactDatabase'),
+    category('logDatabase', '日志数据库', '压缩数据库回收空闲空间，日志内容保留', 'recommended', 'lossless', logs.map((db) => ({
+      ...entry(basename(db.path), `已使用 ${formatBytes(db.inspection.usedBytes)}`, db.path, db.bytes, 'lossless', 'compactDatabase'),
       reclaimableBytes: db.inspection.reclaimableBytes
     })))
   )
@@ -203,7 +204,7 @@ export async function scanSnapshot(
   const pluginCategory = pluginStorageCategory(pluginVersions)
   if (pluginCategory.entries.length) categories.push(pluginCategory)
   if (installedPlugins === null && pluginVersions.length) {
-    notes.push('没有连接到 codex app server，插件的当前版本未确认，已全部标记为受保护。')
+    notes.push('未连接 codex app server，无法确认插件的当前版本，已全部锁定。')
   }
   await yieldToEventLoop()
 
@@ -215,7 +216,7 @@ export async function scanSnapshot(
 
   const sessions = await scanSessions(locations, (path, fraction) => progress('会话', path, 0.43 + fraction * 0.49), signal)
   if (sessions.length && !sessions.some((session) => session.title)) {
-    notes.push('没能从 state_*.sqlite 读到 Codex 的会话标题，列表会回落到会话首句和项目名。')
+    notes.push('没有读到 Codex 的会话标题，列表改用会话首句或项目名显示。')
   }
   throwIfAborted(signal)
   categories.push(...assetCategories(locations, sessions, (path) => measure(path, '资产目录', 0.93)))
@@ -294,7 +295,7 @@ function assetCategories(
     const title = session?.title || session?.preview || name
     return [entry(
       title,
-      session ? `${session.location === 'archived' ? '已归档' : '未归档'}会话的生成图片` : `会话已删除，只剩图片 · ${name.slice(0, 8)}`,
+      session ? `来自${session.location === 'archived' ? '已归档' : '未归档'}的会话` : `会话已删除，只剩下这些图片 · ${name.slice(0, 8)}`,
       path,
       bytes,
       session ? 'caution' : 'safe'
@@ -305,7 +306,7 @@ function assetCategories(
     ? [entry('computer-use', 'Computer Use 辅助组件，删除后需要重新下载', locations.computerUse, measure(locations.computerUse), 'caution')]
     : []
   return [
-    category('generatedImages', '生成图片', '会话生成的图片，按会话保存', 'review', 'caution', images),
+    category('generatedImages', '会话生成的图片', 'Codex 在会话里生成的图片，删除后会话中不再显示', 'review', 'caution', images),
     category('computerUse', 'Computer Use 组件', 'Computer Use 运行所需的本地组件', 'review', 'caution', computerUse)
   ]
 }

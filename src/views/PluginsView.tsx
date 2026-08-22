@@ -32,7 +32,7 @@ export default function PluginsView({ snapshot, cleaning, actionsDisabled, clean
 
   return <>
     <section className="page-heading">
-      <div><h2>插件版本</h2><p>只清理旧版本和卸载残留，当前版本受保护。</p></div>
+      <div><h2>插件版本</h2><p>只清理旧版本和卸载残留。</p></div>
       <button className="btn" disabled={!removable.length} onClick={() => setSelected(new Set(removable.map((item) => item.directoryURL)))}>选择全部可清理版本</button>
     </section>
     {snapshot.pluginVersions.some((item) => item.status === 'unconfirmed') && <p className="notice">未连接 codex app server，无法确认当前版本，已全部锁定。</p>}

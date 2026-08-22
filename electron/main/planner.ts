@@ -44,7 +44,7 @@ export function buildTrustedTasks(
       return tasksForSessionDeletion(sessions, mode)
     }
     case 'sessions-slim': {
-      if (selection.mode !== 'deduplicate' && selection.mode !== 'stripAll') throw new Error('会话瘦身方式无效')
+      if (selection.mode !== 'deduplicate' && selection.mode !== 'stripAll') throw new Error('图片清理方式无效')
       const sessions = selectedSessions(ids, snapshot.sessions).filter((session) => !session.isCompressed && !session.isUnstable)
       return tasksForSessionSlimming(sessions, selection.mode).filter((task) => task.expectedBytes > 0)
     }
@@ -86,13 +86,13 @@ export function makeCleanupPreview(
     : []
   const warnings: string[] = []
   if (selection.kind === 'sessions-delete' && tasks.some((task) => task.method === 'trash')) {
-    warnings.push('直接移到废纸篓不会更新 Codex 的会话索引，历史列表里可能暂时保留打不开的记录。')
+    warnings.push('Codex 的历史列表里可能暂时保留打不开的记录。')
   }
   if (selection.kind === 'sessions-slim') {
     warnings.push(selection.mode === 'deduplicate'
       ? '重复出现的图片只保留第一份，会话内容不变。'
       : '会话里的图片会被删除且无法恢复，文字记录保留。')
-    warnings.push('会话文件会被改写；原文件先移到废纸篓，校验通过后才替换。')
+    warnings.push('原会话文件会先移到废纸篓，替换成功后才生效。')
   }
   if (selection.kind === 'workspace') warnings.push('请确认未提交或未推送的内容已经保存。')
   if (tasks.some((task) => task.method === 'compactDatabase')) warnings.push('日志数据库只做 checkpoint 与 VACUUM，不删除诊断记录。')

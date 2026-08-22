@@ -163,7 +163,7 @@ async function runSlimSession(
   deps: CleanupDeps,
   codexRunning: boolean
 ): Promise<CleanupOutcome> {
-  if (!task.slimMode) return outcome(task, { kind: 'failed', reason: '缺少会话瘦身模式' }, 0)
+  if (!task.slimMode) return outcome(task, { kind: 'failed', reason: '缺少图片清理方式' }, 0)
   if (!pathExists(task.url)) return outcome(task, { kind: 'skipped', reason: '路径已不存在' }, 0)
   const usage = deps.fileUsage?.(task.url) ?? { kind: 'unknown' as const }
   if (usage.kind === 'inUse') {

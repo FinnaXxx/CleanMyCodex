@@ -69,7 +69,7 @@ export function pluginStorageCategory(plugins: PluginVersionItem[]): StorageCate
   return {
     kind: 'pluginRemnants',
     title: '老版本插件与卸载残留',
-    detail: '旧版本与卸载残留，当前版本受保护',
+    detail: '旧版本与卸载残留',
     group: 'recommended',
     risk: 'safe',
     entries: plugins.filter((plugin) => plugin.status === 'outdated' || plugin.status === 'orphaned').map((plugin): StorageEntry => ({
