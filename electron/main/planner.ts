@@ -12,6 +12,7 @@ import type {
 } from '../../shared/types'
 import {
   isSelectable,
+  PluginStatusLabel,
   pluginStatusIsRemovable,
   tasksForSessionDeletion,
   tasksForSessionSlimming,
@@ -54,7 +55,8 @@ export function buildTrustedTasks(
       const entries = selected.map((plugin) => ({
         id: `trash:${plugin.directoryURL}`,
         title: `${plugin.plugin} · ${plugin.version}`,
-        detail: plugin.status,
+        detail: PluginStatusLabel[plugin.status],
+        tags: [],
         url: plugin.directoryURL,
         bytes: plugin.bytes,
         reclaimableBytes: plugin.bytes,

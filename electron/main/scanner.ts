@@ -54,12 +54,13 @@ function entry(
   bytes: number,
   risk: StorageEntry['risk'],
   method: StorageEntry['method'] = 'trash',
-  extra: Partial<Pick<StorageEntry, 'minimumIdleSeconds' | 'requiresCodexStopped'>> = {}
+  extra: Partial<Pick<StorageEntry, 'minimumIdleSeconds' | 'requiresCodexStopped' | 'tags'>> = {}
 ): StorageEntry {
   return {
     id: `${method}:${url}`,
     title,
     detail,
+    tags: extra.tags ?? [],
     url,
     bytes,
     reclaimableBytes: bytes,
@@ -293,13 +294,10 @@ function assetCategories(
     if (!bytes) return []
     const session = byThread.get(name)
     const title = session?.title || session?.preview || name
-    return [entry(
-      title,
-      session ? `来自${session.location === 'archived' ? '已归档' : '未归档'}的会话` : `会话已删除，只剩下这些图片 · ${name.slice(0, 8)}`,
-      path,
-      bytes,
-      session ? 'caution' : 'safe'
-    )]
+    const tag: StorageEntry['tags'] = session
+      ? [{ label: session.location === 'archived' ? '已归档' : '未归档', tone: session.location === 'archived' ? 'neutral' : 'info' }]
+      : [{ label: '会话已删除', tone: 'caution' }]
+    return [entry(title, '', path, bytes, session ? 'caution' : 'safe', 'trash', { tags: tag })]
   }).sort((a, b) => b.bytes - a.bytes)
 
   const computerUse = entryExists(locations.computerUse)

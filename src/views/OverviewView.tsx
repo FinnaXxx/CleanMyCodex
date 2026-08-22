@@ -21,6 +21,7 @@ import {
   workspaceBytes,
   formatBytes
 } from '../../shared/types'
+import { FolderIcon } from '../icons'
 
 type Detail = 'sessions' | 'plugins' | 'workspace' | 'automation'
 
@@ -205,14 +206,14 @@ function CategoryRow({ category, selected, expanded, onExpand, onSelectAll, onTo
             {isSelectable(entry.risk)
               ? <label className="entry-label">
                   <input type="checkbox" checked={selected.has(entry.id)} onChange={() => onToggleEntry(entry)} />
-                  <span className="entry-text"><span className="entry-title">{entry.title}</span><span className="entry-detail">{entry.detail}</span></span>
+                  <EntryText entry={entry} />
                 </label>
               : <span className="entry-label">
                   <span className="checkbox-space" />
-                  <span className="entry-text"><span className="entry-title">{entry.title}</span><span className="entry-detail">{entry.detail}</span></span>
+                  <EntryText entry={entry} />
                 </span>}
             <span className="entry-bytes">{formatBytes(entry.reclaimableBytes)}</span>
-            <button className="icon-button" title={entry.url} onClick={() => window.cleanmycodex.revealPath(entry.url)}>⌕</button>
+            <button className="icon-button" title={entry.url} aria-label="在文件管理器中显示" onClick={() => window.cleanmycodex.revealPath(entry.url)}><FolderIcon /></button>
           </li>
         ))}
         {reclaimable > 0 && reclaimable !== categoryBytes(category) && <li className="entry entry-summary"><span>实际可回收 {formatBytes(reclaimable)}</span></li>}
@@ -225,6 +226,18 @@ const ShortcutGlyph: Record<'sessions' | 'plugins' | 'workspace', string> = {
   sessions: 'M3 4.6h12v7.2h-6l-3.4 2.7v-2.7H3V4.6Z',
   plugins: 'M7.4 2.6h3.2v1.9a1.6 1.6 0 1 0 3.2 0v1.9h1.7v3.2h-1.9a1.6 1.6 0 1 0 0 3.2h1.9v2.6H7.4v-1.9a1.6 1.6 0 1 0-3.2 0v-3.9h1.9a1.6 1.6 0 1 0 0-3.2H4.2V6.4h3.2V2.6Z',
   workspace: 'M2.8 4.4h4.4l1.4 1.8h6.6v7.4H2.8V4.4Z'
+}
+
+function EntryText({ entry }: { entry: StorageEntry }) {
+  return (
+    <span className="entry-text">
+      <span className="entry-title">
+        {entry.title}
+        {entry.tags.map((tag) => <span key={tag.label} className={`pill tone-${tag.tone}`}>{tag.label}</span>)}
+      </span>
+      {entry.detail && <span className="entry-detail">{entry.detail}</span>}
+    </span>
+  )
 }
 
 function Shortcut({ kind, title, detail, value, disabled = false, onClick }: {

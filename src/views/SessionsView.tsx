@@ -14,6 +14,7 @@ import {
   sessionTotalBytes,
   formatBytes
 } from '../../shared/types'
+import { FolderIcon } from '../icons'
 
 interface Props {
   snapshot: ScanSnapshot
@@ -230,9 +231,9 @@ function SessionRow({ session, checked, onToggle }: { session: SessionItem; chec
     <span className="col-status"><span className={`pill loc-${session.location}`}>{SessionLocationLabel[session.location]}</span></span>
     <span className="col-date" title={new Date(session.modifiedAt).toLocaleString()}>{formatDate(session.modifiedAt)}</span>
     <span className="col-num">{formatBytes(session.fileBytes)}</span>
-    <span className="col-num">{session.embeddedImageCount ? <>{formatBytes(session.embeddedImageBytes)}{duplicates > 0 && <small> · 重复 {duplicates}</small>}</> : '—'}</span>
+    <span className="col-num">{session.embeddedImageCount ? <>{formatBytes(session.embeddedImageBytes)}{duplicates > 0 && <small>重复 {duplicates}</small>}</> : '—'}</span>
     <span className="col-num">{formatBytes(sessionTotalBytes(session))}</span>
-    <button className="icon-button" title="在文件管理器中显示" onClick={() => window.cleanmycodex.revealPath(session.fileURL)}>⌕</button>
+    <button className="icon-button" title="在文件管理器中显示" aria-label="在文件管理器中显示" onClick={() => window.cleanmycodex.revealPath(session.fileURL)}><FolderIcon /></button>
   </li>
 }
 

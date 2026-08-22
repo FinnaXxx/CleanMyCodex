@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { CleanupProgress, CleanupSelection, PluginVersionItem, ScanSnapshot } from '../../shared/types'
 import { formatBytes, PluginStatusLabel, pluginStatusIsRemovable } from '../../shared/types'
+import { FolderIcon } from '../icons'
 
 interface Props {
   snapshot: ScanSnapshot
@@ -47,7 +48,7 @@ export default function PluginsView({ snapshot, cleaning, actionsDisabled, clean
           <div className="grow"><code>{item.version}</code><small>最后改动 {new Date(item.modifiedAt).toLocaleDateString()}{item.environmentBytes ? ` · Python 环境 ${formatBytes(item.environmentBytes)}` : ''}</small></div>
           <span className={`pill status-${item.status}`}>{PluginStatusLabel[item.status]}</span>
           <span className="fixed-bytes">{formatBytes(item.bytes)}</span>
-          <button className="icon-button" title="在文件管理器中显示" onClick={() => window.cleanmycodex.revealPath(item.directoryURL)}>⌕</button>
+          <button className="icon-button" title="在文件管理器中显示" aria-label="在文件管理器中显示" onClick={() => window.cleanmycodex.revealPath(item.directoryURL)}><FolderIcon /></button>
         </div>)}
       </section>)}
     </div>

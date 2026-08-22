@@ -94,10 +94,17 @@ export const StorageKindSection: Record<StorageKind, StorageSection> = {
   protectedUserData: 'protectedData'
 }
 
+/** Small status chip on a storage entry; states a fact the title cannot carry. */
+export interface StorageEntryTag {
+  label: string
+  tone: 'neutral' | 'info' | 'caution'
+}
+
 export interface StorageEntry {
   id: string
   title: string
   detail: string
+  tags: StorageEntryTag[]
   url: string
   bytes: number
   /** Space actually returned to the volume. Equals `bytes` except for database compaction. */
