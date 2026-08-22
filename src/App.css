@@ -8,7 +8,7 @@ body {
   color: #1d1d1f;
 }
 .app {
-  padding: 32px 40px 48px;
+  padding: 32px 40px 96px;
   max-width: 860px;
   margin: 0 auto;
 }
@@ -107,6 +107,105 @@ h1 {
   margin: 2px 0 0;
   font-size: 12px;
   color: #34c759;
+}
+.entries {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+.entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-top: 1px solid #f0f0f2;
+  font-size: 13px;
+}
+.entry label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.entry-bytes {
+  color: #6e6e73;
+  font-variant-numeric: tabular-nums;
+}
+.action-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 40px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid #e5e5ea;
+}
+.action-bar span {
+  font-size: 14px;
+  color: #1d1d1f;
+}
+.clean {
+  font: inherit;
+  font-weight: 500;
+  padding: 9px 22px;
+  border-radius: 9px;
+  border: none;
+  background: #007aff;
+  color: #fff;
+  cursor: pointer;
+}
+.clean:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.report {
+  padding: 16px 20px;
+  margin-bottom: 24px;
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #e5e5ea;
+}
+.report-summary {
+  margin: 0 0 10px;
+  font-weight: 600;
+}
+.report-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.report-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  padding: 6px 0;
+  font-size: 13px;
+  border-top: 1px solid #f0f0f2;
+}
+.report-row:first-child {
+  border-top: none;
+}
+.report-row-status {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.report-row-msg {
+  grid-column: 1 / -1;
+  color: #86868b;
+  font-size: 12px;
+}
+.report-succeeded .report-row-status {
+  color: #34c759;
+}
+.report-skipped .report-row-status {
+  color: #d9a000;
+}
+.report-failed .report-row-status {
+  color: #d20b34;
 }
 .empty {
   color: #86868b;
