@@ -1,134 +1,119 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   type ScanSnapshot,
   type SessionItem,
-  type CleanupTask,
+  type CleanupSelection,
   type CleanupProgress,
+  type SessionDeletionMode,
+  type SessionSlimMode,
+  SessionDeletionModeDetail,
   SessionLocationLabel,
+  SessionSlimModeLabel,
   SessionTagLabel,
   sessionDisplayName,
+  sessionProjectName,
   sessionTotalBytes,
-  sessionHasDuplicateImages,
-  tasksForSessionDeletion,
-  tasksForSessionSlimming,
   formatBytes
 } from '../../shared/types'
 
 interface Props {
   snapshot: ScanSnapshot
+  appServerAvailable: boolean
   cleaning: boolean
+  actionsDisabled: boolean
   cleanProgress: CleanupProgress | null
-  onCleanup: (tasks: CleanupTask[]) => void
+  onCleanup: (selection: CleanupSelection) => void
 }
+
+type Scope = 'all' | 'active' | 'archived'
+type Sort = 'total' | 'images' | 'date' | 'name' | 'slimmable'
 
 function formatDate(ms: number): string {
   if (!ms) return '—'
-  const d = new Date(ms)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+  return new Date(ms).toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
-export default function SessionsView({ snapshot, cleaning, cleanProgress, onCleanup }: Props) {
+export default function SessionsView({ snapshot, appServerAvailable, cleaning, actionsDisabled, cleanProgress, onCleanup }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [scope, setScope] = useState<Scope>('all')
+  const [sort, setSort] = useState<Sort>('total')
+  const [query, setQuery] = useState('')
+  const [retentionDays, setRetentionDays] = useState(180)
+  const [deletionMode, setDeletionMode] = useState<SessionDeletionMode>('appServer')
+  const [slimMode, setSlimMode] = useState<SessionSlimMode>('deduplicate')
 
-  const sessions = snapshot.sessions
-  const selectedSessions = useMemo(() => sessions.filter((s) => selected.has(s.id)), [sessions, selected])
-  const selectedBytes = selectedSessions.reduce((sum, s) => sum + sessionTotalBytes(s), 0)
-  const slimmable = selectedSessions.filter((s) => !s.isCompressed && !s.isUnstable && s.duplicateImageBytes > 0)
-  const strippable = selectedSessions.filter((s) => !s.isCompressed && !s.isUnstable && s.embeddedImageBytes > 0)
+  useEffect(() => {
+    const current = new Set(snapshot.sessions.map((session) => session.id))
+    setSelected((previous) => new Set([...previous].filter((id) => current.has(id))))
+  }, [snapshot.scannedAt, snapshot.sessions])
+  useEffect(() => { if (!appServerAvailable) setDeletionMode('trash') }, [appServerAvailable])
 
-  const toggle = (id: string): void => {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
+  const visible = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase()
+    const items = snapshot.sessions.filter((session) => {
+      if (scope !== 'all' && session.location !== scope) return false
+      if (!needle) return true
+      return [sessionDisplayName(session), sessionProjectName(session), session.workingDirectory, session.threadID]
+        .filter(Boolean).join(' ').toLocaleLowerCase().includes(needle)
     })
-  }
-  const allSelected = sessions.length > 0 && selected.size === sessions.length
-  const toggleAll = (): void => setSelected(allSelected ? new Set() : new Set(sessions.map((s) => s.id)))
+    return items.sort((a, b) => {
+      if (sort === 'images') return b.embeddedImageBytes - a.embeddedImageBytes
+      if (sort === 'date') return b.modifiedAt - a.modifiedAt
+      if (sort === 'name') return sessionDisplayName(a).localeCompare(sessionDisplayName(b))
+      if (sort === 'slimmable') return b.duplicateImageBytes - a.duplicateImageBytes
+      return sessionTotalBytes(b) - sessionTotalBytes(a)
+    })
+  }, [query, scope, snapshot.sessions, sort])
 
-  return (
-    <>
-      <div className="table-head">
-        <input type="checkbox" checked={allSelected} onChange={toggleAll} />
-        <span>会话</span>
-        <span className="col-status">状态</span>
-        <span className="col-date">最后活动</span>
-        <span className="col-num">会话文件</span>
-        <span className="col-num">内嵌图片</span>
-        <span className="col-num">总占用</span>
-      </div>
+  const selectedSessions = useMemo(() => snapshot.sessions.filter((session) => selected.has(session.id)), [snapshot.sessions, selected])
+  const selectedBytes = selectedSessions.reduce((sum, session) => sum + sessionTotalBytes(session), 0)
+  const slimCandidates = selectedSessions.filter((session) => !session.isCompressed && !session.isUnstable &&
+    (slimMode === 'deduplicate' ? session.duplicateImageBytes > 0 : session.embeddedImageBytes > 0))
+  const slimBytes = slimCandidates.reduce((sum, session) => sum + (slimMode === 'deduplicate' ? session.duplicateImageBytes : session.embeddedImageBytes), 0)
+  const expired = visible.filter((session) => !session.isUnstable && Date.now() - session.modifiedAt >= retentionDays * 86_400_000)
+  const allVisibleSelected = visible.length > 0 && visible.every((session) => selected.has(session.id))
 
-      <ul className="session-list">
-        {sessions.map((s) => (
-          <SessionRow
-            key={s.id}
-            session={s}
-            checked={selected.has(s.id)}
-            onToggle={() => toggle(s.id)}
-          />
-        ))}
-      </ul>
+  const toggle = (id: string): void => setSelected((previous) => {
+    const next = new Set(previous); next.has(id) ? next.delete(id) : next.add(id); return next
+  })
 
-      {selectedSessions.length > 0 && (
-        <div className="action-bar">
-          <span>
-            已选 {selectedSessions.length} 个会话 · {formatBytes(selectedBytes)}
-          </span>
-          <div className="action-buttons">
-          <button className="secondary" onClick={() => window.confirm('去重会改写 rollout；每个原文件会保留在废纸篓。继续吗？') && onCleanup(tasksForSessionSlimming(slimmable, 'deduplicate'))} disabled={cleaning || !slimmable.length} title="保留每张图片第一次出现的位置，只替换后续重复副本">
-            去重图片 · {formatBytes(slimmable.reduce((sum, s) => sum + s.duplicateImageBytes, 0))}
-          </button>
-          <button className="secondary warning-button" onClick={() => window.confirm('将剥离所选会话中的全部内嵌图片。原 rollout 会保留在废纸篓，继续吗？') && onCleanup(tasksForSessionSlimming(strippable, 'stripAll'))} disabled={cleaning || !strippable.length} title="把所有内嵌图片替换为 1×1 透明占位图">
-            剥离全部图片
-          </button>
-          <button
-            className="clean danger"
-            onClick={() => window.confirm(`确认删除 ${selectedSessions.length} 个会话？关联资产也会移到废纸篓。`) && onCleanup(tasksForSessionDeletion(selectedSessions))}
-            disabled={cleaning}
-          >
-            {cleaning ? `删除中… (${cleanProgress?.completed ?? 0}/${selectedSessions.length})` : '删除所选会话'}
-          </button>
-          </div>
-        </div>
-      )}
-    </>
-  )
+  return <>
+    <section className="page-heading"><div><h2>会话记录</h2><p>归档只是隐藏，不释放空间；这里统一列出全部会话。</p></div>
+      <button className="secondary" disabled={!expired.length} onClick={() => setSelected((previous) => new Set([...previous, ...expired.map((session) => session.id)]))}>选择 {retentionDays} 天前 · {expired.length} 项</button>
+    </section>
+    <section className="panel session-filters">
+      <select value={scope} onChange={(event) => setScope(event.target.value as Scope)}><option value="all">全部 {snapshot.sessions.length}</option><option value="active">未归档 {snapshot.sessions.filter((session) => session.location === 'active').length}</option><option value="archived">已归档 {snapshot.sessions.filter((session) => session.location === 'archived').length}</option></select>
+      <select value={sort} onChange={(event) => setSort(event.target.value as Sort)}><option value="total">按总占用</option><option value="images">按内嵌图片</option><option value="date">按最后活动</option><option value="name">按名称</option><option value="slimmable">按可瘦身空间</option></select>
+      <input className="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题或项目"/>
+      <label>早于 <input className="number" type="number" min="1" max="3650" value={retentionDays} onChange={(event) => setRetentionDays(Math.max(1, Number(event.target.value) || 1))}/> 天</label>
+    </section>
+    {snapshotEmbeddedNotice(snapshot)}
+    <div className="table-head"><input type="checkbox" checked={allVisibleSelected} ref={(input) => { if (input) input.indeterminate = visible.some((session) => selected.has(session.id)) && !allVisibleSelected }} onChange={() => setSelected((previous) => { const next = new Set(previous); for (const session of visible) allVisibleSelected ? next.delete(session.id) : next.add(session.id); return next })}/><span>会话</span><span className="col-status">状态</span><span className="col-date">最后活动</span><span className="col-num">会话文件</span><span className="col-num">内嵌图片</span><span className="col-num">总占用</span><span/></div>
+    <ul className="session-list">{visible.map((session) => <SessionRow key={session.id} session={session} checked={selected.has(session.id)} onToggle={() => toggle(session.id)}/>)}</ul>
+    {!visible.length && <p className="empty-panel">没有符合筛选条件的会话</p>}
+    {selectedSessions.length > 0 && <div className="action-bar session-actions"><span>已选 {selectedSessions.length} 个会话 · {formatBytes(selectedBytes)}</span><div className="action-options">
+      <select value={slimMode} onChange={(event) => setSlimMode(event.target.value as SessionSlimMode)} title="瘦身方式"><option value="deduplicate">{SessionSlimModeLabel.deduplicate}</option><option value="stripAll">{SessionSlimModeLabel.stripAll}</option></select>
+      <button className="secondary" disabled={cleaning || actionsDisabled || !slimCandidates.length} onClick={() => onCleanup({ kind: 'sessions-slim', ids: slimCandidates.map((session) => session.id), mode: slimMode })}>瘦身 · {formatBytes(slimBytes)}</button>
+      <select value={deletionMode} disabled={!appServerAvailable} onChange={(event) => setDeletionMode(event.target.value as SessionDeletionMode)} title={SessionDeletionModeDetail[deletionMode]}><option value="appServer">通过 Codex 删除</option><option value="trash">直接移到废纸篓</option></select>
+      <button className="clean danger" disabled={cleaning || actionsDisabled} onClick={() => onCleanup({ kind: 'sessions-delete', ids: selectedSessions.map((session) => session.id), mode: deletionMode })}>{cleaning ? `删除中… ${cleanProgress?.completed ?? 0}/${selectedSessions.length}` : '删除所选会话'}</button>
+    </div></div>}
+  </>
 }
 
-function SessionRow({
-  session,
-  checked,
-  onToggle
-}: {
-  session: SessionItem
-  checked: boolean
-  onToggle: () => void
-}) {
-  return (
-    <li className="session-row">
-      <input type="checkbox" checked={checked} onChange={onToggle} />
-      <div className="session-title">
-        <span className="session-name">{sessionDisplayName(session)}</span>
-        {session.tags.length > 0 && (
-          <span className="session-tags">
-            {session.tags.map((t) => (
-              <span key={t} className="tag">{SessionTagLabel[t]}</span>
-            ))}
-          </span>
-        )}
-        <span className="session-path">{session.fileURL}</span>
-      </div>
-      <span className="col-status">{SessionLocationLabel[session.location]}</span>
-      <span className="col-date">{formatDate(session.modifiedAt)}</span>
-      <span className="col-num">{formatBytes(session.fileBytes)}</span>
-      <span className="col-num">
-        {session.embeddedImageCount > 0
-          ? `${formatBytes(session.embeddedImageBytes)}${sessionHasDuplicateImages(session) ? ' ⚠' : ''}`
-          : '—'}
-      </span>
-      <span className="col-num">{formatBytes(sessionTotalBytes(session))}</span>
-    </li>
-  )
+function SessionRow({ session, checked, onToggle }: { session: SessionItem; checked: boolean; onToggle: () => void }) {
+  const duplicates = session.embeddedImageCount - session.distinctImageCount
+  return <li className={`session-row ${session.isUnstable ? 'unstable' : ''}`}>
+    <input type="checkbox" checked={checked} onChange={onToggle}/><div className="session-title"><span className="session-name">{sessionDisplayName(session)}</span>
+      {session.tags.length > 0 && <span className="session-tags">{session.tags.map((tag) => <span key={tag} className="tag">{SessionTagLabel[tag]}</span>)}</span>}
+      <span className="session-path">{sessionProjectName(session) ? `${sessionProjectName(session)} · ` : ''}{session.fileURL}{session.isUnstable ? ' · 正在写入' : ''}</span></div>
+    <span className="col-status">{SessionLocationLabel[session.location]}</span><span className="col-date">{formatDate(session.modifiedAt)}</span><span className="col-num">{formatBytes(session.fileBytes)}</span>
+    <span className="col-num">{session.embeddedImageCount ? <>{formatBytes(session.embeddedImageBytes)}{duplicates > 0 && <small> · 重复 {duplicates}</small>}</> : '—'}</span><span className="col-num">{formatBytes(sessionTotalBytes(session))}</span><button className="icon-button" title="在文件管理器中显示" onClick={() => window.cleanmycodex.revealPath(session.fileURL)}>⌕</button>
+  </li>
+}
+
+function snapshotEmbeddedNotice(snapshot: ScanSnapshot) {
+  const embedded = snapshot.sessions.reduce((sum, session) => sum + session.embeddedImageBytes, 0)
+  const duplicate = snapshot.sessions.reduce((sum, session) => sum + session.duplicateImageBytes, 0)
+  if (!embedded) return null
+  return <p className="notice">会话内嵌图片共 {formatBytes(embedded)}{duplicate ? `，其中重复图片约 ${formatBytes(duplicate)}，可通过“会话瘦身”处理。` : '，没有发现重复图片。'}</p>
 }

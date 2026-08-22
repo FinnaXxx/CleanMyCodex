@@ -302,6 +302,42 @@ export interface CleanupTask {
   requiresCodexStopped: boolean
 }
 
+/**
+ * Renderer-to-main cleanup protocol. The renderer may select objects that came from the
+ * latest snapshot, but it never supplies a filesystem path, cleanup method, or safety
+ * flag. The main process resolves these stable IDs back to trusted domain objects.
+ */
+export type CleanupSelection =
+  | { kind: 'storage'; ids: string[] }
+  | { kind: 'sessions-delete'; ids: string[]; mode: SessionDeletionMode }
+  | { kind: 'sessions-slim'; ids: string[]; mode: SessionSlimMode }
+  | { kind: 'plugins'; ids: string[] }
+  | { kind: 'workspace'; ids: string[] }
+
+export interface CleanupRequest {
+  selection: CleanupSelection
+  restartCodex: boolean
+}
+
+export interface CleanupPreviewItem {
+  id: string
+  title: string
+  detail: string
+  method: CleanupMethod
+  expectedBytes: number
+}
+
+export interface CleanupPreview {
+  selection: CleanupSelection
+  items: CleanupPreviewItem[]
+  expectedBytes: number
+  blockedTitles: string[]
+  codexRunning: boolean
+  canRestartCodex: boolean
+  blockerSummary: string | null
+  warnings: string[]
+}
+
 /** Build cleanup tasks from the storage entries selected in the overview. */
 export function tasksFromEntries(entries: StorageEntry[]): CleanupTask[] {
   return entries.map((entry) => ({
@@ -320,13 +356,16 @@ export function tasksFromEntries(entries: StorageEntry[]): CleanupTask[] {
 }
 
 /** Build delete-thread tasks from the sessions selected in the sessions list. */
-export function tasksForSessionDeletion(sessions: SessionItem[]): CleanupTask[] {
+export function tasksForSessionDeletion(
+  sessions: SessionItem[],
+  mode: SessionDeletionMode = 'appServer'
+): CleanupTask[] {
   return sessions.map((s) => ({
     id: s.id,
     title: sessionDisplayName(s),
     detail: s.fileURL,
     url: s.fileURL,
-    method: 'deleteThread',
+    method: mode === 'appServer' ? 'deleteThread' : 'trash',
     expectedBytes: sessionTotalBytes(s),
     threadID: s.threadID,
     companionURLs: s.assetURLs,
@@ -453,6 +492,9 @@ export function formatBytes(bytes: number): string {
 export interface AppInfo {
   version: string
   platform: string
+  appServerAvailable: boolean
+  codexRunning: boolean
+  runtimeSummary: string | null
 }
 
 export interface AutomationSettings {

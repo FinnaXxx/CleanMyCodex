@@ -20,6 +20,7 @@ export const DEFAULT_AUTOMATION_SETTINGS: AutomationSettings = {
 }
 
 const serviceLabel = 'com.finnaxxx.clean-my-codex.autoclean'
+const windowsTaskName = 'CleanMyCodex Automatic Cleanup'
 const storeDirectory = (): string => app.getPath('userData')
 const settingsPath = (): string => join(storeDirectory(), 'automation.json')
 const lastRunPath = (): string => join(storeDirectory(), 'last-run.json')
@@ -34,7 +35,12 @@ function writeJSON(path: string, value: unknown): void {
   mkdirSync(dirname(path), { recursive: true })
   const temporary = `${path}.tmp`
   writeFileSync(temporary, JSON.stringify(value, null, 2) + '\n', 'utf8')
-  renameSync(temporary, path)
+  try { renameSync(temporary, path) }
+  catch (error) {
+    if (process.platform !== 'win32') throw error
+    rmSync(path, { force: true })
+    renameSync(temporary, path)
+  }
 }
 
 export function loadAutomationSettings(): AutomationSettings {
@@ -81,19 +87,47 @@ function installLaunchAgent(intervalSeconds: number): void {
   }
 }
 
+function runSchtasks(args: string[]): boolean {
+  try {
+    execFileSync('schtasks.exe', args, { stdio: 'ignore', timeout: 10_000, windowsHide: true })
+    return true
+  } catch { return false }
+}
+
+function installWindowsTask(intervalDays: number): void {
+  if (process.platform !== 'win32') throw new Error('当前系统不支持 Windows 任务计划程序')
+  const command = app.isPackaged
+    ? `"${process.execPath}" --auto-clean`
+    : `"${process.execPath}" "${app.getAppPath()}" --auto-clean`
+  if (!runSchtasks(['/Create', '/F', '/SC', 'DAILY', '/MO', String(Math.max(1, Math.floor(intervalDays))), '/TN', windowsTaskName, '/TR', command])) {
+    throw new Error('Windows 任务计划程序无法创建自动清理任务')
+  }
+}
+
 function uninstallLaunchAgent(): void {
   if (process.platform !== 'darwin') return
   runLaunchctl(['bootout', `gui/${process.getuid?.() ?? 0}/${serviceLabel}`])
   rmSync(launchAgentPath(), { force: true })
 }
 
+function uninstallWindowsTask(): void {
+  if (process.platform === 'win32') runSchtasks(['/Delete', '/F', '/TN', windowsTaskName])
+}
+
 export function getAutomationState(): AutomationState {
   const settings = loadAutomationSettings()
-  const installed = process.platform === 'darwin' && existsSync(launchAgentPath())
-  const loaded = installed && runLaunchctl(['print', `gui/${process.getuid?.() ?? 0}/${serviceLabel}`])
+  const installed = process.platform === 'darwin'
+    ? existsSync(launchAgentPath())
+    : process.platform === 'win32' && runSchtasks(['/Query', '/TN', windowsTaskName])
+  const loaded = process.platform === 'darwin'
+    ? installed && runLaunchctl(['print', `gui/${process.getuid?.() ?? 0}/${serviceLabel}`])
+    : installed
   let nextRunAt: number | null = null
   if (installed) {
-    try { nextRunAt = statSync(launchAgentPath()).mtimeMs + Math.max(1, settings.intervalDays) * 86_400_000 } catch { /* missing */ }
+    try {
+      const reference = process.platform === 'darwin' ? launchAgentPath() : settingsPath()
+      nextRunAt = statSync(reference).mtimeMs + Math.max(1, settings.intervalDays) * 86_400_000
+    } catch { /* missing */ }
   }
   return {
     settings,
@@ -101,11 +135,12 @@ export function getAutomationState(): AutomationState {
     loaded,
     nextRunAt,
     lastRun: readJSON<AutomaticRunRecord>(lastRunPath()),
-    supported: process.platform === 'darwin'
+    supported: process.platform === 'darwin' || process.platform === 'win32'
   }
 }
 
 export function applyAutomationSettings(settings: AutomationSettings): AutomationState {
+  if (!validAutomationSettings(settings)) throw new Error('自动清理设置无效')
   const sanitized: AutomationSettings = {
     ...settings,
     intervalDays: Math.min(180, Math.max(1, Math.round(settings.intervalDays))),
@@ -113,10 +148,25 @@ export function applyAutomationSettings(settings: AutomationSettings): Automatio
     activeRetentionDays: Math.min(3650, Math.max(7, Math.round(settings.activeRetentionDays)))
   }
   writeJSON(settingsPath(), sanitized)
-  if (sanitized.enabled) installLaunchAgent(sanitized.intervalDays * 86_400)
-  else uninstallLaunchAgent()
+  if (sanitized.enabled) {
+    if (process.platform === 'darwin') installLaunchAgent(sanitized.intervalDays * 86_400)
+    else if (process.platform === 'win32') installWindowsTask(sanitized.intervalDays)
+    else throw new Error('当前系统不支持定期后台清理')
+  } else {
+    uninstallLaunchAgent()
+    uninstallWindowsTask()
+  }
   app.setLoginItemSettings({ openAtLogin: sanitized.launchAtLogin })
   return getAutomationState()
+}
+
+function validAutomationSettings(value: unknown): value is AutomationSettings {
+  if (!value || typeof value !== 'object') return false
+  const item = value as Record<string, unknown>
+  const booleans = ['enabled', 'cleanCaches', 'cleanOldPlugins', 'cleanArchivedSessions', 'cleanActiveSessions', 'skipRecentSessions', 'notifyWhenFinished', 'launchAtLogin']
+  const numbers = ['intervalDays', 'archivedRetentionDays', 'activeRetentionDays']
+  return booleans.every((key) => typeof item[key] === 'boolean')
+    && numbers.every((key) => typeof item[key] === 'number' && Number.isFinite(item[key]))
 }
 
 export function appendAutomationLog(message: string): void {

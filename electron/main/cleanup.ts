@@ -10,12 +10,15 @@ import { ProtectedPaths, ProtectedPathError } from './guard'
 import { compactDatabase } from './sqlite-maintenance'
 import { slimSession } from './session-slimmer'
 import { directoryAllocatedSize } from './fs-size'
+import type { FileUsage } from './platform-services'
 
 export interface CleanupDeps {
   /** Move a file or directory to the OS trash. Injected so the engine stays testable. */
   trash: (path: string) => Promise<void>
   /** Whether Codex is currently running — gates work that needs it fully stopped. */
   isCodexRunning: () => boolean
+  /** Whether one exact rollout/database is open. */
+  fileUsage?: (path: string) => FileUsage
   /** Codex app server, used to delete threads cleanly (drops derived metadata + children). */
   appServer: {
     isAvailable: boolean
@@ -88,11 +91,11 @@ async function runOne(
     case 'trash':
       return runTrash(task, guards, deps, codexRunning)
     case 'compactDatabase':
-      return runCompactDatabase(task, guards, codexRunning)
+      return runCompactDatabase(task, guards, deps, codexRunning)
     case 'deleteThread':
       return runDeleteThread(task, guards, deps)
     case 'slimSession':
-      return runSlimSession(task, guards, deps)
+      return runSlimSession(task, guards, deps, codexRunning)
   }
 }
 
@@ -134,12 +137,17 @@ async function runTrash(
 function runCompactDatabase(
   task: CleanupTask,
   guards: ProtectedPaths,
+  deps: CleanupDeps,
   codexRunning: boolean
 ): CleanupOutcome {
-  if (codexRunning) {
-    return outcome(task, { kind: 'skipped', reason: 'Codex 正在运行，数据库压缩已推迟' }, 0)
-  }
   if (!pathExists(task.url)) return outcome(task, { kind: 'skipped', reason: '路径已不存在' }, 0)
+  const usage = deps.fileUsage?.(task.url) ?? { kind: 'unknown' as const }
+  if (usage.kind === 'inUse') {
+    return outcome(task, { kind: 'skipped', reason: `数据库正在被使用（${usage.processes.join('、')}）` }, 0)
+  }
+  if (usage.kind === 'unknown' && codexRunning) {
+    return outcome(task, { kind: 'skipped', reason: '无法确认数据库是否被占用，Codex 正在运行，压缩已推迟' }, 0)
+  }
   try {
     guards.validate(task.url)
     const report = compactDatabase(task.url)
@@ -152,10 +160,18 @@ function runCompactDatabase(
 async function runSlimSession(
   task: CleanupTask,
   guards: ProtectedPaths,
-  deps: CleanupDeps
+  deps: CleanupDeps,
+  codexRunning: boolean
 ): Promise<CleanupOutcome> {
   if (!task.slimMode) return outcome(task, { kind: 'failed', reason: '缺少会话瘦身模式' }, 0)
   if (!pathExists(task.url)) return outcome(task, { kind: 'skipped', reason: '路径已不存在' }, 0)
+  const usage = deps.fileUsage?.(task.url) ?? { kind: 'unknown' as const }
+  if (usage.kind === 'inUse') {
+    return outcome(task, { kind: 'skipped', reason: `这个会话正在被使用（${usage.processes.join('、')}）` }, 0)
+  }
+  if (usage.kind === 'unknown' && codexRunning) {
+    return outcome(task, { kind: 'skipped', reason: '无法确认会话是否正在写入，Codex 正在运行，本次跳过' }, 0)
+  }
   try {
     guards.validate(task.url)
     const report = await slimSession(task.url, task.slimMode, deps.trash)
@@ -178,14 +194,21 @@ async function runDeleteThread(
 ): Promise<CleanupOutcome> {
   const targets = [task.url, ...task.companionURLs]
   const beforeBytes = targets.filter(pathExists).reduce((sum, t) => sum + fileAllocated(t), 0)
+  let deletedThroughAppServer = false
 
-  if (deps.appServer.isAvailable && task.threadID) {
-    try {
-      await deps.appServer.deleteThread(task.threadID)
-    } catch (err) {
-      // Fall through to trashing the rollout directly, but surface that the app server failed.
-      return outcome(task, { kind: 'failed', reason: errorMessage(err) }, 0)
-    }
+  try {
+    for (const target of targets) guards.validate(target)
+  } catch (err) {
+    return outcome(task, { kind: 'failed', reason: errorMessage(err) }, 0)
+  }
+
+  if (!task.threadID) return outcome(task, { kind: 'failed', reason: '缺少会话 ID' }, 0)
+  if (!deps.appServer.isAvailable) return outcome(task, { kind: 'failed', reason: '没有连接到 codex app server' }, 0)
+  try {
+    await deps.appServer.deleteThread(task.threadID)
+    deletedThroughAppServer = true
+  } catch (err) {
+    return outcome(task, { kind: 'failed', reason: errorMessage(err) }, 0)
   }
 
   let freed = 0
@@ -206,7 +229,7 @@ async function runDeleteThread(
 
   const afterBytes = targets.filter(pathExists).reduce((sum, t) => sum + fileAllocated(t), 0)
   freed = Math.max(0, beforeBytes - afterBytes)
-  if (freed === 0) {
+  if (freed === 0 && !deletedThroughAppServer) {
     return outcome(task, { kind: 'skipped', reason: '路径已不存在' }, 0)
   }
   return outcome(task, { kind: 'succeeded' }, freed)

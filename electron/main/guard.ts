@@ -1,6 +1,14 @@
 import { basename, dirname, join, normalize, sep } from 'node:path'
 import { realpathSync } from 'node:fs'
 import { CodexLocations } from './locations'
+import { loadCodexConfiguration, type CodexConfiguration } from './configuration'
+
+function outermost(paths: string[]): string[] {
+  const unique = [...new Set(paths.map(normalize))]
+  return unique.filter((candidate) => !unique.some(
+    (other) => other !== candidate && ProtectedPaths.contains(other, candidate)
+  ))
+}
 
 /**
  * The allow/deny list that every deletion goes through. Deny-by-default: a path must sit
@@ -10,6 +18,7 @@ import { CodexLocations } from './locations'
 export class ProtectedPaths {
   private readonly locations: CodexLocations
   private readonly activePluginDirectories: string[]
+  readonly localMarketplaceSources: string[]
 
   /** Relative names inside ~/.codex that hold credentials, configuration or user work. */
   static readonly protectedHomeEntries = [
@@ -45,16 +54,24 @@ export class ProtectedPaths {
     'WidevineCdm'
   ]
 
-  constructor(locations: CodexLocations, activePluginDirectories: string[] = []) {
+  constructor(
+    locations: CodexLocations,
+    activePluginDirectories: string[] = [],
+    configuration: CodexConfiguration = loadCodexConfiguration(locations.home)
+  ) {
     this.locations = locations
     this.activePluginDirectories = activePluginDirectories.map((d) => normalize(d))
+    this.localMarketplaceSources = outermost([
+      ...configuration.localMarketplaceSources.map(normalize),
+      normalize(locations.bundledMarketplaces)
+    ])
   }
 
-  private get protectedURLs(): string[] {
+  get protectedURLs(): string[] {
     const urls: string[] = []
     for (const name of ProtectedPaths.protectedHomeEntries) urls.push(normalize(`${this.locations.home}/${name}`))
     for (const name of ProtectedPaths.protectedAppSupportEntries) urls.push(normalize(`${this.locations.appSupport}/${name}`))
-    urls.push(normalize(this.locations.bundledMarketplaces))
+    urls.push(...this.localMarketplaceSources)
     urls.push(...this.activePluginDirectories)
     return urls
   }
@@ -74,8 +91,9 @@ export class ProtectedPaths {
 
   /** True when `candidate` is `root` itself or lives below it. */
   static contains(root: string, candidate: string): boolean {
-    const r = normalize(root).split(sep).filter(Boolean)
-    const c = normalize(candidate).split(sep).filter(Boolean)
+    const comparable = (value: string): string => process.platform === 'win32' ? value.toLowerCase() : value
+    const r = comparable(normalize(root)).split(sep).filter(Boolean)
+    const c = comparable(normalize(candidate)).split(sep).filter(Boolean)
     if (c.length < r.length) return false
     return r.every((part, i) => c[i] === part)
   }

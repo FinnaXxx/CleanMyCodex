@@ -21,6 +21,7 @@ mac:
   artifactName: ${productName}-${version}-${arch}.${ext}
   icon: Support/AppIcon.icns
 win:
+  icon: Assets/AppIcon.png
   target:
     - nsis
   artifactName: ${productName}-${version}-${arch}.${ext}
@@ -29,6 +30,7 @@ nsis:
   perMachine: false
   allowToChangeInstallationDirectory: true
 linux:
+  icon: Assets/AppIcon.png
   target:
     - AppImage
   category: Utility

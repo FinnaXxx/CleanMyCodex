@@ -1,12 +1,13 @@
-import { useMemo, useState } from 'react'
-import type { CleanupProgress, CleanupTask, WorkspaceFolder, WorkspaceSnapshot } from '../../shared/types'
-import { formatBytes, tasksForWorkspace, workspaceBytes, workspaceFolderFileCount, workspaceFolderIsUnsafe, WorkspaceRepositoryStateLabel } from '../../shared/types'
+import { useEffect, useMemo, useState } from 'react'
+import type { CleanupProgress, CleanupSelection, WorkspaceFolder, WorkspaceSnapshot } from '../../shared/types'
+import { formatBytes, workspaceBytes, workspaceFolderFileCount, workspaceFolderIsUnsafe, WorkspaceRepositoryStateLabel } from '../../shared/types'
 
-interface Props { snapshot: WorkspaceSnapshot; scanning: boolean; cleaning: boolean; cleanProgress: CleanupProgress | null; onScan: () => void; onCleanup: (tasks: CleanupTask[]) => void }
+interface Props { snapshot: WorkspaceSnapshot; scanning: boolean; cleaning: boolean; actionsDisabled: boolean; cleanProgress: CleanupProgress | null; onScan: () => void; onCleanup: (selection: CleanupSelection) => void }
 
-export default function WorkspaceView({ snapshot, scanning, cleaning, cleanProgress, onScan, onCleanup }: Props) {
+export default function WorkspaceView({ snapshot, scanning, cleaning, actionsDisabled, cleanProgress, onScan, onCleanup }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  useEffect(() => { setSelected(new Set()) }, [snapshot])
   const all = useMemo(() => snapshot.entries.flatMap((entry) => [entry, ...entry.children]), [snapshot])
   const targets = all.filter((entry) => selected.has(entry.id) && !all.some((parent) => selected.has(parent.id) && parent.children.some((child) => child.id === entry.id)))
   const chosenBytes = targets.reduce((sum, item) => sum + item.bytes, 0)
@@ -27,7 +28,7 @@ export default function WorkspaceView({ snapshot, scanning, cleaning, cleanProgr
         {expanded.has(entry.id) && entry.children.map((child) => <WorkspaceRow key={child.id} entry={child} checked={selected.has(child.id)} depth={1} onToggle={() => toggle(child)} expanded={false} onExpand={() => undefined} />)}
       </div>)}
     </section>
-    <div className="page-footer"><span className={targets.some(workspaceFolderIsUnsafe) ? 'unsafe' : ''}>{targets.some(workspaceFolderIsUnsafe) ? '⚠ 所选内容包含未提交、未推送或状态未知的 git 仓库' : snapshot.root}</span><button className="clean danger" disabled={!targets.length || cleaning} onClick={() => window.confirm(`这些是工作产出，不是缓存。确认把 ${targets.length} 个目录（${formatBytes(chosenBytes)}）移到废纸篓？${targets.some(workspaceFolderIsUnsafe) ? '\n\n警告：其中有只存在本地的 git 改动。' : ''}`) && onCleanup(tasksForWorkspace(targets))}>{cleaning ? `处理中… ${cleanProgress?.completed ?? 0}/${targets.length}` : `移到废纸篓 · ${formatBytes(chosenBytes)}`}</button></div>
+    <div className="page-footer"><span className={targets.some(workspaceFolderIsUnsafe) ? 'unsafe' : ''}>{targets.some(workspaceFolderIsUnsafe) ? '⚠ 所选内容包含未提交、未推送或状态未知的 git 仓库' : snapshot.root}</span><button className="clean danger" disabled={!targets.length || cleaning || actionsDisabled} onClick={() => onCleanup({ kind: 'workspace', ids: targets.map((entry) => entry.id) })}>{cleaning ? `处理中… ${cleanProgress?.completed ?? 0}/${targets.length}` : `移到废纸篓 · ${formatBytes(chosenBytes)}`}</button></div>
   </>
 }
 
