@@ -51,9 +51,11 @@ export class CodexLocations {
   get pluginCache(): string { return join(this.plugins, 'cache') }
   get pluginRuntime(): string { return join(this.plugins, '.plugin-appserver') }
   get temporary(): string { return join(this.home, '.tmp') }
+  get codexCache(): string { return join(this.home, 'cache') }
   /** Where Codex unpacks the marketplace that ships with the release. Scratch-looking,
    *  but live: config.toml registers it as the `openai-bundled` marketplace source. */
   get bundledMarketplaces(): string { return join(this.temporary, 'bundled-marketplaces') }
+  get bundledMarketplaceSource(): string { return join(this.bundledMarketplaces, 'openai-bundled') }
   get generatedImages(): string { return join(this.home, 'generated_images') }
   get visualizations(): string { return join(this.home, 'visualizations') }
   get computerUse(): string { return join(this.home, 'computer-use') }
@@ -101,6 +103,8 @@ export class CodexLocations {
       'Default/GPUCache',
       'Default/Service Worker/CacheStorage',
       'Default/Service Worker/ScriptCache',
+      'Cache',
+      'GraphiteDawnCache',
       'GPUCache',
       'ShaderCache',
       'GrShaderCache',

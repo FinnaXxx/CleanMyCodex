@@ -19,6 +19,7 @@ export interface CleanupDeps {
   /** Whether one exact rollout/database is open. */
   fileUsage?: (path: string) => FileUsage
   sessionDatabase?: {
+    preflightDelete?: (threadID: string) => void
     deleteThread: (threadID: string) => { removedRows: number; freedBytes: number }
   }
 }
@@ -108,6 +109,7 @@ async function runTrash(
   const targets = [task.url, ...task.companionURLs]
   try {
     for (const target of targets) guards.validate(target)
+    if (task.threadID) deps.sessionDatabase?.preflightDelete?.(task.threadID)
   } catch (err) {
     return outcome(task, { kind: 'failed', reason: errorMessage(err) }, 0)
   }

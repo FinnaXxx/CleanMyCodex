@@ -14,6 +14,7 @@ export class CodexThreadIndex {
   private readonly byID = new Map<string, string>()
   private readonly byRollout = new Map<string, string>()
   private readonly workspaceRows: CodexWorkspaceThread[] = []
+  private readonly cleanupBlockers = new Set<string>()
 
   get size(): number { return Math.max(this.byID.size, this.byRollout.size, this.workspaceRows.length) }
 
@@ -29,22 +30,27 @@ export class CodexThreadIndex {
     })
   }
 
+  cleanupBlocked(threadID: string): boolean { return this.cleanupBlockers.has(threadID) }
+
   static load(codexHome: string): CodexThreadIndex {
     const generatedNames = readSessionNames(codexHome)
     for (const path of stateDatabases(codexHome).slice(0, 3)) {
       const direct = readIndex(path, true)
       if (direct && direct.size) {
         direct.applyGeneratedNames(generatedNames)
+        direct.applyCleanupBlockers(readAuxiliaryCleanupBlockers(codexHome))
         return direct
       }
       const copied = readCopiedIndex(path)
       if (copied && copied.size) {
         copied.applyGeneratedNames(generatedNames)
+        copied.applyCleanupBlockers(readAuxiliaryCleanupBlockers(codexHome))
         return copied
       }
     }
     const index = new CodexThreadIndex()
     index.applyGeneratedNames(generatedNames)
+    index.applyCleanupBlockers(readAuxiliaryCleanupBlockers(codexHome))
     return index
   }
 
@@ -57,10 +63,34 @@ export class CodexThreadIndex {
     this.workspaceRows.push({ ...thread, cwd: normalize(thread.cwd) })
   }
 
+  blockCleanup(threadID: string): void { this.cleanupBlockers.add(threadID) }
+
   private applyGeneratedNames(names: Map<string, string>): void {
     for (const [id, title] of names) this.byID.set(id, title)
     for (const thread of this.workspaceRows) thread.title = names.get(thread.id) ?? thread.title
   }
+
+  private applyCleanupBlockers(ids: Set<string>): void {
+    for (const id of ids) this.cleanupBlockers.add(id)
+  }
+}
+
+function readAuxiliaryCleanupBlockers(home: string): Set<string> {
+  const result = new Set<string>()
+  const queries: Array<[string, string]> = [
+    ['goals_', "SELECT thread_id FROM thread_goals WHERE status <> 'complete'"],
+    ['queue_', 'SELECT DISTINCT thread_id FROM queued_items']
+  ]
+  for (const [prefix, sql] of queries) {
+    const path = stateDatabases(home, prefix)[0]
+    if (!path) continue
+    let db: Database.Database | null = null
+    try {
+      db = new Database(path, { readonly: true, fileMustExist: true, timeout: 2_000 })
+      for (const id of db.prepare(sql).pluck().all() as unknown[]) if (typeof id === 'string') result.add(id)
+    } catch { /* auxiliary state is optional and schema-versioned */ } finally { db?.close() }
+  }
+  return result
 }
 
 /** Codex writes its final generated/edited sidebar titles here even when the
@@ -83,10 +113,10 @@ function readSessionNames(home: string): Map<string, string> {
   return names
 }
 
-function stateDatabases(home: string): string[] {
+function stateDatabases(home: string, prefix = 'state'): string[] {
   try {
     return readdirSync(home)
-      .filter((name) => name.startsWith('state') && name.endsWith('.sqlite'))
+      .filter((name) => name.startsWith(prefix) && name.endsWith('.sqlite'))
       .sort((a, b) => version(b) - version(a) || b.localeCompare(a))
       .map((name) => join(home, name))
   } catch { return [] }
@@ -120,7 +150,8 @@ function readIndex(path: string, readonly: boolean): CodexThreadIndex | null {
     if (!table) return new CodexThreadIndex()
     const selected = [...new Set([
       table.id, table.generatedName, table.title, table.rollout, table.cwd, table.preview, table.firstUserMessage,
-      table.threadSource, table.source, table.archived, table.archivedAt, table.updatedAtMs, table.updatedAt
+      table.threadSource, table.source, table.archived, table.archivedAt, table.updatedAtMs, table.updatedAt,
+      table.pinned
     ].filter((value): value is string => !!value))]
     const rows = db.prepare(`SELECT ${selected.map(quote).join(', ')} FROM ${quote(table.name)} LIMIT 50000`).all() as Record<string, unknown>[]
     const index = new CodexThreadIndex()
@@ -134,6 +165,7 @@ function readIndex(path: string, readonly: boolean): CodexThreadIndex | null {
         cleanPreview(table.preview ? row[table.preview] : null) ??
         cleanPreview(table.firstUserMessage ? row[table.firstUserMessage] : null)
       if (title) index.add(id, stringValue(table.rollout ? row[table.rollout] : null), title)
+      if (id && booleanValue(rowValue(table.pinned, row))) index.blockCleanup(id)
       const cwd = stringValue(table.cwd ? row[table.cwd] : null)
       if (id && cwd) {
         const threadSource = stringValue(table.threadSource ? row[table.threadSource] : null)
@@ -167,6 +199,7 @@ interface ThreadTable {
   archivedAt: string | null
   updatedAtMs: string | null
   updatedAt: string | null
+  pinned: string | null
 }
 
 function findThreadTable(db: Database.Database): ThreadTable | null {
@@ -192,7 +225,8 @@ function findThreadTable(db: Database.Database): ThreadTable | null {
       archived: firstColumn(columns, ['archived']),
       archivedAt: firstColumn(columns, ['archived_at', 'archivedAt']),
       updatedAtMs: firstColumn(columns, ['updated_at_ms', 'updatedAtMs']),
-      updatedAt: firstColumn(columns, ['updated_at', 'updatedAt'])
+      updatedAt: firstColumn(columns, ['updated_at', 'updatedAt']),
+      pinned: firstColumn(columns, ['is_pinned', 'pinned'])
     }
   }
   return null

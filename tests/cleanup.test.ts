@@ -112,4 +112,22 @@ describe('cleanup engine', () => {
     expect(report.outcomes[0].status.kind).toBe('failed')
     expect(trashed).toBe(false)
   })
+
+  it('does not trash rollout files when the SQLite preflight fails', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-cleanup-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), documents: join(root, 'Documents') })
+    const rollout = join(locations.sessions, 'thread.jsonl')
+    mkdirSync(locations.sessions, { recursive: true }); writeFileSync(rollout, '{}\n')
+    const task: CleanupTask = { id: rollout, title: 'thread', detail: '', url: rollout, method: 'trash', expectedBytes: 1, threadID: 'thread', companionURLs: [], minimumIdleSeconds: null, requiresCodexStopped: false }
+    let trashed = false
+    const report = await runCleanup([task], new ProtectedPaths(locations), {
+      trash: async () => { trashed = true }, isCodexRunning: () => false,
+      sessionDatabase: {
+        preflightDelete: () => { throw new Error('unsupported schema') },
+        deleteThread: () => ({ removedRows: 0, freedBytes: 0 })
+      }
+    })
+    expect(report.outcomes[0].status.kind).toBe('failed')
+    expect(trashed).toBe(false)
+  })
 })

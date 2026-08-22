@@ -176,6 +176,8 @@ export interface SessionItem {
   isCompressed: boolean
   isUnstable: boolean
   parseWarnings: number
+  /** Pinned, queued, or unfinished-goal conversations are never removed automatically. */
+  blocksAutomaticCleanup: boolean
   /** Subagent rollouts are spawned by a parent thread; hidden from the session list and rolled into the parent. */
   isSubagent: boolean
   /** The parent thread a subagent was spawned from; null for user conversations. */

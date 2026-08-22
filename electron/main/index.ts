@@ -9,7 +9,8 @@ import { runCleanup, type CleanupDeps } from './cleanup'
 import { AppServerClient } from './app-server'
 import { buildAutomaticTasks, buildTrustedTasks, makeCleanupPreview } from './planner'
 import { codexEnvironment, codexIsRunning, probeFileUsage, quitCodexDesktop, relaunchCodex } from './platform-services'
-import { deleteSessionRecords } from './session-database'
+import { deleteSessionRecords, preflightSessionRecords } from './session-database'
+import { scanPluginVersions } from './plugins'
 import {
   appendAutomationLog,
   applyAutomationSettings,
@@ -155,6 +156,7 @@ ipcMain.handle('cleanup:prepare', (_event, selection: CleanupSelection) => {
 
 ipcMain.handle('cleanup:run', async (_event, request: CleanupRequest) => {
   if (!request || typeof request !== 'object' || typeof request.restartCodex !== 'boolean' || typeof request.forceQuitCodex !== 'boolean') throw new Error('清理请求无效')
+  if (request.selection.kind === 'plugins') await refreshPluginsBeforeCleanup()
   const tasks = trustedTasks(request.selection)
   let reopen: string[] = []
   if (request.restartCodex && tasks.some((task) => task.requiresCodexStopped || task.method === 'compactDatabase')) {
@@ -173,6 +175,16 @@ ipcMain.handle('cleanup:run', async (_event, request: CleanupRequest) => {
     mainWindow?.webContents.send('cleanup:stage', '')
   }
 })
+
+async function refreshPluginsBeforeCleanup(): Promise<void> {
+  if (!latestSnapshot) throw new Error('请先完成扫描')
+  const installedPlugins = await appServer.installedPlugins()
+  latestSnapshot = {
+    ...latestSnapshot,
+    pluginVersions: scanPluginVersions(locations.plugins, installedPlugins)
+  }
+  guards = guardsFor(latestSnapshot)
+}
 
 function trustedTasks(selection: CleanupSelection) {
   if (!latestSnapshot) throw new Error('请先完成扫描')
@@ -212,6 +224,7 @@ function cleanupDependencies(): CleanupDeps {
     isCodexRunning: codexIsRunning,
     fileUsage: probeFileUsage,
     sessionDatabase: {
+      preflightDelete: (threadID) => preflightSessionRecords(locations.home, threadID),
       deleteThread: (threadID) => deleteSessionRecords(locations.home, threadID)
     }
   }

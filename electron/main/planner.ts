@@ -116,6 +116,7 @@ export function buildAutomaticTasks(
   // independently. The root deletion task already carries every descendant path.
   const sessions = listableSessions(snapshot).filter((session) => {
     if (session.isUnstable) return false
+    if (session.blocksAutomaticCleanup) return false
     if (settings.skipRecentSessions && now - session.modifiedAt < 86_400_000) return false
     const days = Math.max(1, session.location === 'archived' ? settings.archivedRetentionDays : settings.activeRetentionDays)
     const enabled = session.location === 'archived' ? settings.cleanArchivedSessions : settings.cleanActiveSessions

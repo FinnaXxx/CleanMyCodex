@@ -206,6 +206,7 @@ function groupSubagents(items: SessionItem[]): void {
     root.childThreadCount = descendants.length
     root.childBytes = descendants.reduce((sum, child) => sum + child.fileBytes + child.assetBytes, 0)
     root.childURLs = [...new Set([...childRolloutURLs, ...childAssetURLs])]
+    root.blocksAutomaticCleanup ||= descendants.some((child) => child.blocksAutomaticCleanup)
   }
 }
 
@@ -245,6 +246,7 @@ function mergeThreadSegments(items: SessionItem[]): SessionItem[] {
       isCompressed: segments.some((segment) => segment.isCompressed),
       isUnstable: segments.some((segment) => segment.isUnstable),
       parseWarnings: segments.reduce((sum, segment) => sum + segment.parseWarnings, 0),
+      blocksAutomaticCleanup: segments.some((segment) => segment.blocksAutomaticCleanup),
       isSubagent: segments.every((segment) => segment.isSubagent),
       parentThreadID: primary.parentThreadID ?? chronological.find((segment) => segment.parentThreadID)?.parentThreadID ?? null
     }
@@ -304,6 +306,7 @@ export async function scanSessions(
       fileBytes: before.bytes, assetBytes: assets.bytes, assetURLs: assets.urls,
       workingDirectory: content.cwd, title: titles.title(threadID, file.url) ?? content.metadataTitle,
       preview: content.preview, tags, isCompressed: compressed, isUnstable: unstable, parseWarnings: content.parseWarnings,
+      blocksAutomaticCleanup: titles.cleanupBlocked(threadID),
       isSubagent: content.isSubagent, parentThreadID: content.parentThreadID,
       childThreadCount: 0, childBytes: 0, childURLs: []
     })

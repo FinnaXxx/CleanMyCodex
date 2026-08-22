@@ -77,6 +77,26 @@ function deleteHistoryRows(path: string | null, threadIDs: string[]): number {
   })
 }
 
+function preflightDatabase(path: string | null, requiredTable: string): void {
+  if (!path) return
+  const db = new Database(path, { fileMustExist: true, timeout: 8_000 })
+  try {
+    const integrity = db.pragma('quick_check(1)', { simple: true })
+    if (integrity !== 'ok') throw new Error(`${path} 完整性检查失败：${String(integrity)}`)
+    if (!hasTable(db, requiredTable)) throw new Error(`${path} 缺少 ${requiredTable}，暂不支持这个数据库版本`)
+    db.exec('BEGIN IMMEDIATE; ROLLBACK;')
+  } finally { db.close() }
+}
+
+/** Validate supported schemas and acquire each write lock before any rollout is trashed. */
+export function preflightSessionRecords(home: string, threadID: string): void {
+  const statePath = latestDatabase(home, 'state_')
+  const historyPath = latestDatabase(home, 'thread_history_')
+  preflightDatabase(statePath, 'threads')
+  preflightDatabase(historyPath, 'thread_items')
+  descendants(statePath, threadID)
+}
+
 /** Remove a thread and its spawned descendants from both Codex session databases. */
 export function deleteSessionRecords(home: string, threadID: string): SessionDatabaseReport {
   const statePath = latestDatabase(home, 'state_')
