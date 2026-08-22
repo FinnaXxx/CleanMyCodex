@@ -5,10 +5,11 @@
 
 export type StorageGroup = 'recommended' | 'review' | 'protectedData'
 
-export const StorageGroupLabel: Record<StorageGroup, { title: string; subtitle: string }> = {
-  recommended: { title: '建议清理', subtitle: '可重建或无损回收，默认选中' },
-  review: { title: '谨慎清理', subtitle: '删除后无法恢复，请逐项确认' },
-  protectedData: { title: '受保护的数据', subtitle: '配置、登录信息和用户成果，永不清理' }
+/** Shown on the right of a category row: how the app rates cleaning it. */
+export const StorageAdviceLabel: Record<StorageGroup, string> = {
+  recommended: '建议清理',
+  review: '谨慎清理',
+  protectedData: '受保护'
 }
 
 export type CleanupRisk = 'lossless' | 'safe' | 'rebuildable' | 'caution' | 'shielded'
@@ -64,6 +65,35 @@ export const StorageKindSymbol: Record<StorageKind, string> = {
   protectedUserData: 'folder.badge.person.crop'
 }
 
+/** Content type the category belongs to; drives how the overview groups rows. */
+export type StorageSection = 'caches' | 'logs' | 'plugins' | 'assets' | 'protectedData'
+
+export const StorageSectionLabel: Record<StorageSection, string> = {
+  caches: '缓存与临时文件',
+  logs: '日志与数据库',
+  plugins: '插件与组件',
+  assets: '会话资产',
+  protectedData: '受保护的数据'
+}
+
+export const StorageSectionOrder: StorageSection[] = ['caches', 'logs', 'plugins', 'assets', 'protectedData']
+
+export const StorageKindSection: Record<StorageKind, StorageSection> = {
+  logDatabase: 'logs',
+  temporary: 'caches',
+  marketplaceCache: 'caches',
+  pluginRemnants: 'plugins',
+  browserCache: 'caches',
+  appCache: 'caches',
+  appLogs: 'logs',
+  generatedImages: 'assets',
+  computerUse: 'plugins',
+  activeSessions: 'assets',
+  archivedSessions: 'assets',
+  protectedConfig: 'protectedData',
+  protectedUserData: 'protectedData'
+}
+
 export interface StorageEntry {
   id: string
   title: string
@@ -99,6 +129,10 @@ export const categoryIsEmpty = (c: StorageCategory): boolean => c.entries.length
 
 export const categoryIsSelectable = (c: StorageCategory): boolean =>
   isSelectable(c.risk) && c.entries.length > 0
+
+export const categorySection = (c: StorageCategory): StorageSection => StorageKindSection[c.kind]
+
+export const categoryAdvice = (c: StorageCategory): string => StorageAdviceLabel[c.group]
 
 export type SessionLocation = 'active' | 'archived'
 
@@ -281,8 +315,13 @@ export const snapshotEmbeddedImageBytes = (s: ScanSnapshot): number =>
 export type SessionSlimMode = 'deduplicate' | 'stripAll'
 
 export const SessionSlimModeLabel: Record<SessionSlimMode, string> = {
-  deduplicate: '只去重（保留每张图的第一份）',
+  deduplicate: '去除重复图片',
   stripAll: '剥离全部内嵌图片'
+}
+
+export const SessionSlimModeDetail: Record<SessionSlimMode, string> = {
+  deduplicate: '每张图片保留第一份，删除后续重复副本',
+  stripAll: '移除会话里的全部图片数据，文字记录保持不变'
 }
 
 export interface CleanupTask {

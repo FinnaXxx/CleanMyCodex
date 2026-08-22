@@ -17,18 +17,17 @@ export default function WorkspaceView({ snapshot, scanning, cleaning, actionsDis
   })
   const toggleExpand = (id: string) => setExpanded((previous) => { const next = new Set(previous); next.has(id) ? next.delete(id) : next.add(id); return next })
   return <>
-    <section className="page-heading"><div><h2>工作产出</h2><p>Codex 每次会话的工作目录和产出文件，按日期分组。</p></div><button className="secondary" disabled={scanning} onClick={onScan}>{scanning ? '正在统计…' : snapshot.isScanned ? '重新统计' : '开始统计'}</button></section>
-    <p className="notice warning">这里是你的成果，不是缓存：默认一项都不勾选，自动清理永远不会碰这里。</p>
-    <section className="workspace-metrics panel"><div><small>总占用</small><strong>{formatBytes(workspaceBytes(snapshot))}</strong></div><div><small>已选择</small><strong>{formatBytes(chosenBytes)}</strong></div><div><small>目录</small><strong>{snapshot.entries.length}</strong></div></section>
+    <section className="page-heading"><div><h2>工作产出</h2><p>Codex 会话的工作目录和产出文件，按日期分组。</p></div><button className="btn" disabled={scanning} onClick={onScan}>{scanning ? '正在统计…' : snapshot.isScanned ? '重新统计' : '开始统计'}</button></section>
+    <section className="workspace-metrics card"><div><small>总占用</small><strong>{formatBytes(workspaceBytes(snapshot))}</strong></div><div><small>已选择</small><strong>{formatBytes(chosenBytes)}</strong></div><div><small>目录</small><strong>{snapshot.entries.length}</strong></div></section>
     {!snapshot.isScanned && <p className="empty-panel">第一次读取可能请求“文稿”文件夹访问权限<br/><code>{snapshot.root}</code></p>}
     {snapshot.isScanned && !snapshot.entries.length && <p className="empty-panel">没有找到工作产出目录<br/><code>{snapshot.root}</code></p>}
-    <section className="panel workspace-tree">
+    <section className="card workspace-tree">
       {snapshot.entries.map((entry) => <div key={entry.id}>
         <WorkspaceRow entry={entry} checked={selected.has(entry.id)} depth={0} onToggle={() => toggle(entry)} expanded={expanded.has(entry.id)} onExpand={() => toggleExpand(entry.id)} />
         {expanded.has(entry.id) && entry.children.map((child) => <WorkspaceRow key={child.id} entry={child} checked={selected.has(child.id)} depth={1} onToggle={() => toggle(child)} expanded={false} onExpand={() => undefined} />)}
       </div>)}
     </section>
-    <div className="page-footer"><span className={targets.some(workspaceFolderIsUnsafe) ? 'unsafe' : ''}>{targets.some(workspaceFolderIsUnsafe) ? '⚠ 所选内容包含未提交、未推送或状态未知的 git 仓库' : snapshot.root}</span><button className="clean danger" disabled={!targets.length || cleaning || actionsDisabled} onClick={() => onCleanup({ kind: 'workspace', ids: targets.map((entry) => entry.id) })}>{cleaning ? `处理中… ${cleanProgress?.completed ?? 0}/${targets.length}` : `移到废纸篓 · ${formatBytes(chosenBytes)}`}</button></div>
+    <div className="page-footer"><span className={targets.some(workspaceFolderIsUnsafe) ? 'unsafe' : ''}>{targets.some(workspaceFolderIsUnsafe) ? '⚠ 所选内容包含未提交、未推送或状态未知的 git 仓库' : snapshot.root}</span><button className="btn danger" disabled={!targets.length || cleaning || actionsDisabled} onClick={() => onCleanup({ kind: 'workspace', ids: targets.map((entry) => entry.id) })}>{cleaning ? `处理中… ${cleanProgress?.completed ?? 0}/${targets.length}` : `移到废纸篓 · ${formatBytes(chosenBytes)}`}</button></div>
   </>
 }
 
