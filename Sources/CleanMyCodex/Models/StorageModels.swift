@@ -270,6 +270,7 @@ struct ScanSnapshot: Sendable {
     let externalBytes: Int64
     let categories: [StorageCategory]
     let sessions: [SessionItem]
+    let workspace: WorkspaceSnapshot
     let pluginVersions: [PluginVersionItem]
     let notes: [String]
 
@@ -291,6 +292,7 @@ struct ScanSnapshot: Sendable {
             externalBytes: 0,
             categories: [],
             sessions: [],
+            workspace: .empty(at: url.deletingLastPathComponent()),
             pluginVersions: [],
             notes: []
         )

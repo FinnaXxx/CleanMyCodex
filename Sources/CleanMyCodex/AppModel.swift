@@ -6,6 +6,7 @@ final class AppModel: ObservableObject {
     enum Sheet: String, Identifiable {
         case sessions
         case plugins
+        case workspace
         case automation
 
         var id: String { rawValue }
@@ -43,6 +44,9 @@ final class AppModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var selectedEntryIDs = Set<String>()
     @Published var selectedPluginIDs = Set<String>()
+    /// Never restored from a previous scan and never preselected: workspace folders are
+    /// user work product, so every one of them has to be picked by hand each time.
+    @Published private(set) var selectedWorkspaceIDs = Set<String>()
     @Published var sessionDeletionMode: SessionDeletionMode = .appServer
     @Published var sessionSlimMode: SessionSlimMode = .deduplicate
     @Published var automation = AutomationStore.loadSettings()
@@ -72,6 +76,7 @@ final class AppModel: ObservableObject {
     private var sessionIndex: [String: SessionItem] = [:]
     private var sessionSearchIndex: [String: String] = [:]
     private var sessionCounts: [SessionScope: Int] = [:]
+    private var workspaceIndex: [String: WorkspaceEntry] = [:]
 
     var codexHome: URL { locations.home }
 
@@ -164,6 +169,11 @@ final class AppModel: ObservableObject {
         )
         selectedSessionIDs = selectedSessionIDs.intersection(sessionIndex.keys)
         selectedPluginIDs = selectedPluginIDs.intersection(Set(result.pluginVersions.map(\.id)))
+        workspaceIndex = Dictionary(
+            result.workspace.entries.flatMap(\.flattened).map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        selectedWorkspaceIDs.removeAll()
         rebuildVisibleSessions()
         refreshAutomationStatus()
     }
@@ -294,6 +304,61 @@ final class AppModel: ObservableObject {
         expiredSessionIDs = visibleSessions
             .filter { $0.modifiedAt < cutoff && !$0.isUnstable }
             .map(\.id)
+    }
+
+    // MARK: - Workspace
+
+    func isWorkspaceSelected(_ id: String) -> Bool { selectedWorkspaceIDs.contains(id) }
+
+    /// Selecting a folder implies its children; they are inside it either way.
+    func setWorkspaceSelected(_ entry: WorkspaceEntry, _ selected: Bool) {
+        let ids = entry.flattened.map(\.id)
+        if selected {
+            selectedWorkspaceIDs.formUnion(ids)
+        } else {
+            selectedWorkspaceIDs.subtract(ids)
+        }
+    }
+
+    func workspaceSelectionState(of entry: WorkspaceEntry) -> SelectionState {
+        let ids = entry.flattened.map(\.id)
+        let chosen = ids.filter { selectedWorkspaceIDs.contains($0) }
+        if chosen.isEmpty { return .none }
+        return chosen.count == ids.count ? .all : .partial
+    }
+
+    func clearWorkspaceSelection() { selectedWorkspaceIDs.removeAll() }
+
+    /// Only the outermost picked folders — trashing a parent already takes its children.
+    var workspaceTargets: [WorkspaceEntry] {
+        let selected = selectedWorkspaceIDs.compactMap { workspaceIndex[$0] }
+        let outermost = Set(ProtectedPaths.outermost(selected.map(\.url)).map(\.path))
+        return selected
+            .filter { outermost.contains($0.url.standardizedFileURL.path) }
+            .sorted { $0.bytes > $1.bytes }
+    }
+
+    var workspaceSelectedBytes: Int64 {
+        workspaceTargets.reduce(Int64(0)) { $0 + $1.bytes }
+    }
+
+    var workspaceHasUnsafeSelection: Bool {
+        workspaceTargets.contains(where: \.hasUnsafeRepository)
+    }
+
+    func cleanSelectedWorkspace() {
+        let tasks = workspaceTargets.map { entry in
+            CleanupTask(
+                id: entry.id,
+                title: entry.name,
+                detail: "\(entry.totalFileCount) 个文件"
+                    + (entry.repositoryCount > 0 ? " · \(entry.repositoryCount) 个 git 仓库" : ""),
+                url: entry.url,
+                method: .trash,
+                expectedBytes: entry.bytes
+            )
+        }
+        runCleanup(tasks: tasks)
     }
 
     // MARK: - Plugins

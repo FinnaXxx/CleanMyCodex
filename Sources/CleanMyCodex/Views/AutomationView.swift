@@ -91,7 +91,7 @@ struct AutomationView: View {
                         Divider()
                         Label(
                             "auth.json、config.toml、state_*.sqlite、rules、hooks、skills、memories、"
-                                + "当前插件版本和 ~/Documents/Codex 永远不会被清理。",
+                                + "当前插件版本和 ~/Documents/Codex 里的工作产出永远不会被自动清理。",
                             systemImage: "lock.shield"
                         )
                         .font(.caption)

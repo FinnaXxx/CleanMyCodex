@@ -4,6 +4,7 @@ import Foundation
 struct CodexStorageScanner: Sendable {
     let chunkSize: Int
     let libraryDirectory: URL?
+    let documentsDirectory: URL?
     /// Temporary entries younger than this are assumed to belong to a running task.
     let temporaryGraceDays: Int
     /// Application logs younger than this are kept so Codex can still report on recent runs.
@@ -12,17 +13,19 @@ struct CodexStorageScanner: Sendable {
     init(
         chunkSize: Int = 1_048_576,
         libraryDirectory: URL? = nil,
+        documentsDirectory: URL? = nil,
         temporaryGraceDays: Int = 3,
         logRetentionDays: Int = 10
     ) {
         self.chunkSize = max(4, chunkSize)
         self.libraryDirectory = libraryDirectory
+        self.documentsDirectory = documentsDirectory
         self.temporaryGraceDays = temporaryGraceDays
         self.logRetentionDays = logRetentionDays
     }
 
     func locations(for codexHome: URL) -> CodexLocations {
-        CodexLocations(home: codexHome, library: libraryDirectory)
+        CodexLocations(home: codexHome, library: libraryDirectory, documents: documentsDirectory)
     }
 
     func scan(
@@ -60,7 +63,10 @@ struct CodexStorageScanner: Sendable {
         reporter.enter(stage: "资产目录", base: 0.92, span: 0.05)
         let assetItems = assetCategories(in: places, sessions: sessions, reporter: reporter)
 
-        reporter.enter(stage: "受保护的数据", base: 0.97, span: 0.03)
+        reporter.enter(stage: "工作产出", base: 0.97, span: 0.02)
+        let workspace = workspaceSnapshot(in: places, reporter: reporter)
+
+        reporter.enter(stage: "受保护的数据", base: 0.99, span: 0.01)
         let protectedItems = protectedCategories(in: places, guards: guards, reporter: reporter)
 
         let categories = temporaryItems
@@ -83,6 +89,7 @@ struct CodexStorageScanner: Sendable {
             externalBytes: externalBytes,
             categories: categories.filter { !$0.isEmpty },
             sessions: sessions.sorted { $0.totalBytes > $1.totalBytes },
+            workspace: workspace,
             pluginVersions: plugins.sorted {
                 ($0.plugin, $0.version) < ($1.plugin, $1.version)
             },
@@ -560,18 +567,6 @@ struct CodexStorageScanner: Sendable {
         }
 
         var userData: [StorageEntry] = []
-        let documents = FileManager.default.homeDirectoryForCurrentUser.appending(path: "Documents/Codex")
-        if manager.fileExists(atPath: documents.path) {
-            userData.append(
-                StorageEntry(
-                    title: "Documents/Codex",
-                    detail: "Codex 生成的项目目录，可能包含你的成果",
-                    url: documents,
-                    bytes: directorySize(documents, reporter: nil),
-                    risk: .shielded
-                )
-            )
-        }
         for relative in ProtectedPaths.protectedAppSupportEntries {
             let url = places.appSupport.appending(path: relative)
             guard manager.fileExists(atPath: url.path) else { continue }
@@ -604,6 +599,115 @@ struct CodexStorageScanner: Sendable {
                 entries: userData.sorted { $0.bytes > $1.bytes }
             )
         ]
+    }
+
+    // MARK: - Workspace (~/Documents/Codex)
+
+    func workspaceSnapshot(in places: CodexLocations, reporter: ProgressReporter?) -> WorkspaceSnapshot {
+        let manager = FileManager()
+        let root = places.workspace
+        guard manager.fileExists(atPath: root.path) else { return .empty(at: root) }
+
+        let probe = GitProbe()
+        var repositoryBudget = 32
+        let entries = childDirectories(of: root, manager: manager)
+            .compactMap { dateURL -> WorkspaceEntry? in
+                reporter?.note(dateURL.path)
+                let children = childDirectories(of: dateURL, manager: manager)
+                    .compactMap { sessionURL -> WorkspaceEntry? in
+                        workspaceEntry(
+                            at: sessionURL,
+                            manager: manager,
+                            probe: probe,
+                            budget: &repositoryBudget,
+                            reporter: reporter
+                        )
+                    }
+                    .sorted { $0.bytes > $1.bytes }
+
+                // The date folder's own loose files, plus everything in its sessions.
+                let own = walk(dateURL, manager: manager, includingSubdirectories: false)
+                let bytes = own.bytes + children.reduce(Int64(0)) { $0 + $1.bytes }
+                guard bytes > 0 || !children.isEmpty else { return nil }
+                return WorkspaceEntry(
+                    url: dateURL,
+                    name: dateURL.lastPathComponent,
+                    bytes: bytes,
+                    fileCount: own.files,
+                    modifiedAt: modificationDate(of: dateURL),
+                    repositories: [],
+                    children: children
+                )
+            }
+            .sorted { $0.name > $1.name }
+
+        return WorkspaceSnapshot(root: root, entries: entries)
+    }
+
+    private func workspaceEntry(
+        at url: URL,
+        manager: FileManager,
+        probe: GitProbe,
+        budget: inout Int,
+        reporter: ProgressReporter?
+    ) -> WorkspaceEntry? {
+        reporter?.note(url.path)
+        let walked = walk(url, manager: manager, includingSubdirectories: true)
+        guard walked.bytes > 0 || walked.files > 0 else { return nil }
+
+        var repositories: [WorkspaceRepository] = []
+        for repository in walked.repositories {
+            guard budget > 0 else {
+                repositories.append(WorkspaceRepository(url: repository, state: .unknown))
+                continue
+            }
+            budget -= 1
+            repositories.append(WorkspaceRepository(url: repository, state: probe.state(of: repository)))
+        }
+
+        return WorkspaceEntry(
+            url: url,
+            name: url.lastPathComponent,
+            bytes: walked.bytes,
+            fileCount: walked.files,
+            modifiedAt: modificationDate(of: url),
+            repositories: repositories.sorted { $0.name < $1.name },
+            children: []
+        )
+    }
+
+    /// One walk that answers size, file count and where the git checkouts are.
+    private func walk(
+        _ url: URL,
+        manager: FileManager,
+        includingSubdirectories: Bool
+    ) -> (bytes: Int64, files: Int, repositories: [URL]) {
+        guard let contents = try? manager.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: [.isDirectoryKey, .totalFileAllocatedSizeKey, .fileSizeKey],
+            options: []
+        ) else { return (0, 0, []) }
+
+        var bytes: Int64 = 0
+        var files = 0
+        var repositories: [URL] = []
+        for child in contents {
+            let isDirectory = (try? child.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+            if !isDirectory {
+                bytes += FileSize.of(child)
+                files += 1
+                continue
+            }
+            if child.lastPathComponent == ".git" {
+                repositories.append(url)
+            }
+            guard includingSubdirectories else { continue }
+            let nested = walk(child, manager: manager, includingSubdirectories: true)
+            bytes += nested.bytes
+            files += nested.files
+            repositories += nested.repositories
+        }
+        return (bytes, files, repositories)
     }
 
     // MARK: - Sessions

@@ -31,6 +31,7 @@ struct RootView: View {
                     switch sheet {
                     case .sessions: SessionsView()
                     case .plugins: PluginsView()
+                    case .workspace: WorkspaceView()
                     case .automation: AutomationView()
                     }
                 }
