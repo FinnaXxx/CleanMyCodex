@@ -37,6 +37,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var cleanupProgress = CleanupProgress.idle
     @Published private(set) var lastReport: CleanupReport?
     @Published private(set) var codexRunning = false
+    /// Cached: answering this shells out to `ps`, which must not happen per render.
+    @Published private(set) var canRestartCodex = false
+    @Published private(set) var codexBlockerSummary: String?
     @Published private(set) var appServerAvailable = false
     @Published private(set) var automationStatus = "未安装"
 
@@ -49,6 +52,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var selectedWorkspaceIDs = Set<String>()
     @Published var sessionDeletionMode: SessionDeletionMode = .appServer
     @Published var sessionSlimMode: SessionSlimMode = .deduplicate
+    /// Opt-in: quit Codex, run the exclusive-access work, open Codex again.
+    @Published var restartCodexForCleanup = false
+    @Published private(set) var restartStage: String?
     @Published var automation = AutomationStore.loadSettings()
     @Published var lastAutomaticRun = AutomationStore.loadLastRun()
 
@@ -179,8 +185,11 @@ final class AppModel: ObservableObject {
     }
 
     func refreshEnvironment() {
-        codexRunning = CodexRuntimeProbe.isDesktopAppRunning()
+        codexRunning = CodexRuntimeProbe.isCodexRunning()
         appServerAvailable = CodexAppServerClient(codexHome: locations.home).isAvailable
+        canRestartCodex = CodexLifecycle.canQuitEverything
+        let blockers = CodexLifecycle.blockers()
+        codexBlockerSummary = blockers.isEmpty ? nil : blockers.map(\.summary).joined(separator: "；")
     }
 
     // MARK: - Selection
@@ -407,11 +416,23 @@ final class AppModel: ObservableObject {
         runCleanup(tasks: tasks)
     }
 
+    /// Tasks that will be deferred unless Codex is not running.
+    nonisolated static func requiresCodexStopped(_ tasks: [CleanupTask]) -> [CleanupTask] {
+        tasks.filter { task in
+            task.requiresCodexStopped || task.method == .compactDatabase || task.method == .slimSession
+        }
+    }
+
+    func blockedTasks(in tasks: [CleanupTask]) -> [CleanupTask] {
+        codexRunning ? Self.requiresCodexStopped(tasks) : []
+    }
+
     private func runCleanup(tasks: [CleanupTask]) {
         guard !tasks.isEmpty, !isCleaning else { return }
         isCleaning = true
         cleanupProgress = CleanupProgress(completed: 0, total: tasks.count, currentTitle: "")
         lastReport = nil
+        restartStage = nil
 
         let engine = CleanupEngine(
             locations: locations,
@@ -421,13 +442,39 @@ final class AppModel: ObservableObject {
             appServer: CodexAppServerClient(codexHome: locations.home)
         )
 
+        let shouldRestart = restartCodexForCleanup
+            && !Self.requiresCodexStopped(tasks).isEmpty
+
         Task {
+            var reopen: [URL] = []
+            if shouldRestart {
+                restartStage = "正在退出 Codex…"
+                do {
+                    reopen = try await CodexLifecycle.quit()
+                } catch {
+                    // Never clean anyway: the whole point of quitting was to make it safe.
+                    errorMessage = error.localizedDescription
+                    restartStage = nil
+                    isCleaning = false
+                    refreshEnvironment()
+                    return
+                }
+                restartStage = nil
+            }
+
             let report = await Task.detached(priority: .userInitiated) { [weak self] () -> CleanupReport in
                 engine.run(tasks: tasks) { progress in
                     Task { @MainActor in self?.cleanupProgress = progress }
                 }
             }.value
             lastReport = report
+
+            if !reopen.isEmpty {
+                restartStage = "正在重新打开 Codex…"
+                await CodexLifecycle.relaunch(reopen)
+                restartStage = nil
+            }
+
             isCleaning = false
             scan()
         }
