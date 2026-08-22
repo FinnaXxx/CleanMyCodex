@@ -7,20 +7,16 @@ import type {
   CleanupStatus
 } from '../../shared/types'
 import { ProtectedPaths, ProtectedPathError } from './guard'
-import { compactDatabase } from './sqlite-maintenance'
 import { directoryAllocatedSize } from './fs-size'
-import type { FileUsage } from './platform-services'
 
 export interface CleanupDeps {
   /** Move a file or directory to the OS trash. Injected so the engine stays testable. */
   trash: (path: string) => Promise<void>
   /** Whether Codex is currently running — gates work that needs it fully stopped. */
   isCodexRunning: () => boolean
-  /** Whether one exact rollout/database is open. */
-  fileUsage?: (path: string) => FileUsage
   sessionDatabase?: {
-    preflightDelete?: (threadID: string) => void
-    deleteThread: (threadID: string) => { removedRows: number; freedBytes: number }
+    preflightDelete?: (threadID: string, relatedURLs: string[]) => void
+    deleteThread: (threadID: string, relatedURLs: string[]) => { removedRows: number; freedBytes: number }
   }
 }
 
@@ -88,8 +84,6 @@ async function runOne(
   switch (task.method) {
     case 'trash':
       return runTrash(task, guards, deps, codexRunning)
-    case 'compactDatabase':
-      return runCompactDatabase(task, guards, deps, codexRunning)
   }
 }
 
@@ -109,7 +103,7 @@ async function runTrash(
   const targets = [task.url, ...task.companionURLs]
   try {
     for (const target of targets) guards.validate(target)
-    if (task.threadID) deps.sessionDatabase?.preflightDelete?.(task.threadID)
+    if (task.threadID) deps.sessionDatabase?.preflightDelete?.(task.threadID, targets)
   } catch (err) {
     return outcome(task, { kind: 'failed', reason: errorMessage(err) }, 0)
   }
@@ -130,7 +124,7 @@ async function runTrash(
   let removedRows = 0
   if (task.threadID && deps.sessionDatabase) {
     try {
-      const report = deps.sessionDatabase.deleteThread(task.threadID)
+      const report = deps.sessionDatabase.deleteThread(task.threadID, targets)
       removedRows = report.removedRows
       freed += report.freedBytes
     } catch (err) {
@@ -141,29 +135,6 @@ async function runTrash(
     return outcome(task, { kind: 'skipped', reason: '路径已不存在' }, 0)
   }
   return outcome(task, { kind: 'succeeded' }, freed)
-}
-
-function runCompactDatabase(
-  task: CleanupTask,
-  guards: ProtectedPaths,
-  deps: CleanupDeps,
-  codexRunning: boolean
-): CleanupOutcome {
-  if (!pathExists(task.url)) return outcome(task, { kind: 'skipped', reason: '路径已不存在' }, 0)
-  const usage = deps.fileUsage?.(task.url) ?? { kind: 'unknown' as const }
-  if (usage.kind === 'inUse') {
-    return outcome(task, { kind: 'skipped', reason: `数据库正在被使用（${usage.processes.join('、')}）` }, 0)
-  }
-  if (usage.kind === 'unknown' && codexRunning) {
-    return outcome(task, { kind: 'skipped', reason: '无法确认数据库是否被占用，请退出 Codex 后重新清理' }, 0)
-  }
-  try {
-    guards.validate(task.url)
-    const report = compactDatabase(task.url)
-    return outcome(task, { kind: 'succeeded' }, report.freedBytes)
-  } catch (err) {
-    return outcome(task, { kind: 'failed', reason: errorMessage(err) }, 0)
-  }
 }
 
 function outcome(task: CleanupTask, status: CleanupStatus, freedBytes: number): CleanupOutcome {

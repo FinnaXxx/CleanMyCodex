@@ -3,11 +3,9 @@ import { join, basename, relative } from 'node:path'
 import { CodexLocations } from './locations'
 import { directoryAllocatedSize, fileAllocatedSize } from './fs-size'
 import { scanSessions } from './sessions'
-import { inspectDatabase } from './sqlite-maintenance'
 import { pluginStorageCategory, scanPluginVersions } from './plugins'
 import { ProtectedPaths } from './guard'
 import type { InstalledPlugin } from './app-server'
-import { formatBytes } from '../../shared/types'
 import type { ScanProgress, ScanSnapshot, SessionItem, StorageCategory, StorageEntry } from '../../shared/types'
 
 const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
@@ -89,7 +87,7 @@ function logDatabases(home: string): { path: string; bytes: number }[] {
       .filter((name) => name.startsWith('logs_') && name.endsWith('.sqlite'))
       .map((name) => {
         const path = join(home, name)
-        // Count the WAL and SHM siblings too: they hold pages VACUUM can reclaim.
+        // WAL and SHM are part of the database's actual current footprint.
         const bytes =
           fileAllocatedSize(path) +
           fileAllocatedSize(`${path}-wal`) +
@@ -136,7 +134,7 @@ export async function scanSnapshot(
     return pathAllocatedSize(path)
   }
 
-  // --- Recommended: reclaimable or lossless ---
+  // --- Recommended: disposable or rebuildable ---
 
   const staleTemporary: StorageEntry[] = []
   const marketplaceCaches: StorageEntry[] = []
@@ -215,22 +213,10 @@ export async function scanSnapshot(
   categories.push(category('appLogs', '旧应用日志', '保留最近 10 天，其余可以清理', 'recommended', 'rebuildable', oldLogs))
   await yieldToEventLoop()
 
-  const logs = logDatabases(locations.home).flatMap((db) => {
-    throwIfAborted(signal)
-    try {
-      const inspection = inspectDatabase(db.path)
-      if (inspection.reclaimableBytes <= 1024 * 1024) return []
-      return [{ ...db, inspection }]
-    } catch (err) {
-      notes.push(`${basename(db.path)} 暂时无法读取：${err instanceof Error ? err.message : String(err)}`)
-      return []
-    }
-  })
+  const logs = logDatabases(locations.home)
   categories.push(
-    category('logDatabase', '日志数据库', '压缩数据库回收空闲空间，日志内容保留', 'recommended', 'lossless', logs.map((db) => ({
-      ...entry(basename(db.path), `已使用 ${formatBytes(db.inspection.usedBytes)}`, db.path, db.bytes, 'lossless', 'compactDatabase'),
-      reclaimableBytes: db.inspection.reclaimableBytes
-    })))
+    category('logDatabase', '日志数据库', '仅统计占用；SQLite 空闲页会复用，不提供清理', 'protectedData', 'shielded',
+      logs.map((db) => entry(basename(db.path), 'Codex 诊断日志数据库（含 WAL/SHM）', db.path, db.bytes, 'shielded')))
   )
   await yieldToEventLoop()
 

@@ -8,7 +8,7 @@ import { ProtectedPaths } from './guard'
 import { runCleanup, type CleanupDeps } from './cleanup'
 import { AppServerClient } from './app-server'
 import { buildAutomaticTasks, buildTrustedTasks, makeCleanupPreview } from './planner'
-import { codexEnvironment, codexIsRunning, probeFileUsage, quitCodexDesktop, relaunchCodex } from './platform-services'
+import { codexEnvironment, codexIsRunning, quitCodexDesktop, relaunchCodex } from './platform-services'
 import { deleteSessionRecords, preflightSessionRecords } from './session-database'
 import { scanPluginVersions } from './plugins'
 import {
@@ -159,7 +159,7 @@ ipcMain.handle('cleanup:run', async (_event, request: CleanupRequest) => {
   if (request.selection.kind === 'plugins') await refreshPluginsBeforeCleanup()
   const tasks = trustedTasks(request.selection)
   let reopen: string[] = []
-  if (request.restartCodex && tasks.some((task) => task.requiresCodexStopped || task.method === 'compactDatabase')) {
+  if (request.restartCodex && tasks.some((task) => task.requiresCodexStopped)) {
     mainWindow?.webContents.send('cleanup:stage', '正在退出 Codex…')
     reopen = await quitCodexDesktop(20_000, request.forceQuitCodex)
   }
@@ -222,10 +222,9 @@ function cleanupDependencies(): CleanupDeps {
   return {
     trash: (path: string) => shell.trashItem(path),
     isCodexRunning: codexIsRunning,
-    fileUsage: probeFileUsage,
     sessionDatabase: {
-      preflightDelete: (threadID) => preflightSessionRecords(locations.home, threadID),
-      deleteThread: (threadID) => deleteSessionRecords(locations.home, threadID)
+      preflightDelete: (threadID, relatedURLs) => preflightSessionRecords(locations.home, threadID, relatedURLs),
+      deleteThread: (threadID, relatedURLs) => deleteSessionRecords(locations.home, threadID, relatedURLs)
     }
   }
 }

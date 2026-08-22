@@ -22,7 +22,7 @@ import {
 import { ProtectedPaths } from './guard'
 import type { CodexEnvironment } from './platform-services'
 
-const AUTOMATIC_CACHE_KINDS = new Set(['temporary', 'logDatabase', 'browserCache', 'appCache', 'appLogs'])
+const AUTOMATIC_CACHE_KINDS = new Set(['temporary', 'browserCache', 'appCache', 'appLogs'])
 
 export function buildTrustedTasks(
   selection: CleanupSelection,
@@ -76,14 +76,13 @@ export function makeCleanupPreview(
   environment: CodexEnvironment
 ): CleanupPreview {
   const blocked = environment.running
-    ? tasks.filter((task) => task.requiresCodexStopped || task.method === 'compactDatabase')
+    ? tasks.filter((task) => task.requiresCodexStopped)
     : []
   const warnings: string[] = []
   if (selection.kind === 'sessions-delete') {
     warnings.push('会话文件、生成资产和 SQLite 索引记录会一并清理。')
   }
   if (selection.kind === 'workspace') warnings.push('请确认未提交或未推送的内容已经保存。')
-  if (tasks.some((task) => task.method === 'compactDatabase')) warnings.push('日志数据库只做 checkpoint 与 VACUUM，不删除诊断记录。')
   return {
     selection,
     items: tasks.map((task) => ({

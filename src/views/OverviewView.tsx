@@ -298,7 +298,7 @@ const sectionNames: Record<StorageSection, [string, string]> = {
 }
 
 const categoryNames: Record<StorageKind, [string, string, string, string]> = {
-  logDatabase: ['日志数据库', 'Log Databases', '压缩数据库回收空闲空间，日志内容保留', 'Compact databases to reclaim free space while keeping log content'],
+  logDatabase: ['日志数据库', 'Log Databases', '仅统计占用；SQLite 空闲页会复用，不提供清理', 'Usage only; SQLite reuses free pages and no cleanup is offered'],
   sessionDatabase: ['会话投影数据库', 'Session Projection Database', 'Codex 加载会话使用的 SQLite 投影', 'SQLite projection used by Codex to load sessions'],
   temporary: ['过期临时目录', 'Stale Temporary Folders', '安装和更新过程留下的临时目录，Codex 退出后清理', 'Temporary folders left by installation and updates; cleaned after Codex quits'],
   marketplaceCache: ['插件市场缓存', 'Marketplace Cache', '可重新下载，离线时会影响插件安装', 'Can be downloaded again; removing may affect offline plugin installation'],

@@ -12,10 +12,9 @@ export const StorageAdviceLabel: Record<StorageGroup, string> = {
   protectedData: '受保护'
 }
 
-export type CleanupRisk = 'lossless' | 'safe' | 'rebuildable' | 'caution' | 'shielded'
+export type CleanupRisk = 'safe' | 'rebuildable' | 'caution' | 'shielded'
 
 export const CleanupRiskLabel: Record<CleanupRisk, string> = {
-  lossless: '无损',
   safe: '安全',
   rebuildable: '可重建',
   caution: '谨慎清理',
@@ -24,11 +23,10 @@ export const CleanupRiskLabel: Record<CleanupRisk, string> = {
 
 export const isSelectable = (risk: CleanupRisk): boolean => risk !== 'shielded'
 
-export type CleanupMethod = 'trash' | 'compactDatabase'
+export type CleanupMethod = 'trash'
 
 export const CleanupMethodLabel: Record<CleanupMethod, string> = {
-  trash: '移到废纸篓',
-  compactDatabase: '压缩数据库'
+  trash: '移到废纸篓'
 }
 
 export type StorageKind =
@@ -108,7 +106,7 @@ export interface StorageEntry {
   tags: StorageEntryTag[]
   url: string
   bytes: number
-  /** Space actually returned to the volume. Equals `bytes` except for database compaction. */
+  /** Space expected to be returned to the volume by the selected cleanup. */
   reclaimableBytes: number
   /** When set, the target must still have been untouched this long at deletion time. */
   minimumIdleSeconds: number | null
