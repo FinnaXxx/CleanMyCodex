@@ -5,7 +5,9 @@ import { CodexLocations } from './locations'
 import { directoryAllocatedSize } from './fs-size'
 import { CodexThreadIndex } from './thread-index'
 import { SessionScanCache, type CachedSessionContent } from './session-cache'
+import { cleanPreview } from './preview'
 import type { SessionItem, SessionLocation, SessionTag } from '../../shared/types'
+import { sessionTotalBytes } from '../../shared/types'
 
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
 const PREFIXES = [Buffer.from('data:image/'), Buffer.from('data:image\\/')]
@@ -17,7 +19,7 @@ const TAG_NEEDLES: Array<[SessionTag, Buffer]> = [
 const CARRY_LENGTH = Math.max(...PREFIXES.map((value) => value.length), ...TAG_NEEDLES.map(([, value]) => value.length)) - 1
 
 interface ImageScan { count: number; uriBytes: number; distinctCount: number; duplicateBytes: number; truncated: number }
-interface SessionMeta { id: string | null; cwd: string | null; title: string | null }
+interface SessionMeta { id: string | null; cwd: string | null; title: string | null; threadSource: string | null; parentThreadID: string | null }
 
 function abortError(): DOMException { return new DOMException('扫描已停止', 'AbortError') }
 function checkAbort(signal?: AbortSignal): void { if (signal?.aborted) throw abortError() }
@@ -41,7 +43,7 @@ async function scanContent(path: string, signal?: AbortSignal): Promise<Omit<Cac
   let skippingHeaderLine = false
   let metadataFound = false
   let lines = 0
-  let meta: SessionMeta = { id: null, cwd: null, title: null }
+  let meta: SessionMeta = { id: null, cwd: null, title: null, threadSource: null, parentThreadID: null }
   let preview: string | null = null
   let parseWarnings = 0
   const tags = new Set<SessionTag>()
@@ -133,7 +135,8 @@ async function scanContent(path: string, signal?: AbortSignal): Promise<Omit<Cac
   return {
     threadID: meta.id, cwd: meta.cwd, metadataTitle: meta.title, preview,
     imageCount: images.count, imageBytes: images.uriBytes, distinctCount: images.distinctCount,
-    duplicateBytes: images.duplicateBytes, tags: [...tags].sort(), parseWarnings: parseWarnings + images.truncated
+    duplicateBytes: images.duplicateBytes, tags: [...tags].sort(), parseWarnings: parseWarnings + images.truncated,
+    isSubagent: meta.threadSource === 'subagent', parentThreadID: meta.parentThreadID
   }
 }
 
@@ -142,8 +145,15 @@ function parseHeaderLine(line: string): { meta: SessionMeta | null; preview: str
     const root = JSON.parse(line) as Record<string, unknown>
     const payload = objectValue(root['payload']) ?? root
     if (root['type'] === 'session_meta') {
-      const title = cleanPreview(stringValue(payload['title']) ?? stringValue(payload['name']))
-      return { meta: { id: stringValue(payload['id']), cwd: stringValue(payload['cwd']), title }, preview: title }
+      const title = cleanPreview(stringValue(payload['name']) ?? stringValue(payload['title']))
+      return {
+        meta: {
+          id: stringValue(payload['id']), cwd: stringValue(payload['cwd']), title,
+          threadSource: stringValue(payload['thread_source']),
+          parentThreadID: stringValue(payload['parent_thread_id'])
+        },
+        preview: title
+      }
     }
     let text: string | null = null
     if (payload['type'] === 'user_message') text = stringValue(payload['message']) ?? stringValue(payload['text'])
@@ -160,18 +170,7 @@ function parseHeaderLine(line: string): { meta: SessionMeta | null; preview: str
   } catch { return { meta: null, preview: null } }
 }
 
-const PREAMBLE_MARKERS = ['<environment_context', '<user_instructions', '<user_shell', '<agents', '# agents.md', 'you are a coding agent']
-export function cleanPreview(text: string | null): string | null {
-  if (!text) return null
-  let value = text.trim()
-  const marker = value.toLowerCase().indexOf('my request for codex:')
-  if (marker >= 0) value = value.slice(marker + 'my request for codex:'.length).trim()
-  if (!value || value.startsWith('<')) return null
-  const head = value.slice(0, 400).toLowerCase()
-  if (PREAMBLE_MARKERS.some((item) => head.includes(item))) return null
-  value = value.replace(/\s+/g, ' ')
-  return value.length > 90 ? `${value.slice(0, 90)}…` : value
-}
+export { cleanPreview }
 
 function objectValue(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
@@ -200,6 +199,26 @@ function assetBytesForThread(locations: CodexLocations, threadID: string): { byt
   return { bytes, urls }
 }
 
+/**
+ * Roll subagent rollouts into their parent session: the parent's `childThreadCount`,
+ * `childBytes` (subagent file + asset bytes) and `childURLs` (subagent rollouts + their
+ * asset dirs) are filled so the list hides subagents under the parent and deleting the
+ * parent cascades to its subagents on disk. Parentless subagents are left as-is so they
+ * stay visible and cleanable rather than becoming orphans.
+ */
+function groupSubagents(items: SessionItem[]): void {
+  const mains = new Map<string, SessionItem>()
+  for (const item of items) if (!item.isSubagent) mains.set(item.threadID, item)
+  for (const child of items) {
+    if (!child.isSubagent || !child.parentThreadID) continue
+    const parent = mains.get(child.parentThreadID)
+    if (!parent) continue
+    parent.childThreadCount += 1
+    parent.childBytes += sessionTotalBytes(child)
+    parent.childURLs.push(child.fileURL, ...child.assetURLs)
+  }
+}
+
 export async function scanSessions(
   locations: CodexLocations,
   onProgress?: (path: string, fraction: number) => void,
@@ -225,7 +244,8 @@ export async function scanSessions(
     if (cached) content = cached
     else if (compressed) content = {
       size: before.logicalBytes, modifiedAt: before.modifiedAt, threadID: null, cwd: null, metadataTitle: null,
-      preview: null, imageCount: 0, imageBytes: 0, distinctCount: 0, duplicateBytes: 0, tags: [], parseWarnings: 0
+      preview: null, imageCount: 0, imageBytes: 0, distinctCount: 0, duplicateBytes: 0, tags: [], parseWarnings: 0,
+      isSubagent: false, parentThreadID: null
     }
     else {
       let scanned: Omit<CachedSessionContent, 'size' | 'modifiedAt'>
@@ -234,7 +254,8 @@ export async function scanSessions(
         if (signal?.aborted) throw error
         scanned = {
           threadID: null, cwd: null, metadataTitle: null, preview: null,
-          imageCount: 0, imageBytes: 0, distinctCount: 0, duplicateBytes: 0, tags: [], parseWarnings: 1
+          imageCount: 0, imageBytes: 0, distinctCount: 0, duplicateBytes: 0, tags: [], parseWarnings: 1,
+          isSubagent: false, parentThreadID: null
         }
       }
       const after = statAllocated(file.url)
@@ -252,10 +273,13 @@ export async function scanSessions(
       embeddedImageBytes: content.imageBytes, embeddedImageCount: content.imageCount,
       distinctImageCount: content.distinctCount, duplicateImageBytes: content.duplicateBytes,
       workingDirectory: content.cwd, title: titles.title(threadID, file.url) ?? content.metadataTitle,
-      preview: content.preview, tags, isCompressed: compressed, isUnstable: unstable, parseWarnings: content.parseWarnings
+      preview: content.preview, tags, isCompressed: compressed, isUnstable: unstable, parseWarnings: content.parseWarnings,
+      isSubagent: content.isSubagent, parentThreadID: content.parentThreadID,
+      childThreadCount: 0, childBytes: 0, childURLs: []
     })
     processedBytes += before.logicalBytes
   }
+  groupSubagents(items)
   if (!signal?.aborted) cache.save(locations.scanCache)
-  return items.sort((a, b) => (b.fileBytes + b.assetBytes) - (a.fileBytes + a.assetBytes))
+  return items.sort((a, b) => sessionTotalBytes(b) - sessionTotalBytes(a))
 }

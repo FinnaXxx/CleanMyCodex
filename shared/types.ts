@@ -180,9 +180,19 @@ export interface SessionItem {
   isCompressed: boolean
   isUnstable: boolean
   parseWarnings: number
+  /** Subagent rollouts are spawned by a parent thread; hidden from the session list and rolled into the parent. */
+  isSubagent: boolean
+  /** The parent thread a subagent was spawned from; null for user conversations. */
+  parentThreadID: string | null
+  /** Number of subagent rollouts grouped under this parent (0 for subagents and parentless threads). */
+  childThreadCount: number
+  /** Allocated bytes of grouped subagent rollouts + their assets, so the parent's total reflects the whole conversation. */
+  childBytes: number
+  /** Subagent rollout files + their asset dirs, deleted alongside the parent rollout. */
+  childURLs: string[]
 }
 
-export const sessionTotalBytes = (s: SessionItem): number => s.fileBytes + s.assetBytes
+export const sessionTotalBytes = (s: SessionItem): number => s.fileBytes + s.assetBytes + s.childBytes
 
 export const sessionProjectName = (s: SessionItem): string | null => {
   if (!s.workingDirectory || s.workingDirectory.length === 0) return null
@@ -323,8 +333,14 @@ export const snapshotCategoryList = (s: ScanSnapshot, group: StorageGroup): Stor
     .filter((c) => c.group === group && !categoryIsEmpty(c))
     .sort((a, b) => categoryReclaimable(b) - categoryReclaimable(a))
 
+/** Sessions shown as top-level rows: subagents whose parent is present are rolled into the parent, so exclude them to avoid double-counting rows and bytes. */
+export const listableSessions = (s: ScanSnapshot): SessionItem[] => {
+  const mainThreadIDs = new Set(s.sessions.filter((x) => !x.isSubagent).map((x) => x.threadID))
+  return s.sessions.filter((x) => !(x.isSubagent && x.parentThreadID && mainThreadIDs.has(x.parentThreadID)))
+}
+
 export const snapshotSessionBytes = (s: ScanSnapshot): number =>
-  s.sessions.reduce((sum, x) => sum + sessionTotalBytes(x), 0)
+  listableSessions(s).reduce((sum, x) => sum + sessionTotalBytes(x), 0)
 
 export const snapshotEmbeddedImageBytes = (s: ScanSnapshot): number =>
   s.sessions.reduce((sum, x) => sum + x.embeddedImageBytes, 0)
@@ -416,7 +432,8 @@ export function tasksForSessionDeletion(
   sessions: SessionItem[],
   mode: SessionDeletionMode = 'appServer'
 ): CleanupTask[] {
-  return sessions.map((s) => ({
+  const selectedParents = new Set(sessions.filter((s) => !s.isSubagent).map((s) => s.threadID))
+  return sessions.filter((s) => !(s.isSubagent && s.parentThreadID && selectedParents.has(s.parentThreadID))).map((s) => ({
     id: s.id,
     title: sessionDisplayName(s),
     detail: s.fileURL,
@@ -424,7 +441,7 @@ export function tasksForSessionDeletion(
     method: mode === 'appServer' ? 'deleteThread' : 'trash',
     expectedBytes: sessionTotalBytes(s),
     threadID: s.threadID,
-    companionURLs: s.assetURLs,
+    companionURLs: [...s.assetURLs, ...s.childURLs],
     slimMode: null,
     minimumIdleSeconds: null,
     requiresCodexStopped: false

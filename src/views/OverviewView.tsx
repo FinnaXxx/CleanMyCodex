@@ -18,6 +18,7 @@ import {
   categorySection,
   isSelectable,
   snapshotSessionBytes,
+  listableSessions,
   workspaceBytes,
   formatBytes
 } from '../../shared/types'
@@ -43,6 +44,7 @@ export default function OverviewView({ snapshot, workspace, appInfo, cleaning, a
   const allEntries = useMemo<StorageEntry[]>(() => snapshot.categories.flatMap((c) => c.entries), [snapshot])
   const selectedEntries = useMemo(() => allEntries.filter((e) => selected.has(e.id)), [allEntries, selected])
   const selectedBytes = selectedEntries.reduce((sum, e) => sum + e.reclaimableBytes, 0)
+  const sessionCount = listableSessions(snapshot).length
 
   /** Sections are content types; whether an item is worth cleaning shows up per row. */
   const sections = useMemo(() => StorageSectionOrder.map((section) => ({
@@ -100,12 +102,12 @@ export default function OverviewView({ snapshot, workspace, appInfo, cleaning, a
       {snapshot.notes.map((note) => <p className="notice" key={note}>{note}</p>)}
 
       <section className="shortcuts">
-        <Shortcut kind="sessions" title="会话记录" detail="查看、清理图片或删除会话" value={`${snapshot.sessions.length} 个 · ${formatBytes(snapshotSessionBytes(snapshot))}`}
-          disabled={!snapshot.sessions.length} onClick={() => onOpenDetail('sessions')} />
-        <Shortcut kind="plugins" title="插件版本" detail="清理旧版本与卸载残留" value={`${snapshot.pluginVersions.length} 个版本`}
-          onClick={() => onOpenDetail('plugins')} />
+        <Shortcut kind="sessions" title="会话记录" detail="查看、清理图片或删除会话" value={`${sessionCount} 个 · ${formatBytes(snapshotSessionBytes(snapshot))}`}
+          disabled={!sessionCount} onClick={() => onOpenDetail('sessions')} />
         <Shortcut kind="workspace" title="工作产出" detail="Codex 会话的工作目录" value={workspace?.isScanned ? formatBytes(workspaceBytes(workspace)) : '尚未统计'}
           onClick={() => onOpenDetail('workspace')} />
+        <Shortcut kind="plugins" title="插件版本" detail="清理旧版本与卸载残留" value={`${snapshot.pluginVersions.length} 个版本`}
+          onClick={() => onOpenDetail('plugins')} />
       </section>
 
       {sections.map(({ section, categories }) => {

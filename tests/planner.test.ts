@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { AutomationSettings, CleanupRisk, ScanSnapshot, SessionItem, StorageEntry, WorkspaceFolder } from '../shared/types'
+import { listableSessions, snapshotSessionBytes, type AutomationSettings, type CleanupRisk, type ScanSnapshot, type SessionItem, type StorageEntry, type WorkspaceFolder } from '../shared/types'
 import { buildAutomaticTasks, buildTrustedTasks, makeCleanupPreview } from '../electron/main/planner'
 
 function storage(id: string, risk: CleanupRisk = 'safe'): StorageEntry {
@@ -11,7 +11,8 @@ function session(id: string, overrides: Partial<SessionItem> = {}): SessionItem 
     id: `/codex/sessions/${id}.jsonl`, threadID: id, fileURL: `/codex/sessions/${id}.jsonl`, location: 'active',
     modifiedAt: 0, fileBytes: 100, assetBytes: 0, assetURLs: [], embeddedImageBytes: 60, embeddedImageCount: 2,
     distinctImageCount: 1, duplicateImageBytes: 30, workingDirectory: null, title: id, preview: null, tags: [],
-    isCompressed: false, isUnstable: false, parseWarnings: 0, ...overrides
+    isCompressed: false, isUnstable: false, parseWarnings: 0, isSubagent: false, parentThreadID: null,
+    childThreadCount: 0, childBytes: 0, childURLs: [], ...overrides
   }
 }
 
@@ -54,6 +55,31 @@ describe('trusted cleanup planner', () => {
   it('falls back explicitly to trash when app server deletion is unavailable', () => {
     const snap = snapshot()
     expect(buildTrustedTasks({ kind: 'sessions-delete', ids: [snap.sessions[0].id], mode: 'appServer' }, snap, snap.workspace, false)[0].method).toBe('trash')
+  })
+
+  it('deletes a selected parent as one task with child rollout companions and bytes', () => {
+    const snap = snapshot()
+    const parent = session('parent', {
+      childThreadCount: 1,
+      childBytes: 75,
+      childURLs: ['/codex/sessions/child.jsonl', '/codex/generated_images/child']
+    })
+    const child = session('child', { isSubagent: true, parentThreadID: 'parent', fileBytes: 50, assetBytes: 25 })
+    snap.sessions = [parent, child]
+    const tasks = buildTrustedTasks({ kind: 'sessions-delete', ids: [parent.id, child.id], mode: 'trash' }, snap, snap.workspace, true)
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0].expectedBytes).toBe(175)
+    expect(tasks[0].companionURLs).toEqual(['/codex/sessions/child.jsonl', '/codex/generated_images/child'])
+  })
+
+  it('lists a grouped parent once while keeping an orphan subagent visible and counted', () => {
+    const snap = snapshot()
+    const parent = session('parent', { childThreadCount: 1, childBytes: 75 })
+    const child = session('child', { isSubagent: true, parentThreadID: 'parent', fileBytes: 50, assetBytes: 25 })
+    const orphan = session('orphan', { isSubagent: true, parentThreadID: 'missing', fileBytes: 40 })
+    snap.sessions = [parent, child, orphan]
+    expect(listableSessions(snap).map((item) => item.threadID)).toEqual(['parent', 'orphan'])
+    expect(snapshotSessionBytes(snap)).toBe(100 + 75 + 40)
   })
 
   it('excludes compressed and unstable sessions from rewriting', () => {

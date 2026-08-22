@@ -14,10 +14,13 @@ jobs:
         include:
           - os: macos-26
             command: build:mac
+            args: --arm64 --x64
           - os: windows-latest
             command: build:win
+            args: ""
           - os: ubuntu-latest
             command: build:linux
+            args: ""
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -33,7 +36,7 @@ jobs:
         shell: bash
         run: test "$GITHUB_REF_NAME" = "v$(node -p "require('./package.json').version")"
       - run: pnpm check
-      - run: pnpm ${{ matrix.command }} -- --publish never
+      - run: pnpm ${{ matrix.command }} -- ${{ matrix.args }} --publish never
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
