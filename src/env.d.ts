@@ -1,14 +1,8 @@
 /// <reference types="vite/client" />
+import type { CleanMyCodexAPI } from '../electron/preload/index'
 
-interface AppInfo {
-  version: string
-  platform: string
-}
-
-interface CleanMyCodexAPI {
-  appInfo: () => Promise<AppInfo>
-}
-
-interface Window {
-  cleanmycodex: CleanMyCodexAPI
+declare global {
+  interface Window {
+    cleanmycodex: CleanMyCodexAPI
+  }
 }

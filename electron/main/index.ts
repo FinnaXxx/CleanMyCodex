@@ -1,16 +1,31 @@
 import { app, BrowserWindow, shell, ipcMain } from 'electron'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { CodexLocations } from './locations'
+import { scanSnapshot } from './scanner'
+import type { ScanProgress } from '../../shared/types'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
+
+let locations = CodexLocations.standard()
+let mainWindow: BrowserWindow | null = null
 
 ipcMain.handle('app:info', () => ({
   version: app.getVersion(),
   platform: process.platform
 }))
 
+ipcMain.handle('scan:run', async () => {
+  const progress: ScanProgress = { stage: '扫描中', currentPath: '', scannedBytes: 0, fraction: 0 }
+  const snapshot = await scanSnapshot(locations, (currentPath) => {
+    progress.currentPath = currentPath
+    mainWindow?.webContents.send('scan:progress', progress)
+  })
+  return snapshot
+})
+
 function createWindow() {
-  const window = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1140,
     height: 760,
     minWidth: 1040,
@@ -26,17 +41,20 @@ function createWindow() {
     }
   })
 
-  window.on('ready-to-show', () => window.show())
+  mainWindow.on('ready-to-show', () => mainWindow?.show())
+  mainWindow.on('closed', () => {
+    mainWindow = null
+  })
 
-  window.webContents.setWindowOpenHandler(({ url }) => {
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url)
     return { action: 'deny' }
   })
 
   if (process.env['ELECTRON_RENDERER_URL']) {
-    void window.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    void mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    void window.loadFile(join(__dirname, '../renderer/index.html'))
+    void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
 
