@@ -48,12 +48,15 @@ enum CleanupMethod: String, Sendable {
     case trash
     case compactDatabase
     case deleteThread
+    /// Rewrite a rollout so repeated screenshots stop costing space, keeping the thread.
+    case slimSession
 
     var label: String {
         switch self {
         case .trash: "移到废纸篓"
         case .compactDatabase: "压缩数据库"
         case .deleteThread: "删除会话"
+        case .slimSession: "会话瘦身"
         }
     }
 }
@@ -172,6 +175,10 @@ struct SessionItem: Identifiable, Sendable {
     let assetURLs: [URL]
     let embeddedImageBytes: Int64
     let embeddedImageCount: Int
+    /// How many of those occurrences are pictures we had not seen before in this file.
+    let distinctImageCount: Int
+    /// Bytes held by repeat copies of a picture already stored earlier in the same file.
+    let duplicateImageBytes: Int64
     let workingDirectory: String?
     let title: String?
     /// First user message, kept so a thread without a title is still recognisable.
@@ -203,6 +210,11 @@ struct SessionItem: Identifiable, Sendable {
     var hasTitle: Bool {
         (title?.isEmpty == false) || (preview?.isEmpty == false)
     }
+
+    /// What a deduplicating rewrite would give back, and what a full strip would.
+    var slimmableBytes: Int64 { duplicateImageBytes }
+    var strippableBytes: Int64 { embeddedImageBytes }
+    var hasDuplicateImages: Bool { duplicateImageBytes > 0 }
 
     var imageShare: Double {
         guard fileBytes > 0 else { return 0 }

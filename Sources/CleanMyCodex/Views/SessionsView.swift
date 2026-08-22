@@ -4,16 +4,24 @@ import SwiftUI
 struct SessionsView: View {
     @EnvironmentObject private var model: AppModel
     @State private var showingDelete = false
+    @State private var showingSlim = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
             filters
 
-            if model.snapshot.embeddedImageBytes > 0 {
+            if model.duplicateImageBytes > 0 {
                 NoticeBanner(
-                    text: "会话里内嵌了 \(ByteFormat.string(model.snapshot.embeddedImageBytes)) 的截图。"
-                        + "工具不会改写 JSONL 里的图片字段，避免破坏会话恢复和线程引用。",
+                    text: "会话里内嵌了 \(ByteFormat.string(model.snapshot.embeddedImageBytes)) 的截图，"
+                        + "其中 \(ByteFormat.string(model.duplicateImageBytes)) 是同一张图在多轮里被反复写回文件。"
+                        + "「会话瘦身」可以在保留会话的前提下把重复的那部分换成占位图。",
+                    symbol: "photo.on.rectangle.angled",
+                    color: .cleanerBlue
+                )
+            } else if model.snapshot.embeddedImageBytes > 0 {
+                NoticeBanner(
+                    text: "会话里内嵌了 \(ByteFormat.string(model.snapshot.embeddedImageBytes)) 的截图，没有发现重复。",
                     symbol: "photo",
                     color: .cleanerBlue
                 )
@@ -24,6 +32,26 @@ struct SessionsView: View {
         }
         .padding(24)
         .frame(minWidth: 1_040, idealWidth: 1_140, minHeight: 640, idealHeight: 720)
+        .sheet(isPresented: $showingSlim) {
+            CleanupFlowSheet(
+                title: "会话瘦身",
+                confirmTitle: "改写所选会话？",
+                confirmMessage: slimMessage,
+                rows: model.slimTasks.map {
+                    CleanupPreviewRow(
+                        id: $0.id,
+                        title: $0.title,
+                        detail: $0.detail,
+                        badge: model.sessionSlimMode == .deduplicate ? "去重" : "剥离",
+                        bytes: $0.expectedBytes
+                    )
+                },
+                confirmLabel: "确认改写",
+                isDestructive: true
+            ) {
+                model.slimSelectedSessions()
+            }
+        }
         .sheet(isPresented: $showingDelete) {
             CleanupFlowSheet(
                 title: "删除会话",
@@ -161,6 +189,15 @@ struct SessionsView: View {
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
             Spacer()
+            Picker("瘦身方式", selection: $model.sessionSlimMode) {
+                ForEach(SessionSlimMode.allCases) { mode in
+                    Text(mode.label).tag(mode)
+                }
+            }
+            .labelsHidden()
+            .frame(width: 220)
+            .help(model.sessionSlimMode.detail)
+
             Picker("删除方式", selection: $model.sessionDeletionMode) {
                 ForEach(SessionDeletionMode.allCases) { mode in
                     Text(mode.label).tag(mode)
@@ -173,6 +210,11 @@ struct SessionsView: View {
 
             Button("取消选择") { model.clearSessionSelection() }
                 .disabled(model.selectedSessionIDs.isEmpty)
+            Button("瘦身 · \(ByteFormat.string(model.slimmableBytes))") { showingSlim = true }
+                .disabled(model.slimTasks.isEmpty || model.isCleaning || model.codexRunning)
+                .help(model.codexRunning
+                    ? "Codex 正在运行，改写会话文件不安全"
+                    : "保留会话，只处理内嵌图片")
             Button("删除所选会话") { showingDelete = true }
                 .buttonStyle(.borderedProminent)
                 .tint(.red)
@@ -184,6 +226,15 @@ struct SessionsView: View {
     private var emptyTitle: String {
         if model.isScanning { return "正在扫描会话" }
         return model.sessionQuery.isEmpty ? "没有找到会话" : "没有匹配的会话"
+    }
+
+    private var slimMessage: String {
+        let tasks = model.slimTasks
+        var message = "将改写 \(tasks.count) 个会话文件，预计释放 \(ByteFormat.string(model.slimmableBytes))。"
+        message += model.sessionSlimMode.detail
+        message += "原文件会先移到废纸篓，改写结果通过行数和 JSON 校验后才替换；"
+        message += "只有 data:image 字段被替换，其它字节逐字节原样复制。"
+        return message
     }
 
     private var deleteMessage: String {
@@ -273,11 +324,20 @@ private struct SessionRow: View, Equatable {
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
                 .frame(width: 88, alignment: .trailing)
-            Text(ByteFormat.string(session.embeddedImageBytes))
-                .monospacedDigit()
-                .foregroundStyle(session.embeddedImageBytes > 0 ? Color.cleanerAmber : .secondary)
-                .help("\(session.embeddedImageCount) 张内嵌图片，占会话文件 \(Int(session.imageShare * 100))%")
-                .frame(width: 98, alignment: .trailing)
+            VStack(alignment: .trailing, spacing: 1) {
+                Text(ByteFormat.string(session.embeddedImageBytes))
+                    .monospacedDigit()
+                    .foregroundStyle(session.embeddedImageBytes > 0 ? Color.cleanerAmber : .secondary)
+                if session.hasDuplicateImages {
+                    Text("重复 \(ByteFormat.string(session.duplicateImageBytes))")
+                        .font(.caption2)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .help("\(session.embeddedImageCount) 张内嵌图片（\(session.distinctImageCount) 张不重复），"
+                + "占会话文件 \(Int(session.imageShare * 100))%")
+            .frame(width: 98, alignment: .trailing)
             Text(ByteFormat.string(session.totalBytes))
                 .font(.body.weight(.semibold))
                 .monospacedDigit()

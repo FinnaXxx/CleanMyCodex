@@ -24,6 +24,7 @@ final class AppModel: ObservableObject {
         case images = "按内嵌图片"
         case date = "按最后活动"
         case name = "按名称"
+        case slimmable = "按可瘦身空间"
 
         var id: String { rawValue }
     }
@@ -43,6 +44,7 @@ final class AppModel: ObservableObject {
     @Published var selectedEntryIDs = Set<String>()
     @Published var selectedPluginIDs = Set<String>()
     @Published var sessionDeletionMode: SessionDeletionMode = .appServer
+    @Published var sessionSlimMode: SessionSlimMode = .deduplicate
     @Published var automation = AutomationStore.loadSettings()
     @Published var lastAutomaticRun = AutomationStore.loadLastRun()
 
@@ -58,6 +60,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var visibleSessions: [SessionItem] = []
     @Published private(set) var expiredSessionIDs: [String] = []
     @Published private(set) var selectedSessionIDs = Set<String>()
+    /// Total bytes held by repeated screenshots across every session in the snapshot.
+    @Published private(set) var duplicateImageBytes: Int64 = 0
 
     let locations: CodexLocations
     private let scanner: CodexStorageScanner
@@ -145,6 +149,7 @@ final class AppModel: ObservableObject {
                 item.threadID
             ].joined(separator: " ").lowercased()
         }
+        duplicateImageBytes = result.sessions.reduce(Int64(0)) { $0 + $1.duplicateImageBytes }
         sessionCounts = [
             .all: result.sessions.count,
             .active: result.sessions.filter { $0.location == .active }.count,
@@ -253,6 +258,8 @@ final class AppModel: ObservableObject {
         selectedSessionIDs.reduce(Int64(0)) { $0 + (sessionIndex[$1]?.totalBytes ?? 0) }
     }
 
+
+
     /// The largest sessions, for the summary card on the main page.
     /// The snapshot already arrives sorted by total size, so this stays O(limit).
     func largestSessions(_ limit: Int) -> [SessionItem] {
@@ -276,6 +283,7 @@ final class AppModel: ObservableObject {
         case .images: items.sort { $0.embeddedImageBytes > $1.embeddedImageBytes }
         case .date: items.sort { $0.modifiedAt > $1.modifiedAt }
         case .name: items.sort { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+        case .slimmable: items.sort { $0.slimmableBytes > $1.slimmableBytes }
         }
         visibleSessions = items
         rebuildExpiredSessions()
@@ -306,6 +314,18 @@ final class AppModel: ObservableObject {
 
     func deleteSelectedSessions() {
         runCleanup(tasks: CleanupPlanner.sessionTasks(for: selectedSessions, mode: sessionDeletionMode))
+    }
+
+    var slimTasks: [CleanupTask] {
+        CleanupPlanner.slimTasks(for: selectedSessions, mode: sessionSlimMode)
+    }
+
+    var slimmableBytes: Int64 {
+        slimTasks.reduce(Int64(0)) { $0 + $1.expectedBytes }
+    }
+
+    func slimSelectedSessions() {
+        runCleanup(tasks: slimTasks)
     }
 
     func cleanSelectedPlugins() {

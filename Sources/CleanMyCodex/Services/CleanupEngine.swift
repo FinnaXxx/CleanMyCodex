@@ -36,6 +36,8 @@ struct CleanupEngine: Sendable {
                     session = try? appServer.openSession()
                 }
                 outcomes.append(runThreadDeletion(task, session: session))
+            case .slimSession:
+                outcomes.append(runSlim(task, codexRunning: codexRunning))
             }
         }
 
@@ -44,6 +46,24 @@ struct CleanupEngine: Sendable {
     }
 
     // MARK: - Individual methods
+
+    /// Editing a rollout Codex might be appending to would corrupt it, so this one is
+    /// refused outright while Codex is running rather than merely skipped per file.
+    private func runSlim(_ task: CleanupTask, codexRunning: Bool) -> CleanupOutcome {
+        guard let mode = task.slimMode else {
+            return outcome(task, status: .failed("没有指定瘦身方式"), freed: 0)
+        }
+        guard !codexRunning else {
+            return outcome(task, status: .skipped("Codex 正在运行，改写会话文件不安全"), freed: 0)
+        }
+        do {
+            try guards.validate(task.url)
+            let report = try SessionSlimmer().slim(task.url, mode: mode)
+            return outcome(task, status: .succeeded, freed: report.freedBytes)
+        } catch {
+            return outcome(task, status: .failed(error.localizedDescription), freed: 0)
+        }
+    }
 
     private func runTrash(_ task: CleanupTask) -> CleanupOutcome {
         var freed: Int64 = 0

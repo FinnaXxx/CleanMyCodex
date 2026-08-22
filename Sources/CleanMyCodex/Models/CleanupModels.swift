@@ -12,6 +12,8 @@ struct CleanupTask: Identifiable, Sendable {
     let threadID: String?
     /// Extra files removed together with the primary target (generated images, WAL files…).
     let companionURLs: [URL]
+    /// Only set for `.slimSession`.
+    let slimMode: SessionSlimMode?
 
     init(
         id: String,
@@ -21,7 +23,8 @@ struct CleanupTask: Identifiable, Sendable {
         method: CleanupMethod,
         expectedBytes: Int64,
         threadID: String? = nil,
-        companionURLs: [URL] = []
+        companionURLs: [URL] = [],
+        slimMode: SessionSlimMode? = nil
     ) {
         self.id = id
         self.title = title
@@ -31,6 +34,7 @@ struct CleanupTask: Identifiable, Sendable {
         self.expectedBytes = expectedBytes
         self.threadID = threadID
         self.companionURLs = companionURLs
+        self.slimMode = slimMode
     }
 
     init(entry: StorageEntry) {
