@@ -45,7 +45,7 @@ export function buildTrustedTasks(
       const index = new Map(snapshot.pluginVersions.map((plugin) => [plugin.directoryURL, plugin]))
       const selected = ids.map((id) => index.get(id)).filter((plugin): plugin is PluginVersionItem => !!plugin && pluginStatusIsRemovable(plugin.status))
       return tasksFromEntries(selected.map((plugin) => ({
-        id: `trash:${plugin.directoryURL}`,
+        id: `remove:${plugin.directoryURL}`,
         title: `${plugin.plugin} · ${plugin.version}`,
         note: message(`pluginStatus.${plugin.status}`),
         tags: [],
@@ -76,7 +76,8 @@ export function makeCleanupPreview(
   const blocked = environment.running
     ? tasks.filter((task) => task.requiresCodexStopped)
     : []
-  const warnings: Message[] = []
+  // Deletion is permanent for every selection, so the preview always says so first.
+  const warnings: Message[] = [message('warning.permanent')]
   if (selection.kind === 'sessions-delete') warnings.push(message('warning.sessionDelete'))
   if (selection.kind === 'workspace') warnings.push(message('warning.workspaceGit'))
   return {

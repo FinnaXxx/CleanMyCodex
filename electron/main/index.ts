@@ -1,5 +1,6 @@
 import { app, BrowserWindow, shell, ipcMain, Notification } from 'electron'
 import { join } from 'node:path'
+import { rm } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { Worker } from 'node:worker_threads'
 import { CodexLocations } from './locations'
@@ -239,7 +240,9 @@ function guardsFor(snapshot: ScanSnapshot): ProtectedPaths {
 
 function cleanupDependencies(): CleanupDeps {
   return {
-    trash: (path: string) => shell.trashItem(path),
+    // Permanent, not the system trash: trashed bytes are not returned to the volume,
+    // so "freed 5 GB" has to mean the disk actually gained 5 GB.
+    remove: (path: string) => rm(path, { recursive: true, force: true }),
     isCodexRunning: codexIsRunning,
     sessionDatabase: {
       preflightDelete: (threadID, relatedURLs) => preflightSessionRecords(locations.home, threadID, relatedURLs),

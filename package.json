@@ -1,7 +1,7 @@
 {
   "name": "cleanmycodex",
   "version": "0.1.0",
-  "description": "Codex 空间扫描与清理工具",
+  "description": "Codex \u7a7a\u95f4\u626b\u63cf\u4e0e\u6e05\u7406\u5de5\u5177",
   "main": "out/main/index.js",
   "author": "FinnaXxx",
   "license": "MIT",
@@ -13,12 +13,13 @@
     "rebuild:native": "electron-builder install-app-deps",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
-    "typecheck": "pnpm typecheck:node && pnpm typecheck:web",
+    "typecheck": "pnpm typecheck:node && pnpm typecheck:web && pnpm typecheck:test",
     "test": "vitest run",
     "check": "pnpm typecheck && pnpm test && pnpm build",
     "build:mac": "pnpm rebuild:native && pnpm build && electron-builder --mac",
     "build:win": "pnpm rebuild:native && pnpm build && electron-builder --win",
-    "build:linux": "pnpm rebuild:native && pnpm build && electron-builder --linux"
+    "build:linux": "pnpm rebuild:native && pnpm build && electron-builder --linux",
+    "typecheck:test": "tsc --noEmit -p tsconfig.test.json"
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",

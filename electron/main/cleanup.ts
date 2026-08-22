@@ -11,8 +11,8 @@ import { directoryAllocatedSize } from './fs-size'
 import { decodeMessage, message, type Message } from '../../shared/messages'
 
 export interface CleanupDeps {
-  /** Move a file or directory to the OS trash. Injected so the engine stays testable. */
-  trash: (path: string) => Promise<void>
+  /** Permanently delete a file or directory. Injected so the engine stays testable. */
+  remove: (path: string) => Promise<void>
   /** Whether Codex is currently running — gates work that needs it fully stopped. */
   isCodexRunning: () => boolean
   sessionDatabase?: {
@@ -50,8 +50,11 @@ function latestActivity(path: string): number {
 }
 
 /**
- * Performs the cleanup. Every task passes the protected-path guard first, and files are
- * moved to the trash so a mistake is always recoverable.
+ * Performs the cleanup. Deletion is permanent — nothing goes to the system trash, because
+ * space parked in the trash is not space returned to the volume, and reporting it as
+ * freed would be a lie. The protected-path guard is therefore the safety net: every
+ * target, including every companion, is validated before anything is removed, and a
+ * task that names even one protected path fails as a whole without deleting.
  */
 export async function runCleanup(
   tasks: CleanupTask[],
@@ -67,14 +70,14 @@ export async function runCleanup(
     const task = tasks[i]
     onProgress?.({ completed: i, total: tasks.length, currentTitle: task.title })
 
-    outcomes.push(await runTrash(task, guards, deps, running))
+    outcomes.push(await runRemoval(task, guards, deps, running))
   }
 
   onProgress?.({ completed: tasks.length, total: tasks.length, currentTitle: '' })
   return { startedAt, finishedAt: Date.now(), outcomes }
 }
 
-async function runTrash(
+async function runRemoval(
   task: CleanupTask,
   guards: ProtectedPaths,
   deps: CleanupDeps,
@@ -94,7 +97,7 @@ async function runTrash(
     return outcome(task, { kind: 'failed', reason: failure(err) }, 0)
   }
   let freed = 0
-  // Counts targets this task actually removed, by protocol or by trash. Bytes cannot
+  // Counts targets this task actually removed, by protocol or directly. Bytes cannot
   // stand in for that: an emptied directory is removed while freeing nothing.
   let removed = 0
   const bytesBefore = new Map(targets.map((target) => [target, fileAllocated(target)]))
@@ -121,7 +124,7 @@ async function runTrash(
       continue
     }
     try {
-      await deps.trash(target)
+      await deps.remove(target)
       removed += 1
       freed += bytesBefore.get(target) ?? 0
     } catch (err) {
