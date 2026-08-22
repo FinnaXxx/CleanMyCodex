@@ -210,6 +210,7 @@ progress { width: 100%; height: 5px; border-radius: 3px; overflow: hidden; }
 .hero-metrics { display: flex; gap: 32px; min-width: 0; }
 .metric { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .metric-label { color: var(--text-tertiary); font-size: 12px; }
+.metric:nth-child(2) .metric-label { color: var(--positive); }
 .metric-value { display: flex; align-items: baseline; gap: 8px; font-size: 27px; font-weight: 600; letter-spacing: -0.5px; font-variant-numeric: tabular-nums; }
 .metric-value.accent { color: var(--positive); }
 .metric small { color: var(--text-tertiary); font-size: 12px; font-weight: 400; letter-spacing: 0; }
@@ -219,7 +220,7 @@ progress { width: 100%; height: 5px; border-radius: 3px; overflow: hidden; }
 .shortcut {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 13px;
   width: 100%;
   padding: 13px 18px;
   border: 1px solid var(--line);
@@ -232,17 +233,40 @@ progress { width: 100%; height: 5px; border-radius: 3px; overflow: hidden; }
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 .shortcut:hover:not(:disabled) { border-color: var(--accent); background: var(--surface-sunken); }
+.shortcut:hover:not(:disabled) .chevron { color: var(--accent); }
+.shortcut-title { position: relative; }
 .shortcut:disabled { opacity: 0.5; cursor: default; }
+.shortcut-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--shortcut-soft);
+  color: var(--shortcut-tone);
+}
+.shortcut-sessions { --shortcut-tone: var(--accent); --shortcut-soft: var(--accent-soft); }
+.shortcut-plugins { --shortcut-tone: var(--teal); --shortcut-soft: var(--teal-soft); }
+.shortcut-workspace { --shortcut-tone: var(--caution); --shortcut-soft: var(--caution-soft); }
 .shortcut-text { flex: 1; display: grid; gap: 1px; min-width: 0; }
 .shortcut-title { font-weight: 500; }
 .shortcut-detail { color: var(--text-tertiary); font-size: 12px; }
-.shortcut-value { color: var(--text-secondary); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.shortcut-value { color: var(--text); font-weight: 500; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* --- content sections --- */
 .section { margin-bottom: 26px; }
-.section-head { display: flex; align-items: center; gap: 10px; margin: 0 4px 10px; }
-.section-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.section-head { display: flex; align-items: center; gap: 9px; margin: 0 4px 10px; }
+.section-head h2 { margin: 0; font-size: 15px; font-weight: 600; color: var(--section-tone, var(--accent)); }
+.section-icon { display: inline-flex; color: var(--section-tone, var(--accent)); }
 .section-total { margin-left: auto; color: var(--text-tertiary); font-size: 12px; font-variant-numeric: tabular-nums; }
+.section-total b { font-weight: 600; color: var(--positive); }
+.section-caches { --section-tone: var(--accent); }
+.section-logs { --section-tone: var(--violet); }
+.section-plugins { --section-tone: var(--teal); }
+.section-assets { --section-tone: var(--caution); }
+.section-protectedData { --section-tone: var(--text-tertiary); }
 .card, .panel {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -281,8 +305,8 @@ progress { width: 100%; height: 5px; border-radius: 3px; overflow: hidden; }
 .row-title { font-weight: 500; }
 .row-detail { color: var(--text-tertiary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-meta { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
-.row-bytes { font-variant-numeric: tabular-nums; color: var(--text-secondary); }
-.advice { padding: 2px 9px; border-radius: 999px; font-size: 11px; background: var(--line-soft); color: var(--text-secondary); }
+.row-bytes { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text); }
+.advice { padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 500; background: var(--line-soft); color: var(--text-secondary); }
 .advice-recommended { background: var(--positive-soft); color: var(--positive); }
 .advice-review { background: var(--caution-soft); color: var(--caution); }
 .advice-protectedData { background: var(--line-soft); color: var(--text-tertiary); }
@@ -302,12 +326,13 @@ label.entry-label { cursor: pointer; }
 .entry-text { display: grid; gap: 1px; min-width: 0; }
 .entry-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .entry-detail { color: var(--text-tertiary); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.entry-bytes { color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.entry-bytes { color: var(--text-secondary); font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .entry-summary { color: var(--positive); font-size: 12px; }
 
 /* --- filters --- */
 .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
 .filters .search { flex: 1; min-width: 180px; }
+.filters label { color: var(--text-secondary); font-size: 13px; }
 .filters select, .filters input, .number, .form-card input[type='number'] {
   font: inherit;
   font-size: 13px;
@@ -356,7 +381,8 @@ label.entry-label { cursor: pointer; }
 .tag-imageGen { background: var(--teal-soft); color: var(--teal); }
 .pill.loc-active { background: var(--accent-soft); color: var(--accent); }
 .pill.loc-archived { background: var(--line-soft); color: var(--text-tertiary); }
-.col-num { text-align: right; font-variant-numeric: tabular-nums; }
+.col-num { text-align: right; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.session-row .col-num:last-of-type, .table-head .col-num:last-of-type { color: var(--text); font-weight: 600; }
 .col-status, .col-date { color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .col-status .pill { font-size: 11px; }
 .col-num small { display: block; color: var(--caution); font-size: 11px; }
@@ -562,6 +588,7 @@ label.entry-label { cursor: pointer; }
 /* --- cleanup report --- */
 .report { padding: 16px 20px; margin-bottom: 22px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); }
 .report-summary { margin: 0 0 10px; font-weight: 600; }
+.report-summary b { color: var(--positive); font-size: 16px; }
 .report-list { list-style: none; margin: 0; padding: 0; }
 .report-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 7px 0; border-top: 1px solid var(--line-soft); font-size: 13px; }
 .report-row:first-child { border-top: 0; }

@@ -207,7 +207,7 @@ function CleanupBanner({ report }: { report: CleanupReport }) {
   return (
     <section className="report">
       <p className="report-summary">
-        已释放 {formatBytes(reportFreedBytes(report))}
+        已释放 <b>{formatBytes(reportFreedBytes(report))}</b>
         {problems.length > 0 && `，${problems.length} 项未完成`}
       </p>
       <ul className="report-list">
