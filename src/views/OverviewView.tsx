@@ -43,7 +43,7 @@ interface Props {
 }
 
 export default function OverviewView({ snapshot, workspace, appInfo, cleaning, scanning, scanProgress, actionsDisabled, cleanProgress, onCleanup, onScan, onOpenDetail }: Props) {
-  const { t, m } = usePreferences()
+  const { t, m, locale } = usePreferences()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [expanded, setExpanded] = useState<Set<StorageKind>>(new Set())
 
@@ -68,14 +68,25 @@ export default function OverviewView({ snapshot, workspace, appInfo, cleaning, s
     const classified = grouped.reduce((sum, item) => sum + item.bytes, 0)
     const remainder = Math.max(0, snapshot.totalCodexBytes - classified)
     if (remainder) grouped.push({ label: t('会话与其他', 'Sessions & Other'), bytes: remainder })
-    const visible = grouped.slice(0, 3)
-    const rest = grouped.slice(3).reduce((sum, item) => sum + item.bytes, 0)
-    if (rest) visible.push({ label: t('其他', 'Other'), bytes: rest })
+    const visible: Array<{ label: string; bytes: number; details?: string[] }> = grouped.slice(0, 3)
+    const remaining = grouped.slice(3)
+    const rest = remaining.reduce((sum, item) => sum + item.bytes, 0)
+    if (rest) visible.push({
+      label: t('其他', 'Other'),
+      bytes: rest,
+      details: remaining.map((item) => `${item.label} ${formatBytes(item.bytes)}`)
+    })
     // Protected marketplace sources can live outside the Codex home, so the classified
-    // total can exceed it; scale to whichever is larger to keep the bar inside its track.
+    // total can exceed it; scale to whichever is larger to keep the bar inside its track
+    // and the percentages consistent with the widths they label.
     const total = Math.max(snapshot.totalCodexBytes, classified + rest, 1)
-    return visible.map((item) => ({ ...item, share: item.bytes / total }))
+    return visible.map((item) => ({ ...item, fraction: item.bytes / total }))
   }, [m, sections, snapshot.totalCodexBytes, t])
+
+  const distributionPercent = useMemo(() => new Intl.NumberFormat(locale, {
+    style: 'percent',
+    maximumFractionDigits: 1
+  }), [locale])
 
   useEffect(() => {
     setSelected(new Set(snapshot.categories
@@ -135,9 +146,25 @@ export default function OverviewView({ snapshot, workspace, appInfo, cleaning, s
             </div>
           </div>
           <div className="usage-distribution">
-            <div className="distribution-bar" aria-label={t('空间占用分布', 'Storage distribution')}>
-              {distribution.map((item, index) => <span key={item.label} className={`distribution-tone-${index + 1}`}
-                style={{ width: `${item.share * 100}%` }} />)}
+            <div className="distribution-bar" role="list" aria-label={t('空间占用分布', 'Storage distribution')}>
+              {distribution.map((item, index) => {
+                const summary = `${formatBytes(item.bytes)} · ${distributionPercent.format(item.fraction)}`
+                const description = [item.label, summary, ...(item.details ?? [])].join(t('；', '; '))
+                return <span
+                  key={item.label}
+                  className={`distribution-segment distribution-tone-${index + 1}`}
+                  role="listitem"
+                  tabIndex={0}
+                  aria-label={description}
+                  style={{ width: `${item.fraction * 100}%` }}
+                >
+                  <span className="distribution-tooltip" aria-hidden="true">
+                    <strong>{item.label}</strong>
+                    <span>{summary}</span>
+                    {!!item.details?.length && <small>{item.details.join(' · ')}</small>}
+                  </span>
+                </span>
+              })}
             </div>
           </div>
         </div>

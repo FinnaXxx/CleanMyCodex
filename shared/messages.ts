@@ -50,7 +50,7 @@ export type MessageKey =
   // Cleanup stages and outcomes
   | 'cleanup.quitting' | 'cleanup.reopening'
   | 'cleanup.skipCodexRunning' | 'cleanup.skipRecentlyWritten' | 'cleanup.skipMissing'
-  | 'cleanup.sqliteFailed'
+  | 'cleanup.localIndexFailed'
   // Scan notes
   | 'scanNote.appServerUnavailable' | 'scanNote.noSessionTitles'
   // Cleanup preview warnings
@@ -173,12 +173,12 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'cleanup.skipCodexRunning': ['Codex 正在运行，请退出后重新清理', 'Codex is running. Quit it and clean up again.'],
   'cleanup.skipRecentlyWritten': ['扫描后路径又有写入，请稍后重新扫描并清理', 'The path was written to after the scan. Scan again and retry.'],
   'cleanup.skipMissing': ['路径已不存在', 'The path no longer exists'],
-  'cleanup.sqliteFailed': ['会话文件已处理，但 SQLite 记录清理失败：{reason}', 'Session files were handled, but clearing the SQLite records failed: {reason}'],
+  'cleanup.localIndexFailed': ['会话文件已处理，但本地索引清理失败：{reason}', 'Session files were handled, but clearing the local index failed: {reason}'],
 
   'scanNote.appServerUnavailable': ['未连接 codex app server，无法确认插件的当前版本，已全部锁定。', 'Not connected to the codex app server, so current plugin versions cannot be confirmed. All are locked.'],
   'scanNote.noSessionTitles': ['没有读到 Codex 的会话标题，列表改用会话首句或项目名显示。', 'No Codex session titles were found. The list falls back to the first message or the project name.'],
 
-  'warning.sessionDelete': ['会话文件、生成资产和 SQLite 索引记录会一并清理。', 'Session files, generated assets, and SQLite index records are all removed together.'],
+  'warning.sessionDelete': ['会话文件、生成资产和 Codex 会话索引记录会一并清理。', 'Session files, generated assets, and Codex session index records are all removed together.'],
   'warning.workspaceGit': ['请确认未提交或未推送的内容已经保存。', 'Make sure anything uncommitted or unpushed has been saved.'],
 
   'blocker.detectionFailed': ['无法确认 Codex 是否正在运行', 'Cannot determine whether Codex is running'],
