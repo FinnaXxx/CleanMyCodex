@@ -24,6 +24,9 @@ Clean My Codex 不通过一个接口读取所有信息，而是按数据的实�
 - `thread_history_*.sqlite`：Codex 从 rollout 派生出的会话历史投影。扫描器把它作为“会话投影数据库”统计；删除会话时会直接清理相应行，不等待 Codex 重建。
 - `generated_images/<thread-id>`：会话生成的独立图片目录。
 - `visualizations/YYYY/MM/DD/<thread-id>`：Codex 生成的富视觉结果，例如 JPG/PNG 对比图或 HTML 可视化预览。扫描时会递归识别日期层级并归到对应会话。
+- `~/.codex/cache`、App Support 顶层 `Cache`/`GraphiteDawnCache`：作为可重建缓存统计，要求 ChatGPT/Codex 退出后才能清理。
+- `vendor_imports`、`shell_snapshots`、`attachments`、`ambient-suggestions`、`browser`、Wasm TTS 组件及 goals/queue/memories 数据库：纳入占用统计但保持锁定。
+- `.tmp/bundled-marketplaces`：只保护当前 `openai-bundled` 源；超过一小时未更新的同级 `.staging-*` 目录作为更新残留列出。
 
 ### 会话、分段与子代理
 
@@ -44,6 +47,8 @@ Clean My Codex 不通过一个接口读取所有信息，而是按数据的实�
 系统废纸篓中的占用不再计作 Clean My Codex 的已占用空间；如果需要立即归还整个磁盘的可用空间，由用户清空系统废纸篓。
 
 配置、凭据、当前插件、工作产出，以及 `session_index.jsonl` 等小型辅助元数据不会随会话删除。
+
+自动会话清理会跳过置顶会话、存在未完成 goal 的会话和仍有 queued item 的会话；任一子代理满足这些条件时，整个顶层会话都会跳过。手动删除前会先检查 SQLite 完整性、受支持的核心表和写锁，避免会话文件已经移入废纸篓后才发现数据库无法修改。插件删除则会在真正执行前重新向 `codex app-server` 查询当前版本，防止扫描后升级造成误删。
 
 ## 开发
 

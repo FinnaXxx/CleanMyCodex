@@ -10,7 +10,7 @@ function session(id: string, overrides: Partial<SessionItem> = {}): SessionItem 
   return {
     id: `/codex/sessions/${id}.jsonl`, threadID: id, fileURL: `/codex/sessions/${id}.jsonl`, segmentURLs: [], location: 'active',
     modifiedAt: 0, fileBytes: 100, assetBytes: 0, assetURLs: [], workingDirectory: null, title: id, preview: null, tags: [],
-    isCompressed: false, isUnstable: false, parseWarnings: 0, isSubagent: false, parentThreadID: null,
+    isCompressed: false, isUnstable: false, parseWarnings: 0, blocksAutomaticCleanup: false, isSubagent: false, parentThreadID: null,
     childThreadCount: 0, childBytes: 0, childURLs: [], ...overrides
   }
 }
@@ -136,5 +136,11 @@ describe('automatic cleanup planner', () => {
     snap.sessions = [parent, child]
     const tasks = buildAutomaticTasks(snap, settings, 100 * 86_400_000)
     expect(tasks.some((task) => task.threadID === 'child')).toBe(false)
+  })
+
+  it('keeps pinned, queued, and unfinished-goal conversations out of automatic cleanup', () => {
+    const snap = snapshot()
+    snap.sessions = [session('protected', { blocksAutomaticCleanup: true, modifiedAt: 0 })]
+    expect(buildAutomaticTasks(snap, settings, 100 * 86_400_000).some((task) => task.threadID === 'protected')).toBe(false)
   })
 })

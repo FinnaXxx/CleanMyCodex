@@ -145,12 +145,30 @@ export async function scanSnapshot(
   for (const name of temporaryNames) {
     throwIfAborted(signal)
     const path = join(locations.temporary, name)
+    if (path === locations.bundledMarketplaces) {
+      let bundledNames: string[] = []
+      try { bundledNames = readdirSync(path) } catch { /* missing */ }
+      for (const bundledName of bundledNames) {
+        const bundledPath = join(path, bundledName)
+        if (guards.isProtected(bundledPath) || !bundledName.includes('.staging-')) continue
+        const measured = measureTree(bundledPath, signal)
+        const idleSeconds = 3_600
+        if (measured.bytes && Date.now() - measured.latestActivity >= idleSeconds * 1000) {
+          staleTemporary.push(entry(bundledName, '插件市场更新留下的 staging 目录', bundledPath, measured.bytes, 'safe', 'trash', {
+            minimumIdleSeconds: idleSeconds, requiresCodexStopped: true
+          }))
+        }
+      }
+      continue
+    }
     if (guards.isProtected(path)) continue
     progress('缓存与临时文件', path, 0.08)
     const measured = measureTree(path, signal)
     if (!measured.bytes) continue
     if (name.toLowerCase().includes('marketplace')) {
-      marketplaceCaches.push(entry(name, '插件市场的本地副本，可重新下载', path, measured.bytes, 'rebuildable'))
+      marketplaceCaches.push(entry(name, '插件市场的本地副本，可重新下载', path, measured.bytes, 'rebuildable', 'trash', {
+        requiresCodexStopped: true
+      }))
       continue
     }
     const staging = name.includes('.staging-') || name.startsWith('plugins-clone-')
@@ -166,15 +184,19 @@ export async function scanSnapshot(
 
   const browserEntries = locations.browserCacheDirectories
     .filter(entryExists)
-    .map((path) => entry(basename(path), '缓存目录，可重新生成', path, measure(path, '缓存与临时文件', 0.12), 'rebuildable'))
+    .map((path) => entry(basename(path), '缓存目录，可重新生成', path, measure(path, '缓存与临时文件', 0.12), 'rebuildable', 'trash', {
+      requiresCodexStopped: true
+    }))
   categories.push(
     category('browserCache', '浏览器与渲染缓存', '桌面应用按需重建的浏览器缓存', 'recommended', 'rebuildable', browserEntries)
   )
   await yieldToEventLoop()
 
-  const appCacheEntries = locations.appCaches
+  const appCacheEntries = [locations.codexCache, ...locations.appCaches]
     .filter(entryExists)
-    .map((path) => entry(basename(path), '缓存目录，可重新生成', path, measure(path, '缓存与临时文件', 0.16), 'rebuildable'))
+    .map((path) => entry(basename(path), '缓存目录，可重新生成', path, measure(path, '缓存与临时文件', 0.16), 'rebuildable', 'trash', {
+      requiresCodexStopped: true
+    }))
   categories.push(
     category('appCache', '应用缓存', '桌面应用的本地缓存目录', 'recommended', 'rebuildable', appCacheEntries)
   )
@@ -308,7 +330,9 @@ function assetCategories(
   measure: (path: string) => number
 ): StorageCategory[] {
   const computerUse = entryExists(locations.computerUse)
-    ? [entry('computer-use', 'Computer Use 辅助组件，删除后需要重新下载', locations.computerUse, measure(locations.computerUse), 'caution')]
+    ? [entry('computer-use', 'Computer Use 辅助组件，删除后需要重新下载', locations.computerUse, measure(locations.computerUse), 'caution', 'trash', {
+        requiresCodexStopped: true
+      })]
     : []
   return [
     category('computerUse', 'Computer Use 组件', 'Computer Use 运行所需的本地组件', 'review', 'caution', computerUse)

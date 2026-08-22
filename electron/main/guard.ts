@@ -33,13 +33,18 @@ export class ProtectedPaths {
     'hooks',
     'skills',
     'memories',
+    'vendor_imports',
+    'shell_snapshots',
+    'attachments',
+    'ambient-suggestions',
+    'browser',
     'prompts',
     'bin',
     'log'
   ]
 
   /** Prefixes of files inside ~/.codex that must never be trashed. */
-  static readonly protectedHomePrefixes = ['state_', 'thread_history_', 'history']
+  static readonly protectedHomePrefixes = ['state_', 'thread_history_', 'goals_', 'queue_', 'memories_', 'history']
 
   /** Browser profile data that carries the Codex login. */
   static readonly protectedAppSupportEntries = [
@@ -52,7 +57,8 @@ export class ProtectedPaths {
     'Default/Preferences',
     'Default/Web Data',
     'Local State',
-    'WidevineCdm'
+    'WidevineCdm',
+    'WasmTtsEngine'
   ]
 
   constructor(
@@ -64,7 +70,7 @@ export class ProtectedPaths {
     this.activePluginDirectories = activePluginDirectories.map((d) => normalize(d))
     this.localMarketplaceSources = outermost([
       ...configuration.localMarketplaceSources.map(normalize),
-      normalize(locations.bundledMarketplaces)
+      normalize(locations.bundledMarketplaceSource)
     ])
   }
 
