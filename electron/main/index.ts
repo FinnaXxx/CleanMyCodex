@@ -281,9 +281,9 @@ async function runAutomaticCleanup(): Promise<void> {
       failed: failed.length, skippedReason: null, deferred: deferred.length,
       deferredNote: deferred[0]?.status.kind === 'skipped' ? deferred[0].status.reason : null
     })
-    const summary = `已释放 ${reportFreedBytes(report)} 字节，成功 ${report.outcomes.length - deferred.length - failed.length} 项`
+    const summary = `已释放 ${reportFreedBytes(report)} 字节，成功 ${report.outcomes.length - deferred.length - failed.length} 项，跳过 ${deferred.length} 项，失败 ${failed.length} 项`
     appendAutomationLog(summary)
-    for (const item of deferred) appendAutomationLog(`推迟：${item.title} — ${item.status.kind === 'skipped' ? item.status.reason : ''}`)
+    for (const item of deferred) appendAutomationLog(`跳过：${item.title} — ${item.status.kind === 'skipped' ? item.status.reason : ''}`)
     if (settings.notifyWhenFinished && Notification.isSupported()) new Notification({ title: 'CleanMyCodex', body: summary }).show()
   } catch (err) {
     appendAutomationLog(`自动清理失败：${err instanceof Error ? err.message : String(err)}`)

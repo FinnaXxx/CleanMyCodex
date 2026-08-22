@@ -112,4 +112,10 @@ export class CodexLocations {
   get writableRoots(): string[] {
     return [this.home, this.appSupport, this.appLogs, this.workspace, ...this.appCaches]
   }
+
+  /** Dedicated, rebuildable roots that may themselves be removed. Other writable roots
+   *  contain user data or mixed-purpose application state and only allow child targets. */
+  get removableRoots(): string[] {
+    return this.appCaches
+  }
 }

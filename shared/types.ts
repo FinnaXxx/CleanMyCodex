@@ -188,11 +188,16 @@ export interface SessionItem {
   childThreadCount: number
   /** Allocated bytes of grouped subagent rollouts + their assets, so the parent's total reflects the whole conversation. */
   childBytes: number
+  /** Image bytes in grouped subagent rollouts and their associated assets. */
+  childImageBytes: number
   /** Subagent rollout files + their asset dirs, deleted alongside the parent rollout. */
   childURLs: string[]
 }
 
 export const sessionTotalBytes = (s: SessionItem): number => s.fileBytes + s.assetBytes + s.childBytes
+
+/** Embedded images and associated image assets across the whole visible conversation. */
+export const sessionImageBytes = (s: SessionItem): number => s.embeddedImageBytes + s.assetBytes + s.childImageBytes
 
 export const sessionProjectName = (s: SessionItem): string | null => {
   if (!s.workingDirectory || s.workingDirectory.length === 0) return null
@@ -492,7 +497,7 @@ export const cleanupStatusLabel = (s: CleanupStatus): string => {
     case 'succeeded':
       return '已完成'
     case 'skipped':
-      return '已推迟'
+      return '本次跳过'
     case 'failed':
       return '失败'
   }

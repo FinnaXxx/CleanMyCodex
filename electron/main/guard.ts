@@ -12,8 +12,9 @@ function outermost(paths: string[]): string[] {
 
 /**
  * The allow/deny list that every deletion goes through. Deny-by-default: a path must sit
- * inside one of the Codex data roots, must not be a root itself, and must not match a
- * protected entry.
+ * inside one of the Codex data roots and must not match a protected entry. Writable roots
+ * themselves are denied except for dedicated rebuildable roots explicitly allowlisted by
+ * `CodexLocations`.
  */
 export class ProtectedPaths {
   private readonly locations: CodexLocations
@@ -80,6 +81,10 @@ export class ProtectedPaths {
     return this.locations.writableRoots.map(normalize)
   }
 
+  private get removableRoots(): string[] {
+    return this.locations.removableRoots.map(normalize)
+  }
+
   private canonical(path: string): string {
     const target = normalize(path)
     try { return normalize(realpathSync(target)) } catch {
@@ -114,7 +119,11 @@ export class ProtectedPaths {
   validate(url: string): void {
     const target = normalize(url)
     const canonicalRoots = this.writableRoots.map((root) => this.canonical(root))
-    if (this.writableRoots.some((root) => root === target) || canonicalRoots.some((root) => root === this.canonical(target))) {
+    const canonicalTarget = this.canonical(target)
+    const isWritableRoot = this.writableRoots.some((root) => root === target)
+      || canonicalRoots.some((root) => root === canonicalTarget)
+    const isRemovableRoot = this.removableRoots.some((root) => root === target)
+    if (isWritableRoot && !isRemovableRoot) {
       throw new ProtectedPathError(`不能整体删除数据目录：${target}`)
     }
     if (!this.writableRoots.some((root) => ProtectedPaths.contains(root, target))) {
@@ -125,7 +134,7 @@ export class ProtectedPaths {
     }
     let resolved: string
     try {
-      resolved = this.canonical(target)
+      resolved = canonicalTarget
     } catch {
       resolved = target
     }

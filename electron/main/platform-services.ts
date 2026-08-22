@@ -38,7 +38,7 @@ export function codexEnvironment(): CodexEnvironment {
       desktopRunning: false,
       cliCommands: [],
       canRestart: false,
-      blockerSummary: '无法确认 Codex 是否正在运行；需要独占文件的项目会保守地推迟'
+      blockerSummary: '无法确认 Codex 是否正在运行'
     }
   }
   const commands = detected.filter(isCodexProcessCommand)

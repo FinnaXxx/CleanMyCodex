@@ -19,6 +19,18 @@ describe('cleanup path guard', () => {
     expect(() => guard.validate(locations.workspace)).toThrow('不能整体删除')
   })
 
+  it('allows dedicated app cache roots but keeps other data roots protected', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), documents: join(root, 'Documents') })
+    for (const cache of locations.appCaches) mkdirSync(cache, { recursive: true })
+    mkdirSync(locations.appSupport, { recursive: true })
+    const guard = new ProtectedPaths(locations)
+
+    for (const cache of locations.appCaches) expect(() => guard.validate(cache)).not.toThrow()
+    expect(() => guard.validate(locations.home)).toThrow('不能整体删除')
+    expect(() => guard.validate(locations.appSupport)).toThrow('不能整体删除')
+  })
+
   it('rejects parents of protected files and symlinks outside writable roots', () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
     const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), documents: join(root, 'Documents') })

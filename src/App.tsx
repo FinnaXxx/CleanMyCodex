@@ -9,7 +9,6 @@ import {
   type AppInfo,
   type WorkspaceSnapshot,
   reportFreedBytes,
-  reportProblems,
   cleanupStatusLabel,
   cleanupStatusMessage,
   CleanupMethodLabel,
@@ -186,7 +185,7 @@ function CleanupDialog({ preview, report, cleaning, progress, stage, restart, on
   stage: string; restart: boolean; onRestart: (value: boolean) => void; onConfirm: () => void; onClose: () => void
 }) {
   return <div className="modal-backdrop"><section className="cleanup-dialog" role="dialog" aria-modal="true">
-    {report ? <><h2>清理完成</h2><CleanupBanner report={report}/></> : cleaning ? <>
+    {report ? <><h2>清理结果</h2><CleanupBanner report={report}/></> : cleaning ? <>
       <h2>{stage || '正在清理…'}</h2><progress value={progress?.completed ?? 0} max={progress?.total || 1}/>
       <p>{progress?.currentTitle || '准备中…'} · {progress?.completed ?? 0}/{progress?.total ?? preview.items.length}</p>
     </> : <><h2>确认清理 {preview.items.length} 项</h2>
@@ -195,7 +194,7 @@ function CleanupDialog({ preview, report, cleaning, progress, stage, restart, on
       {preview.warnings.map((warning) => <p className="notice warning" key={warning}>{warning}</p>)}
       {!!preview.blockedTitles.length && <div className="notice warning"><strong>{preview.blockedTitles.length} 项需要 Codex 完全退出</strong><br/>{preview.blockedTitles.slice(0, 4).join('、')}
         {preview.canRestartCodex ? <label><input type="checkbox" checked={restart} onChange={(event) => onRestart(event.target.checked)}/> 先退出 Codex，清理完成后重新打开</label>
-          : <small>{preview.blockerSummary}，这些项目会推迟到下次清理。</small>}</div>}
+          : <small>{preview.blockerSummary}，这些项目本次不会执行；退出 Codex 后需重新清理。</small>}</div>}
     </>}
     <div className="dialog-actions">{!cleaning && <button className="btn" onClick={onClose}>{report ? '完成' : '取消'}</button>}
       {!report && !cleaning && <button className="btn danger" onClick={onConfirm}>确认执行</button>}</div>
@@ -203,12 +202,14 @@ function CleanupDialog({ preview, report, cleaning, progress, stage, restart, on
 }
 
 function CleanupBanner({ report }: { report: CleanupReport }) {
-  const problems = reportProblems(report)
+  const skipped = report.outcomes.filter((outcome) => outcome.status.kind === 'skipped').length
+  const failed = report.outcomes.filter((outcome) => outcome.status.kind === 'failed').length
   return (
     <section className="report">
       <p className="report-summary">
         已释放 <b>{formatBytes(reportFreedBytes(report))}</b>
-        {problems.length > 0 && `，${problems.length} 项未完成`}
+        {skipped > 0 && `，${skipped} 项跳过`}
+        {failed > 0 && `，${failed} 项失败`}
       </p>
       <ul className="report-list">
         {report.outcomes.map((o) => (
