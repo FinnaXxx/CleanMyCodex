@@ -3,9 +3,12 @@ import Testing
 @testable import CleanMyCodex
 
 struct SessionSlimmerTests {
-    /// Long enough that replacing it actually shrinks the file — the placeholder is ~120 bytes.
-    private let payloadA = String(repeating: "QUJD", count: 1_000)
-    private let payloadB = String(repeating: "RUZH", count: 1_000)
+    /// Large enough that replacing one copy crosses a filesystem block boundary on any
+    /// realistic allocation unit (4K–32K), so an allocated-size comparison actually sees
+    /// the shrink. Real screenshots are hundreds of KB; a 4 KB fixture rounds to the same
+    /// block count after a single dedup and the "smaller on disk" assertion goes false.
+    private let payloadA = String(repeating: "QUJD", count: 10_000)
+    private let payloadB = String(repeating: "RUZH", count: 10_000)
 
     private func line(_ payload: String, text: String = "step") -> String {
         #"{"type":"response_item","payload":{"text":"\#(text)","image_url":"data:image/png;base64,\#(payload)"}}"#

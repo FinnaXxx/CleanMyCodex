@@ -172,8 +172,15 @@ private final class Connection {
 }
 
 enum FileSize {
+    /// Allocated size on disk (block-rounded), falling back to logical bytes.
+    ///
+    /// `URL.resourceValues` caches its results on the `URL` value, so calling this twice
+    /// on the same `URL` after the file has been replaced returns the *previous* size.
+    /// That silently broke `SessionSlimmer`, which measures a rollout before and after
+    /// rewriting it with the same `URL` and so always reported zero bytes freed. Reading
+    /// through a freshly constructed `URL` defeats the cache and returns the live value.
     static func of(_ url: URL) -> Int64 {
-        let values = try? url.resourceValues(forKeys: [
+        let values = try? URL(fileURLWithPath: url.path).resourceValues(forKeys: [
             .totalFileAllocatedSizeKey,
             .fileAllocatedSizeKey,
             .fileSizeKey
