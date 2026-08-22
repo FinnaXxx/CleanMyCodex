@@ -25,9 +25,37 @@ struct ProtectedPaths: Sendable {
     /// Plugin versions Codex is currently running from.
     let activePluginDirectories: [URL]
 
-    init(locations: CodexLocations, activePluginDirectories: [URL] = []) {
+    /// Directories a configured marketplace loads plugins from right now.
+    let localMarketplaceSources: [URL]
+
+    init(
+        locations: CodexLocations,
+        activePluginDirectories: [URL] = [],
+        configuration: CodexConfiguration? = nil
+    ) {
         self.locations = locations
         self.activePluginDirectories = activePluginDirectories.map(\.standardizedFileURL)
+        // Read straight from config.toml rather than being told: the cleanup engine builds
+        // its own guard, and it must protect these whether or not the scanner passed them in.
+        let config = configuration ?? CodexConfiguration.load(codexHome: locations.home)
+        var sources = config.localMarketplaceSources
+        // `.tmp` looks like scratch space, but Codex unpacks the bundled marketplace into it
+        // and points config.toml at the result. Keep it covered even if the TOML is unreadable.
+        sources.append(locations.bundledMarketplaces)
+        self.localMarketplaceSources = Self.outermost(sources)
+    }
+
+    /// config.toml can name both a directory and something inside it. Keeping only the
+    /// outermost paths avoids listing — and double counting — the same bytes twice.
+    static func outermost(_ urls: [URL]) -> [URL] {
+        let standardized = urls.map(\.standardizedFileURL)
+        var result: [URL] = []
+        for url in standardized {
+            if standardized.contains(where: { $0 != url && Self.contains($0, url) }) { continue }
+            if result.contains(where: { $0.path == url.path }) { continue }
+            result.append(url)
+        }
+        return result
     }
 
     /// Relative names inside ~/.codex that hold credentials, configuration or user work.
@@ -69,12 +97,17 @@ struct ProtectedPaths: Sendable {
         urls += Self.protectedAppSupportEntries.map { locations.appSupport.appending(path: $0) }
         urls.append(FileManager.default.homeDirectoryForCurrentUser.appending(path: "Documents/Codex"))
         urls += activePluginDirectories
+        urls += localMarketplaceSources
         return urls.map(\.standardizedFileURL)
     }
 
     func isProtected(_ url: URL) -> Bool {
         let target = url.standardizedFileURL
-        if protectedURLs.contains(where: { Self.contains($0, target) }) { return true }
+        // Both directions matter. Being inside a protected path is the obvious case; the
+        // other one is deleting a parent, which would take the protected path with it.
+        if protectedURLs.contains(where: { Self.contains($0, target) || Self.contains(target, $0) }) {
+            return true
+        }
 
         // state_*.sqlite, state_*.sqlite-wal, history.jsonl … directly inside ~/.codex.
         if target.deletingLastPathComponent().standardizedFileURL == locations.home {

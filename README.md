@@ -55,6 +55,12 @@ Codex 的数据分散在 `~/.codex`、`~/Library/Application Support/Codex`、`~
 - 普通文件一律**移到废纸篓**，不做不可恢复的删除。
 - 日志数据库只做 `wal_checkpoint(TRUNCATE)` → `VACUUM` → `integrity_check`，不删除诊断记录；
   Codex 运行时自动跳过。
+- `config.toml` 里 `[marketplaces.*]` 声明的本地 source 目录一律受保护。Codex 把随版本内置的
+  插件市场解包到 `~/.codex/.tmp/bundled-marketplaces/`，名字看着像临时文件，实际是
+  `@openai-bundled` 那批插件（browser、computer-use、visualize 等）当前的加载来源；
+  它旁边的 `openai-bundled.staging-<uuid>` 才是升级残留，可以清理。
+- 保护是**双向包含**判定：目标在受保护路径之内会被拒绝，目标**包含**受保护路径同样被拒绝，
+  否则删父目录就能绕过对子目录的保护。
 - 以下内容永不清理：`auth.json`、`config.toml`、`state_*.sqlite`（含 WAL/SHM）、`rules`、`hooks`、
   用户 skills 与 memories、当前启用的插件版本、`~/Documents/Codex`，以及
   `Application Support/Codex/Default` 中的 Cookies、Local Storage、登录信息。

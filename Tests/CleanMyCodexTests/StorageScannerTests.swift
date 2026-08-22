@@ -242,6 +242,40 @@ struct StorageScannerTests {
         #expect(snapshot.categoryList(in: .recommended).allSatisfy { $0.risk.isSelectable })
     }
 
+    /// Regression: `.tmp/bundled-marketplaces` matched "marketplace" by name and was offered
+    /// as a redownloadable copy, but it is the live source for every @openai-bundled plugin.
+    @Test func liveBundledMarketplaceIsNeverOfferedForCleanup() throws {
+        let fixture = try TemporaryFixture()
+        defer { fixture.remove() }
+        let library = fixture.directory("Library")
+
+        let bundled = fixture.directory(".tmp/bundled-marketplaces/openai-bundled/plugins/browser")
+        try Data(repeating: 0x41, count: 150_000).write(to: bundled.appending(path: "plugin.bin"))
+        try fixture.write(
+            "[marketplaces.openai-bundled]\nsource_type = \"local\"\n"
+                + "source = \"\(fixture.file(".tmp/bundled-marketplaces/openai-bundled").path)\"\n",
+            to: "config.toml"
+        )
+
+        let staging = fixture.directory(".tmp/openai-bundled.staging-64e5ba9c")
+        try Data(repeating: 0x42, count: 90_000).write(to: staging.appending(path: "payload.bin"))
+
+        let snapshot = try CodexStorageScanner(libraryDirectory: library).scan(codexHome: fixture.root)
+
+        let cleanable = snapshot.categories
+            .filter { $0.risk.isSelectable }
+            .flatMap(\.entries)
+            .map(\.url.path)
+        #expect(!cleanable.contains { $0.contains("bundled-marketplaces") })
+        #expect(cleanable.contains { $0.hasSuffix("openai-bundled.staging-64e5ba9c") })
+
+        let protectedConfig = try #require(snapshot.categories.first { $0.kind == .protectedConfig })
+        let entry = try #require(protectedConfig.entries.first { $0.url.path.contains("bundled-marketplaces") })
+        #expect(entry.risk == .shielded)
+        #expect(entry.title.hasPrefix(".tmp/"))
+        #expect(entry.bytes >= 150_000)
+    }
+
     @Test func scanReportsLogDatabaseFreeListAsReclaimable() throws {
         let fixture = try TemporaryFixture()
         defer { fixture.remove() }

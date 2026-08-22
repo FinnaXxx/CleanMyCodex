@@ -31,6 +31,11 @@ struct CodexLocations: Sendable {
     var plugins: URL { home.appending(path: "plugins", directoryHint: .isDirectory) }
     var pluginCache: URL { plugins.appending(path: "cache", directoryHint: .isDirectory) }
     var temporary: URL { home.appending(path: ".tmp", directoryHint: .isDirectory) }
+    /// Where Codex unpacks the marketplace that ships with the release. Scratch-looking,
+    /// but live: config.toml registers it as the `openai-bundled` marketplace source.
+    var bundledMarketplaces: URL {
+        temporary.appending(path: "bundled-marketplaces", directoryHint: .isDirectory)
+    }
     var generatedImages: URL { home.appending(path: "generated_images", directoryHint: .isDirectory) }
     var visualizations: URL { home.appending(path: "visualizations", directoryHint: .isDirectory) }
     var computerUse: URL { home.appending(path: "computer-use", directoryHint: .isDirectory) }
