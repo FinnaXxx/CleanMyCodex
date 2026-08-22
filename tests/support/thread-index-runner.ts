@@ -10,7 +10,7 @@ import { CodexThreadIndex } from '../../electron/main/thread-index'
 app.whenReady().then(async () => {
   const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-thread-index-'))
   try {
-    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), documents: join(root, 'Documents') })
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
     const id = '55555555-5555-5555-5555-555555555555'
     const rollout = join(locations.sessions, `rollout-${id}.jsonl`)
     mkdirSync(locations.sessions, { recursive: true })

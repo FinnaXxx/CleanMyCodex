@@ -1,33 +1,18 @@
 /**
  * Shared domain types for CleanMyCodex — used by the main process (scanner, cleanup
  * engine) and the renderer (over IPC). Pure data: no Electron or Node APIs here.
+ *
+ * Nothing in this file carries display text. Anything the user reads is a `Message`
+ * from `./messages`, which the renderer resolves in the language they picked.
  */
+
+import type { Message } from './messages'
 
 export type StorageGroup = 'recommended' | 'review' | 'protectedData'
 
-/** Shown on the right of a category row: how the app rates cleaning it. */
-export const StorageAdviceLabel: Record<StorageGroup, string> = {
-  recommended: '建议清理',
-  review: '谨慎清理',
-  protectedData: '受保护'
-}
-
 export type CleanupRisk = 'safe' | 'rebuildable' | 'caution' | 'shielded'
 
-export const CleanupRiskLabel: Record<CleanupRisk, string> = {
-  safe: '安全',
-  rebuildable: '可重建',
-  caution: '谨慎清理',
-  shielded: '受保护'
-}
-
 export const isSelectable = (risk: CleanupRisk): boolean => risk !== 'shielded'
-
-export type CleanupMethod = 'trash'
-
-export const CleanupMethodLabel: Record<CleanupMethod, string> = {
-  trash: '移到废纸篓'
-}
 
 export type StorageKind =
   | 'logDatabase'
@@ -40,39 +25,11 @@ export type StorageKind =
   | 'appCache'
   | 'appLogs'
   | 'computerUse'
-  | 'activeSessions'
-  | 'archivedSessions'
   | 'protectedConfig'
   | 'protectedUserData'
 
-/** SF Symbol name on macOS; the renderer maps these to an icon set per platform. */
-export const StorageKindSymbol: Record<StorageKind, string> = {
-  logDatabase: 'cylinder.split.1x2',
-  sessionDatabase: 'cylinder.split.1x2',
-  temporary: 'clock.arrow.circlepath',
-  marketplaceCache: 'bag',
-  pluginRemnants: 'puzzlepiece.extension',
-  pluginRuntime: 'puzzlepiece.extension',
-  browserCache: 'safari',
-  appCache: 'externaldrive',
-  appLogs: 'doc.text',
-  computerUse: 'display',
-  activeSessions: 'bubble.left.and.bubble.right',
-  archivedSessions: 'archivebox',
-  protectedConfig: 'lock.shield',
-  protectedUserData: 'folder.badge.person.crop'
-}
-
 /** Content type the category belongs to; drives how the overview groups rows. */
 export type StorageSection = 'caches' | 'logs' | 'plugins' | 'assets' | 'protectedData'
-
-export const StorageSectionLabel: Record<StorageSection, string> = {
-  caches: '缓存与临时文件',
-  logs: '日志与数据库',
-  plugins: '插件与组件',
-  assets: '会话资产',
-  protectedData: '受保护的数据'
-}
 
 export const StorageSectionOrder: StorageSection[] = ['caches', 'logs', 'plugins', 'assets', 'protectedData']
 
@@ -87,22 +44,22 @@ export const StorageKindSection: Record<StorageKind, StorageSection> = {
   appCache: 'caches',
   appLogs: 'logs',
   computerUse: 'plugins',
-  activeSessions: 'assets',
-  archivedSessions: 'assets',
   protectedConfig: 'protectedData',
   protectedUserData: 'protectedData'
 }
 
 /** Small status chip on a storage entry; states a fact the title cannot carry. */
 export interface StorageEntryTag {
-  label: string
+  label: Message
   tone: 'neutral' | 'info' | 'caution'
 }
 
 export interface StorageEntry {
   id: string
+  /** A file or directory name, so it is shown as-is in both languages. */
   title: string
-  detail: string
+  /** Why this entry exists, in the reader's language. */
+  note: Message | null
   tags: StorageEntryTag[]
   url: string
   bytes: number
@@ -112,14 +69,12 @@ export interface StorageEntry {
   minimumIdleSeconds: number | null
   /** Codex scratch space: only safe to touch once Codex is not running. */
   requiresCodexStopped: boolean
-  method: CleanupMethod
   risk: CleanupRisk
 }
 
+/** Title and detail are looked up from `kind`, so the two languages cannot drift. */
 export interface StorageCategory {
   kind: StorageKind
-  title: string
-  detail: string
   group: StorageGroup
   risk: CleanupRisk
   entries: StorageEntry[]
@@ -133,22 +88,13 @@ export const categoryReclaimable = (c: StorageCategory): number =>
 
 export const categoryIsEmpty = (c: StorageCategory): boolean => c.entries.length === 0
 
-export const categoryIsSelectable = (c: StorageCategory): boolean =>
-  isSelectable(c.risk) && c.entries.length > 0
-
 export const categorySection = (c: StorageCategory): StorageSection => StorageKindSection[c.kind]
-
-export const categoryAdvice = (c: StorageCategory): string => StorageAdviceLabel[c.group]
 
 export type SessionLocation = 'active' | 'archived'
 
-export const SessionLocationLabel: Record<SessionLocation, string> = {
-  active: '未归档',
-  archived: '已归档'
-}
-
 export type SessionTag = 'browser' | 'computerUse'
 
+/** Codex' own feature names; identical in both languages. */
 export const SessionTagLabel: Record<SessionTag, string> = {
   browser: 'Browser',
   computerUse: 'Computer Use'
@@ -205,23 +151,14 @@ export const sessionDisplayName = (s: SessionItem): string => {
   return s.threadID.slice(0, 12)
 }
 
-export const sessionHasTitle = (s: SessionItem): boolean =>
-  (!!s.title && s.title.length > 0) || (!!s.preview && s.preview.length > 0)
-
 export type PluginStatus = 'current' | 'outdated' | 'orphaned' | 'unconfirmed'
-
-export const PluginStatusLabel: Record<PluginStatus, string> = {
-  current: '当前版本',
-  outdated: '旧版本',
-  orphaned: '卸载残留',
-  unconfirmed: '未确认'
-}
 
 export const pluginStatusIsRemovable = (status: PluginStatus): boolean =>
   status === 'outdated' || status === 'orphaned'
 
 export interface PluginVersionItem {
-  marketplace: string
+  /** Marketplace directory name, or null when the plugin sits outside one. */
+  marketplace: string | null
   plugin: string
   version: string
   directoryURL: string
@@ -231,14 +168,10 @@ export interface PluginVersionItem {
   status: PluginStatus
 }
 
-export type WorkspaceRepositoryState = 'clean' | 'dirty' | 'unpushed' | 'unknown'
+/** `unchecked` means the scan's git-inspection budget ran out, not that git failed. */
+export type WorkspaceRepositoryState = 'clean' | 'dirty' | 'unpushed' | 'unknown' | 'unchecked'
 
-export const WorkspaceRepositoryStateLabel: Record<WorkspaceRepositoryState, string> = {
-  clean: '已同步',
-  dirty: '有未提交改动',
-  unpushed: '有未推送提交',
-  unknown: '状态未知'
-}
+export const repositoryStateIsSafe = (state: WorkspaceRepositoryState): boolean => state === 'clean'
 
 export interface WorkspaceRepository {
   id: string
@@ -263,7 +196,8 @@ export interface WorkspaceFolder {
   fileCount: number
   modifiedAt: number
   repositories: WorkspaceRepository[]
-  /** Threads whose SQLite cwd points at this output directory or one of its children. */
+  /** Threads whose SQLite cwd points at exactly this output directory or below it —
+   *  never inherited from a child, so a date folder is not labelled with a child's thread. */
   sourceThreads: WorkspaceThreadReference[]
   children: WorkspaceFolder[]
 }
@@ -277,27 +211,17 @@ export interface WorkspaceSnapshot {
 export const workspaceFolderFileCount = (entry: WorkspaceFolder): number =>
   entry.fileCount + entry.children.reduce((sum, child) => sum + workspaceFolderFileCount(child), 0)
 
-export const workspaceFolderRepositoryCount = (entry: WorkspaceFolder): number =>
-  entry.repositories.length + entry.children.reduce((sum, child) => sum + workspaceFolderRepositoryCount(child), 0)
-
 export const workspaceFolderIsUnsafe = (entry: WorkspaceFolder): boolean =>
-  entry.repositories.some((repository) => repository.state !== 'clean') || entry.children.some(workspaceFolderIsUnsafe)
+  entry.repositories.some((repository) => !repositoryStateIsSafe(repository.state)) ||
+  entry.children.some(workspaceFolderIsUnsafe)
 
 export const workspaceBytes = (snapshot: WorkspaceSnapshot): number =>
   snapshot.entries.reduce((sum, entry) => sum + entry.bytes, 0)
 
 export interface ScanProgress {
-  stage: string
+  stage: Message | null
   currentPath: string
-  scannedBytes: number
   fraction: number
-}
-
-export const ScanProgressIdle: ScanProgress = {
-  stage: '',
-  currentPath: '',
-  scannedBytes: 0,
-  fraction: 0
 }
 
 export interface ScanSnapshot {
@@ -309,16 +233,8 @@ export interface ScanSnapshot {
   sessions: SessionItem[]
   workspace: WorkspaceSnapshot
   pluginVersions: PluginVersionItem[]
-  notes: string[]
+  notes: Message[]
 }
-
-export const snapshotIsEmpty = (s: ScanSnapshot): boolean =>
-  s.categories.length === 0 && s.sessions.length === 0 && s.pluginVersions.length === 0
-
-export const snapshotCategoryList = (s: ScanSnapshot, group: StorageGroup): StorageCategory[] =>
-  s.categories
-    .filter((c) => c.group === group && !categoryIsEmpty(c))
-    .sort((a, b) => categoryReclaimable(b) - categoryReclaimable(a))
 
 /** Sessions shown as top-level rows: subagents whose parent is present are rolled into the parent, so exclude them to avoid double-counting rows and bytes. */
 export const listableSessions = (s: ScanSnapshot): SessionItem[] => {
@@ -336,10 +252,11 @@ export const snapshotPluginBytes = (s: ScanSnapshot): number =>
 
 export interface CleanupTask {
   id: string
+  /** A file, folder, or session name — shown as-is. */
   title: string
+  /** The absolute path, shown under the title. */
   detail: string
   url: string
-  method: CleanupMethod
   expectedBytes: number
   /** Thread identity retained for direct session-database cleanup. */
   threadID: string | null
@@ -351,8 +268,8 @@ export interface CleanupTask {
 
 /**
  * Renderer-to-main cleanup protocol. The renderer may select objects that came from the
- * latest snapshot, but it never supplies a filesystem path, cleanup method, or safety
- * flag. The main process resolves these stable IDs back to trusted domain objects.
+ * latest snapshot, but it never supplies a filesystem path or safety flag. The main
+ * process resolves these stable IDs back to trusted domain objects.
  */
 export type CleanupSelection =
   | { kind: 'storage'; ids: string[] }
@@ -370,7 +287,6 @@ export interface CleanupPreviewItem {
   id: string
   title: string
   detail: string
-  method: CleanupMethod
   expectedBytes: number
 }
 
@@ -381,8 +297,9 @@ export interface CleanupPreview {
   blockedTitles: string[]
   codexRunning: boolean
   canRestartCodex: boolean
-  blockerSummary: string | null
-  warnings: string[]
+  /** Why Codex counts as running; empty when it is not. */
+  blockers: Message[]
+  warnings: Message[]
 }
 
 /** Build cleanup tasks from the storage entries selected in the overview. */
@@ -390,9 +307,8 @@ export function tasksFromEntries(entries: StorageEntry[]): CleanupTask[] {
   return entries.map((entry) => ({
     id: entry.id,
     title: entry.title,
-    detail: entry.detail,
+    detail: entry.url,
     url: entry.url,
-    method: entry.method,
     expectedBytes: entry.reclaimableBytes,
     threadID: null,
     companionURLs: [],
@@ -409,7 +325,6 @@ export function tasksForSessionDeletion(sessions: SessionItem[]): CleanupTask[] 
     title: sessionDisplayName(s),
     detail: s.fileURL,
     url: s.fileURL,
-    method: 'trash',
     expectedBytes: sessionTotalBytes(s),
     threadID: s.threadID,
     companionURLs: [...s.segmentURLs, ...s.assetURLs, ...s.childURLs],
@@ -424,7 +339,6 @@ export function tasksForWorkspace(entries: WorkspaceFolder[]): CleanupTask[] {
     title: entry.name,
     detail: entry.path,
     url: entry.path,
-    method: 'trash',
     expectedBytes: entry.bytes,
     threadID: null,
     companionURLs: [],
@@ -435,38 +349,16 @@ export function tasksForWorkspace(entries: WorkspaceFolder[]): CleanupTask[] {
 
 export type CleanupStatus =
   | { kind: 'succeeded' }
-  | { kind: 'skipped'; reason: string }
-  | { kind: 'failed'; reason: string }
+  | { kind: 'skipped'; reason: Message }
+  | { kind: 'failed'; reason: Message }
 
-export const cleanupStatusIsSuccess = (s: CleanupStatus): boolean => s.kind === 'succeeded'
-
-export const cleanupStatusLabel = (s: CleanupStatus): string => {
-  switch (s.kind) {
-    case 'succeeded':
-      return '已完成'
-    case 'skipped':
-      return '本次跳过'
-    case 'failed':
-      return '失败'
-  }
-}
-
-export const cleanupStatusMessage = (s: CleanupStatus): string | null => {
-  switch (s.kind) {
-    case 'succeeded':
-      return null
-    case 'skipped':
-      return s.reason
-    case 'failed':
-      return s.reason
-  }
-}
+export const cleanupStatusReason = (s: CleanupStatus): Message | null =>
+  s.kind === 'succeeded' ? null : s.reason
 
 export interface CleanupOutcome {
   id: string
   title: string
   detail: string
-  method: CleanupMethod
   status: CleanupStatus
   freedBytes: number
 }
@@ -479,9 +371,6 @@ export interface CleanupReport {
 
 export const reportFreedBytes = (r: CleanupReport): number =>
   r.outcomes.reduce((sum, o) => sum + o.freedBytes, 0)
-
-export const reportProblems = (r: CleanupReport): CleanupOutcome[] =>
-  r.outcomes.filter((o) => !cleanupStatusIsSuccess(o.status))
 
 export interface CleanupProgress {
   completed: number
@@ -508,7 +397,8 @@ export interface AppInfo {
   platform: string
   appServerAvailable: boolean
   codexRunning: boolean
-  runtimeSummary: string | null
+  /** Why Codex counts as running; empty when it is not. */
+  blockers: Message[]
 }
 
 export interface AutomationSettings {
@@ -530,9 +420,9 @@ export interface AutomaticRunRecord {
   freedBytes: number
   succeeded: number
   failed: number
-  skippedReason: string | null
   deferred: number
-  deferredNote: string | null
+  /** Why the run did nothing, or why the first item was skipped. */
+  note: Message | null
 }
 
 export interface AutomationState {

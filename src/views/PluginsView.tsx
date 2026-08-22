@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { CleanupProgress, CleanupSelection, PluginVersionItem, ScanSnapshot } from '../../shared/types'
-import { formatBytes, PluginStatusLabel, pluginStatusIsRemovable } from '../../shared/types'
+import { formatBytes, pluginStatusIsRemovable } from '../../shared/types'
+import { message } from '../../shared/messages'
 import { BackIcon, FolderIcon } from '../icons'
 import { usePreferences } from '../preferences'
 
@@ -14,12 +15,12 @@ interface Props {
 }
 
 export default function PluginsView({ snapshot, cleaning, actionsDisabled, cleanProgress, onBack, onCleanup }: Props) {
-  const { t, language, locale } = usePreferences()
+  const { t, m, locale } = usePreferences()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const groups = useMemo(() => {
     const map = new Map<string, PluginVersionItem[]>()
     for (const plugin of snapshot.pluginVersions) {
-      const key = `${plugin.marketplace} / ${plugin.plugin}`
+      const key = plugin.marketplace ? `${plugin.marketplace} / ${plugin.plugin}` : plugin.plugin
       map.set(key, [...(map.get(key) ?? []), plugin])
     }
     return [...map.entries()].sort((a, b) => b[1].reduce((n, x) => n + x.bytes, 0) - a[1].reduce((n, x) => n + x.bytes, 0))
@@ -50,7 +51,7 @@ export default function PluginsView({ snapshot, cleaning, actionsDisabled, clean
             ? <input type="checkbox" aria-label={`${item.plugin} ${item.version}`} checked={selected.has(item.directoryURL)} onChange={() => toggle(item.directoryURL)} />
             : <span className="checkbox-space" />}
           <div className="grow"><code>{item.version}</code><small>{t('最后改动', 'Modified')} {new Date(item.modifiedAt).toLocaleDateString(locale)}{item.environmentBytes ? ` · ${t('Python 环境', 'Python environment')} ${formatBytes(item.environmentBytes)}` : ''}</small></div>
-          <span className={`pill status-${item.status}`}>{language === 'zh-CN' ? PluginStatusLabel[item.status] : ({ current: 'Current', outdated: 'Outdated', orphaned: 'Leftover', unconfirmed: 'Unverified' } as const)[item.status]}</span>
+          <span className={`pill status-${item.status}`}>{m(message(`pluginStatus.${item.status}`))}</span>
           <span className="fixed-bytes">{formatBytes(item.bytes)}</span>
           <button className="icon-button" title={t('在文件管理器中显示', 'Show in file manager')} aria-label={t('在文件管理器中显示', 'Show in file manager')} onClick={() => window.cleanmycodex.revealPath(item.directoryURL)}><FolderIcon /></button>
         </div>)}

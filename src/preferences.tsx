@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from 'react'
+import { formatErrorText, formatMessage, type Language, type Message } from '../shared/messages'
 
 export type ThemePreference = 'light' | 'dark' | 'system'
-export type LanguagePreference = 'zh-CN' | 'en'
+export type LanguagePreference = Language
 
 interface PreferencesValue {
   theme: ThemePreference
@@ -9,7 +10,12 @@ interface PreferencesValue {
   locale: string
   setTheme: (theme: ThemePreference) => void
   setLanguage: (language: LanguagePreference) => void
+  /** Inline literals that only exist in the renderer. */
   t: (chinese: string, english: string) => string
+  /** Anything the main process sent as a `Message`. */
+  m: (value: Message) => string
+  /** An `Error.message` that crossed IPC, resolved back to its `Message` when possible. */
+  e: (text: string) => string
 }
 
 const THEME_KEY = 'cleanmycodex.theme'
@@ -41,6 +47,9 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     localStorage.setItem(LANGUAGE_KEY, language)
     document.documentElement.lang = language
+    // The scheduled cleanup runs without a window, so mirror the choice into the main
+    // process for its log lines and completion notification.
+    void window.cleanmycodex.saveLanguage(language)
   }, [language])
 
   const value = useMemo<PreferencesValue>(() => ({
@@ -49,7 +58,9 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     locale: language === 'zh-CN' ? 'zh-CN' : 'en-US',
     setTheme,
     setLanguage,
-    t: (chinese, english) => language === 'zh-CN' ? chinese : english
+    t: (chinese, english) => language === 'zh-CN' ? chinese : english,
+    m: (item) => formatMessage(item, language),
+    e: (text) => formatErrorText(text, language)
   }), [language, theme])
 
   return <PreferencesContext.Provider value={value}>{children}</PreferencesContext.Provider>

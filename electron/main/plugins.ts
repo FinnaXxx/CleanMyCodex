@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { basename, join, relative, resolve, sep } from 'node:path'
 import type { PluginStatus, PluginVersionItem, StorageCategory, StorageEntry } from '../../shared/types'
+import { message } from '../../shared/messages'
 import type { InstalledPlugin } from './app-server'
 import { directoryAllocatedSize } from './fs-size'
 
@@ -53,7 +54,7 @@ export function scanPluginVersions(
     let modifiedAt = 0
     try { modifiedAt = statSync(path).mtimeMs } catch { /* missing */ }
     return {
-      marketplace: parts[0] === 'cache' ? parts[1] || '本地' : parts[0] || '本地',
+      marketplace: (parts[0] === 'cache' ? parts[1] : parts[0]) || null,
       plugin,
       version,
       directoryURL: path,
@@ -68,23 +69,20 @@ export function scanPluginVersions(
 export function pluginStorageCategory(plugins: PluginVersionItem[]): StorageCategory {
   return {
     kind: 'pluginRemnants',
-    title: '老版本插件与卸载残留',
-    detail: '旧版本与卸载残留',
     group: 'recommended',
     risk: 'safe',
     entries: plugins.filter((plugin) => plugin.status === 'outdated' || plugin.status === 'orphaned').map((plugin): StorageEntry => ({
       id: `trash:${plugin.directoryURL}`,
       title: `${plugin.plugin} · ${plugin.version}`,
-      detail: '',
+      note: null,
       tags: [plugin.status === 'orphaned'
-        ? { label: '卸载残留', tone: 'caution' as const }
-        : { label: '旧版本', tone: 'neutral' as const }],
+        ? { label: message('tag.orphaned'), tone: 'caution' as const }
+        : { label: message('tag.outdated'), tone: 'neutral' as const }],
       url: plugin.directoryURL,
       bytes: plugin.bytes,
       reclaimableBytes: plugin.bytes,
       minimumIdleSeconds: null,
       requiresCodexStopped: false,
-      method: 'trash',
       risk: 'safe'
     })).sort((a, b) => b.bytes - a.bytes)
   }

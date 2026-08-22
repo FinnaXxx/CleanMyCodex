@@ -9,11 +9,11 @@ import {
   type AppInfo,
   type WorkspaceSnapshot,
   reportFreedBytes,
-  cleanupStatusLabel,
-  cleanupStatusMessage,
-  CleanupMethodLabel,
+  cleanupStatusReason,
   formatBytes
 } from '../shared/types'
+import { decodeMessage, message } from '../shared/messages'
+import type { Message } from '../shared/messages'
 import OverviewView from './views/OverviewView'
 import SessionsView from './views/SessionsView'
 import PluginsView from './views/PluginsView'
@@ -26,7 +26,7 @@ import './App.css'
 type Detail = 'sessions' | 'plugins' | 'workspace' | 'settings' | 'automation'
 
 function App() {
-  const { t } = usePreferences()
+  const { t, e } = usePreferences()
   const [detail, setDetail] = useState<Detail | null>(null)
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
   const [snapshot, setSnapshot] = useState<ScanSnapshot | null>(null)
@@ -38,7 +38,7 @@ function App() {
   const [dialogReport, setDialogReport] = useState<CleanupReport | null>(null)
   const [restartCodex, setRestartCodex] = useState(false)
   const [forceQuitCodex, setForceQuitCodex] = useState(false)
-  const [cleanupStage, setCleanupStage] = useState('')
+  const [cleanupStage, setCleanupStage] = useState<Message | null>(null)
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null)
   const scanInFlight = useRef(false)
 
@@ -46,7 +46,7 @@ function App() {
     if (scanInFlight.current) return
     scanInFlight.current = true
     setError(null)
-    setProgress({ stage: document.documentElement.lang === 'en' ? 'Scanning' : '扫描中', currentPath: '', scannedBytes: 0, fraction: 0 })
+    setProgress({ stage: null, currentPath: '', fraction: 0 })
     try {
       const next = await window.cleanmycodex.scan()
       if (next) {
@@ -55,8 +55,9 @@ function App() {
         setAppInfo(await window.cleanmycodex.appInfo())
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      if (!message.includes('扫描已停止')) setError(message)
+      const text = err instanceof Error ? err.message : String(err)
+      // Cancelling is a normal outcome the renderer asked for, not something to report.
+      if (decodeMessage(text)?.key !== 'error.scanStopped') setError(text)
     } finally {
       scanInFlight.current = false
       setProgress(null)
@@ -122,7 +123,7 @@ function App() {
   return (
     <main className="app">
       {!snapshot && <InitialScanView progress={progress} error={error} onRetry={runScan} />}
-      {error && snapshot && <p className="error">{t('出错', 'Error')}：{error}</p>}
+      {error && snapshot && <p className="error">{t('出错：', 'Error: ')}{e(error)}</p>}
 
       {snapshot && <OverviewView snapshot={snapshot} workspace={workspace} appInfo={appInfo} cleaning={cleaning}
         scanning={!!progress} scanProgress={progress} actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup}
@@ -149,19 +150,10 @@ function InitialScanView({ progress, error, onRetry }: {
   error: string | null
   onRetry: () => void
 }) {
-  const { t, language } = usePreferences()
+  const { t, m, e } = usePreferences()
   const fraction = Math.max(0, Math.min(1, progress?.fraction ?? 0))
   const percent = Math.round(fraction * 100)
-  const stage = progress?.stage
-    ? (language === 'zh-CN' ? progress.stage : ({
-        '扫描中': 'Scanning',
-        '缓存与临时文件': 'Caches & temporary files',
-        '插件': 'Plugins',
-        '会话': 'Sessions',
-        '资产目录': 'Asset folders',
-        '工作产出': 'Workspace output'
-      } as Record<string, string>)[progress.stage] ?? progress.stage)
-    : t('正在准备', 'Preparing')
+  const stage = m(progress?.stage ?? message('stage.preparing'))
 
   return <section className={`initial-scan${error ? ' initial-scan-error' : ''}`} aria-live="polite">
     <div className="initial-scan-shell">
@@ -180,7 +172,7 @@ function InitialScanView({ progress, error, onRetry }: {
       {error ? <>
         <span className="initial-scan-kicker">{t('扫描未完成', 'Scan not completed')}</span>
         <h1>{t('暂时没能读取 Codex 空间', 'Could not read Codex storage')}</h1>
-        <p className="initial-scan-lead">{error}</p>
+        <p className="initial-scan-lead">{e(error)}</p>
         <button className="btn primary btn-large" onClick={onRetry}>{t('重新扫描', 'Try Again')}</button>
       </> : <>
         <span className="initial-scan-kicker">{t('首次空间分析', 'Initial storage analysis')}</span>
@@ -200,16 +192,16 @@ function InitialScanView({ progress, error, onRetry }: {
 function CleanupDialog({ preview, restart, forceQuit, onRestart, onForceQuit, onConfirm, onClose }: {
   preview: CleanupPreview; restart: boolean; forceQuit: boolean; onRestart: (value: boolean) => void; onForceQuit: (value: boolean) => void; onConfirm: () => void; onClose: () => void
 }) {
-  const { t, language } = usePreferences()
+  const { t, m } = usePreferences()
   return <div className="modal-backdrop"><section className="cleanup-dialog" role="dialog" aria-modal="true">
     <><h2>{t(`确认清理 ${preview.items.length} 项`, `Confirm cleanup of ${preview.items.length} items`)}</h2>
       <p className="dialog-lead">{t(`预计释放 ${formatBytes(preview.expectedBytes)}，文件会移到系统废纸篓。`, `About ${formatBytes(preview.expectedBytes)} will be freed. Files will be moved to the system Trash.`)}</p>
-      <ul className="preview-list">{preview.items.map((item) => <li key={item.id}><span><strong>{item.title} <em className="method-badge">{language === 'zh-CN' ? CleanupMethodLabel[item.method] : 'Move to Trash'}</em></strong><small>{item.detail}</small></span><b>{formatBytes(item.expectedBytes)}</b></li>)}</ul>
-      {preview.warnings.map((warning) => <p className="notice warning" key={warning}>{warning}</p>)}
+      <ul className="preview-list">{preview.items.map((item) => <li key={item.id}><span><strong>{item.title}</strong><small>{item.detail}</small></span><b>{formatBytes(item.expectedBytes)}</b></li>)}</ul>
+      {preview.warnings.map((warning) => <p className="notice warning" key={warning.key}>{m(warning)}</p>)}
       {!!preview.blockedTitles.length && <div className="notice warning"><strong>{t('需要 Codex 完全退出', 'Codex must quit completely')}</strong><br/>{preview.blockedTitles.slice(0, 4).join(t('、', ', '))}
         {preview.canRestartCodex ? <><label><input type="checkbox" checked={restart} onChange={(event) => { onRestart(event.target.checked); if (!event.target.checked) onForceQuit(false) }}/> {t('先退出 Codex，清理完成后重新打开', 'Quit Codex first, then reopen it after cleanup')}</label>
           {restart && <label><input type="checkbox" checked={forceQuit} onChange={(event) => onForceQuit(event.target.checked)}/> {t('正常退出超时后强制结束（可能丢失未保存内容）', 'Force quit after timeout (unsaved work may be lost)')}</label>}</>
-          : <small>{preview.blockerSummary}{t('，这些项目本次不会执行；退出 Codex 后需重新清理。', '. These items will be skipped. Quit Codex and run cleanup again.')}</small>}</div>}
+          : <small>{preview.blockers.map(m).join(t('；', '; '))}{t('，这些项目本次不会执行；退出 Codex 后需重新清理。', '. These items will be skipped. Quit Codex and run cleanup again.')}</small>}</div>}
     </>
     <div className="dialog-actions"><button className="btn" onClick={onClose}>{t('取消', 'Cancel')}</button>
       <button className="btn danger" onClick={onConfirm}>{t('确认执行', 'Confirm')}</button></div>
@@ -221,10 +213,10 @@ function CleanupExperience({ preview, report, progress, scanProgress, stage, onD
   report: CleanupReport | null
   progress: CleanupProgress | null
   scanProgress: ScanProgress | null
-  stage: string
+  stage: Message | null
   onDone: () => void
 }) {
-  const { t, language } = usePreferences()
+  const { t, m } = usePreferences()
   if (report) {
     const succeeded = report.outcomes.filter((outcome) => outcome.status.kind === 'succeeded').length
     const skipped = report.outcomes.filter((outcome) => outcome.status.kind === 'skipped').length
@@ -253,8 +245,8 @@ function CleanupExperience({ preview, report, progress, scanProgress, stage, onD
           <ul className="report-list">
             {report.outcomes.map((outcome) => <li key={outcome.id} className={`report-row report-${outcome.status.kind}`}>
               <span className="report-row-title">{outcome.title}</span>
-              <span className="report-row-status">{language === 'zh-CN' ? cleanupStatusLabel(outcome.status) : ({ succeeded: 'Completed', skipped: 'Skipped', failed: 'Failed' } as const)[outcome.status.kind]}</span>
-              {cleanupStatusMessage(outcome.status) && <span className="report-row-msg">{cleanupStatusMessage(outcome.status)}</span>}
+              <span className="report-row-status">{m(message(`status.${outcome.status.kind}`))}</span>
+              {cleanupStatusReason(outcome.status) && <span className="report-row-msg">{m(cleanupStatusReason(outcome.status)!)}</span>}
             </li>)}
           </ul>
         </section>
@@ -269,9 +261,9 @@ function CleanupExperience({ preview, report, progress, scanProgress, stage, onD
   const fraction = refreshing
     ? 0.88 + Math.max(0, Math.min(1, scanProgress.fraction)) * 0.12
     : Math.max(0, Math.min(0.86, completed / total * 0.86))
-  const title = (language === 'zh-CN' ? stage : ({ '正在退出 Codex…': 'Quitting Codex…', '正在重新打开 Codex…': 'Reopening Codex…' } as Record<string, string>)[stage]) || (refreshing ? t('正在核对清理结果', 'Verifying cleanup results') : t('正在为 Codex 减负', 'Cleaning up Codex'))
+  const title = (stage && m(stage)) || (refreshing ? t('正在核对清理结果', 'Verifying cleanup results') : t('正在为 Codex 减负', 'Cleaning up Codex'))
   const current = refreshing
-    ? (scanProgress.currentPath || scanProgress.stage || t('重新统计空间占用', 'Recalculating storage usage'))
+    ? (scanProgress.currentPath || (scanProgress.stage && m(scanProgress.stage)) || t('重新统计空间占用', 'Recalculating storage usage'))
     : (progress?.currentTitle || t('正在准备安全清理…', 'Preparing safe cleanup…'))
 
   return <div className="cleanup-flow cleanup-flow-running" role="dialog" aria-modal="true" aria-labelledby="cleanup-progress-title">

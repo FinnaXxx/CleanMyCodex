@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { ScanProgress } from '../shared/types'
 import { CodexLocations, windowsAppCacheDirectories } from '../electron/main/locations'
 import { outermostStorageRoots, scanSnapshot } from '../electron/main/scanner'
 
@@ -21,7 +22,7 @@ function age(path: string, days: number): void {
 describe('storage scanner semantics', () => {
   it('keeps recent logs, protects live marketplaces, and associates assets with their thread', async () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-scan-')); roots.push(root)
-    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), documents: join(root, 'Documents') })
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
     const thread = '11111111-1111-1111-1111-111111111111'
     const rollout = join(locations.sessions, '2026', '08', `rollout-${thread}.jsonl`)
     write(rollout)
@@ -56,10 +57,10 @@ describe('storage scanner semantics', () => {
     write(join(locations.home, 'attachments', 'attachment.bin'))
     write(join(locations.home, 'goals_1.sqlite'))
 
-    const progress: Array<{ stage: string; fraction: number }> = []
+    const progress: ScanProgress[] = []
     const snapshot = await scanSnapshot(locations, [], (item) => progress.push(item))
-    expect(progress.at(-1)).toMatchObject({ stage: '完成', fraction: 1 })
-    expect(progress.some((item) => item.stage === '会话')).toBe(true)
+    expect(progress.at(-1)).toMatchObject({ stage: { key: 'stage.done' }, fraction: 1 })
+    expect(progress.some((item) => item.stage?.key === 'stage.sessions')).toBe(true)
     const logs = snapshot.categories.find((category) => category.kind === 'appLogs')
     expect(logs?.entries.map((entry) => entry.url)).toEqual([oldLog])
     expect(logs?.entries[0].url).not.toBe(locations.appLogs)
@@ -94,7 +95,7 @@ describe('storage scanner semantics', () => {
 
   it('includes application support in the external and total footprint', async () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-scan-')); roots.push(root)
-    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), documents: join(root, 'Documents') })
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
     write(join(locations.home, 'auth.json'), 16_384)
     write(join(locations.appSupport, 'Default', 'Cookies'), 32_768)
     const snapshot = await scanSnapshot(locations, [])
@@ -104,6 +105,17 @@ describe('storage scanner semantics', () => {
 
   it('does not double-count nested platform data roots', () => {
     expect(outermostStorageRoots(['/app/Codex', '/app/Codex/Logs', '/cache/Codex'])).toEqual(['/app/Codex', '/cache/Codex'])
+  })
+
+  it('derives every cache root from the injected caches directory, on any platform', () => {
+    // The engine may delete these roots outright, so a scan (or a test) must never be
+    // able to reach the real user-level cache directory through an injected location.
+    const locations = new CodexLocations({ home: '/tmp/x/.codex', library: '/tmp/x/Library', caches: '/tmp/x/Caches', documents: '/tmp/x/Documents' })
+    expect(locations.appCaches.length).toBeGreaterThan(0)
+    for (const path of [...locations.appCaches, locations.scanCache]) {
+      expect(path.startsWith(locations.caches), path).toBe(true)
+    }
+    expect(locations.removableRoots).toEqual(locations.appCaches)
   })
 
   it('never treats a whole Windows LocalAppData product directory as a cache root', () => {

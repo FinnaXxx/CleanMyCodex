@@ -2,6 +2,7 @@ import { basename, dirname, join, normalize, sep } from 'node:path'
 import { realpathSync } from 'node:fs'
 import { CodexLocations } from './locations'
 import { loadCodexConfiguration, type CodexConfiguration } from './configuration'
+import { MessageError, message, type Message } from '../../shared/messages'
 
 function outermost(paths: string[]): string[] {
   const unique = [...new Set(paths.map(normalize))]
@@ -130,13 +131,13 @@ export class ProtectedPaths {
       || canonicalRoots.some((root) => root === canonicalTarget)
     const isRemovableRoot = this.removableRoots.some((root) => root === target)
     if (isWritableRoot && !isRemovableRoot) {
-      throw new ProtectedPathError(`不能整体删除数据目录：${target}`)
+      throw new ProtectedPathError(message('guard.wholeDataRoot', { path: target }))
     }
     if (!this.writableRoots.some((root) => ProtectedPaths.contains(root, target))) {
-      throw new ProtectedPathError(`不在 Codex 数据目录内：${target}`)
+      throw new ProtectedPathError(message('guard.outsideDataRoots', { path: target }))
     }
     if (this.isProtected(target)) {
-      throw new ProtectedPathError(`受保护的路径：${target}`)
+      throw new ProtectedPathError(message('guard.protectedPath', { path: target }))
     }
     let resolved: string
     try {
@@ -146,15 +147,15 @@ export class ProtectedPaths {
     }
     if (resolved !== target) {
       if (!canonicalRoots.some((root) => ProtectedPaths.contains(root, resolved)) || this.isProtected(resolved)) {
-        throw new ProtectedPathError(`符号链接指向数据目录外：${resolved}`)
+        throw new ProtectedPathError(message('guard.symlinkEscape', { path: resolved }))
       }
     }
   }
 }
 
-export class ProtectedPathError extends Error {
-  constructor(message: string) {
-    super(message)
+export class ProtectedPathError extends MessageError {
+  constructor(info: Message) {
+    super(info)
     this.name = 'ProtectedPathError'
   }
 }

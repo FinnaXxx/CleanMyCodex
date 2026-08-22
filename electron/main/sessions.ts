@@ -5,10 +5,12 @@ import { directoryAllocatedSize } from './fs-size'
 import { CodexThreadIndex } from './thread-index'
 import { SessionScanCache, type CachedSessionContent } from './session-cache'
 import { cleanPreview } from './preview'
+import { SCAN_STOPPED } from '../../shared/messages'
 import type { SessionItem, SessionLocation, SessionTag } from '../../shared/types'
 import { sessionTotalBytes } from '../../shared/types'
 
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+const UUID_ONLY_RE = new RegExp(`^${UUID_RE.source}$`, 'i')
 const TAG_NEEDLES: Array<[SessionTag, Buffer]> = [
   ['browser', Buffer.from('browser_')],
   ['computerUse', Buffer.from('computer_use')]
@@ -17,7 +19,7 @@ const CARRY_LENGTH = Math.max(...TAG_NEEDLES.map(([, value]) => value.length)) -
 
 interface SessionMeta { id: string | null; cwd: string | null; title: string | null; threadSource: string | null; parentThreadID: string | null }
 
-function abortError(): DOMException { return new DOMException('扫描已停止', 'AbortError') }
+function abortError(): DOMException { return new DOMException(SCAN_STOPPED, 'AbortError') }
 function checkAbort(signal?: AbortSignal): void { if (signal?.aborted) throw abortError() }
 
 function threadIDFromName(name: string): string {
@@ -148,7 +150,7 @@ function visualizationDirectories(root: string): Map<string, string[]> {
     for (const entry of entries) {
       if (!entry.isDirectory() || entry.name.startsWith('.')) continue
       const path = join(directory, entry.name)
-      if (new RegExp(`^${UUID_RE.source}$`, 'i').test(entry.name)) {
+      if (UUID_ONLY_RE.test(entry.name)) {
         result.set(entry.name.toLowerCase(), [...(result.get(entry.name.toLowerCase()) ?? []), path])
       } else visit(path)
     }
@@ -265,14 +267,15 @@ export async function scanSessions(
   const cache = SessionScanCache.load(locations.scanCache)
   const items: SessionItem[] = []
   const visualizationIndex = visualizationDirectories(locations.visualizations)
-  const totalBytes = Math.max(1, files.reduce((sum, file) => sum + statAllocated(file.url).logicalBytes, 0))
+  const measured = files.map((file) => ({ ...file, stats: statAllocated(file.url) }))
+  const totalBytes = Math.max(1, measured.reduce((sum, file) => sum + file.stats.logicalBytes, 0))
   let processedBytes = 0
-  for (const file of files) {
+  for (const file of measured) {
     checkAbort(signal)
     onProgress?.(file.url, processedBytes / totalBytes)
     const name = basename(file.url)
     const compressed = name.endsWith('.zst')
-    const before = statAllocated(file.url)
+    const before = file.stats
     let unstable = false
     let content: CachedSessionContent
     const cached = cache.get(file.url, before.logicalBytes, before.modifiedAt)

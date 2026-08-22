@@ -13,7 +13,6 @@ import type {
 import {
   isSelectable,
   listableSessions,
-  PluginStatusLabel,
   pluginStatusIsRemovable,
   tasksForSessionDeletion,
   tasksForWorkspace,
@@ -21,6 +20,7 @@ import {
 } from '../../shared/types'
 import { ProtectedPaths } from './guard'
 import type { CodexEnvironment } from './platform-services'
+import { MessageError, message, type Message } from '../../shared/messages'
 
 const AUTOMATIC_CACHE_KINDS = new Set(['temporary', 'browserCache', 'appCache', 'appLogs'])
 
@@ -29,7 +29,7 @@ export function buildTrustedTasks(
   snapshot: ScanSnapshot,
   workspace: WorkspaceSnapshot
 ): CleanupTask[] {
-  if (!selection || typeof selection !== 'object' || typeof selection.kind !== 'string') throw new Error('清理选择无效')
+  if (!selection || typeof selection !== 'object' || typeof selection.kind !== 'string') throw new MessageError(message('error.invalidSelection'))
   const ids = safeIDs(selection.ids)
   switch (selection.kind) {
     case 'storage': {
@@ -44,20 +44,18 @@ export function buildTrustedTasks(
     case 'plugins': {
       const index = new Map(snapshot.pluginVersions.map((plugin) => [plugin.directoryURL, plugin]))
       const selected = ids.map((id) => index.get(id)).filter((plugin): plugin is PluginVersionItem => !!plugin && pluginStatusIsRemovable(plugin.status))
-      const entries = selected.map((plugin) => ({
+      return tasksFromEntries(selected.map((plugin) => ({
         id: `trash:${plugin.directoryURL}`,
         title: `${plugin.plugin} · ${plugin.version}`,
-        detail: PluginStatusLabel[plugin.status],
+        note: message(`pluginStatus.${plugin.status}`),
         tags: [],
         url: plugin.directoryURL,
         bytes: plugin.bytes,
         reclaimableBytes: plugin.bytes,
         minimumIdleSeconds: null,
         requiresCodexStopped: false,
-        method: 'trash' as const,
         risk: 'safe' as const
-      }))
-      return tasksFromEntries(entries)
+      })))
     }
     case 'workspace': {
       const all = flattenWorkspace(workspace.entries)
@@ -66,7 +64,7 @@ export function buildTrustedTasks(
       return tasksForWorkspace(outermost)
     }
     default:
-      throw new Error('不支持的清理类型')
+      throw new MessageError(message('error.unsupportedSelection'))
   }
 }
 
@@ -78,25 +76,22 @@ export function makeCleanupPreview(
   const blocked = environment.running
     ? tasks.filter((task) => task.requiresCodexStopped)
     : []
-  const warnings: string[] = []
-  if (selection.kind === 'sessions-delete') {
-    warnings.push('会话文件、生成资产和 SQLite 索引记录会一并清理。')
-  }
-  if (selection.kind === 'workspace') warnings.push('请确认未提交或未推送的内容已经保存。')
+  const warnings: Message[] = []
+  if (selection.kind === 'sessions-delete') warnings.push(message('warning.sessionDelete'))
+  if (selection.kind === 'workspace') warnings.push(message('warning.workspaceGit'))
   return {
     selection,
     items: tasks.map((task) => ({
       id: task.id,
       title: task.title,
       detail: task.detail,
-      method: task.method,
       expectedBytes: task.expectedBytes
     })),
     expectedBytes: tasks.reduce((sum, task) => sum + task.expectedBytes, 0),
     blockedTitles: blocked.map((task) => task.title),
     codexRunning: environment.running,
     canRestartCodex: environment.canRestart,
-    blockerSummary: environment.blockerSummary,
+    blockers: environment.blockers,
     warnings
   }
 }
@@ -129,7 +124,7 @@ export function buildAutomaticTasks(
 
 function safeIDs(value: unknown): string[] {
   if (!Array.isArray(value) || value.length > 10_000 || value.some((id) => typeof id !== 'string')) {
-    throw new Error('清理选择无效')
+    throw new MessageError(message('error.invalidSelection'))
   }
   return [...new Set(value as string[])]
 }

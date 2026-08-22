@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { listableSessions, snapshotSessionBytes, type AutomationSettings, type CleanupRisk, type ScanSnapshot, type SessionItem, type StorageEntry, type WorkspaceFolder } from '../shared/types'
 import { buildAutomaticTasks, buildTrustedTasks, makeCleanupPreview } from '../electron/main/planner'
+import { message } from '../shared/messages'
 
 function storage(id: string, risk: CleanupRisk = 'safe'): StorageEntry {
-  return { id, title: id, detail: id, url: `/codex/${id}`, bytes: 100, reclaimableBytes: 100, minimumIdleSeconds: null, requiresCodexStopped: false, method: 'trash', risk }
+  return { id, title: id, note: null, tags: [], url: `/codex/${id}`, bytes: 100, reclaimableBytes: 100, minimumIdleSeconds: null, requiresCodexStopped: false, risk }
 }
 
 function session(id: string, overrides: Partial<SessionItem> = {}): SessionItem {
@@ -16,17 +17,17 @@ function session(id: string, overrides: Partial<SessionItem> = {}): SessionItem 
 }
 
 function folder(path: string, children: WorkspaceFolder[] = []): WorkspaceFolder {
-  return { id: path, path, name: path.split('/').at(-1) ?? path, bytes: 100, fileCount: 1, modifiedAt: 0, repositories: [], children }
+  return { id: path, path, name: path.split('/').at(-1) ?? path, bytes: 100, fileCount: 1, modifiedAt: 0, repositories: [], sourceThreads: [], children }
 }
 
 function snapshot(): ScanSnapshot {
   return {
     codexHome: '/codex', scannedAt: 1, totalCodexBytes: 1000, externalBytes: 0,
     categories: [
-      { kind: 'temporary', title: 'tmp', detail: '', group: 'recommended', risk: 'safe', entries: [storage('safe')] },
-      { kind: 'marketplaceCache', title: 'market', detail: '', group: 'review', risk: 'rebuildable', entries: [storage('market', 'rebuildable')] },
-      { kind: 'protectedConfig', title: 'config', detail: '', group: 'protectedData', risk: 'shielded', entries: [storage('shielded', 'shielded')] },
-      { kind: 'pluginRemnants', title: 'plugins', detail: '', group: 'recommended', risk: 'safe', entries: [storage('old-plugin')] }
+      { kind: 'temporary', group: 'recommended', risk: 'safe', entries: [storage('safe')] },
+      { kind: 'marketplaceCache', group: 'review', risk: 'rebuildable', entries: [storage('market', 'rebuildable')] },
+      { kind: 'protectedConfig', group: 'protectedData', risk: 'shielded', entries: [storage('shielded', 'shielded')] },
+      { kind: 'pluginRemnants', group: 'recommended', risk: 'safe', entries: [storage('old-plugin')] }
     ],
     sessions: [session('active'), session('unstable', { isUnstable: true }), session('compressed', { isCompressed: true })],
     pluginVersions: [
@@ -53,7 +54,9 @@ describe('trusted cleanup planner', () => {
 
   it('always plans session deletion as a recoverable Trash operation', () => {
     const snap = snapshot()
-    expect(buildTrustedTasks({ kind: 'sessions-delete', ids: [snap.sessions[0].id] }, snap, snap.workspace)[0].method).toBe('trash')
+    const task = buildTrustedTasks({ kind: 'sessions-delete', ids: [snap.sessions[0].id] }, snap, snap.workspace)[0]
+    expect(task.url).toBe(snap.sessions[0].fileURL)
+    expect(task.requiresCodexStopped).toBe(true)
   })
 
   it('deletes a selected parent as one task with child rollout companions and bytes', () => {
@@ -105,9 +108,12 @@ describe('trusted cleanup planner', () => {
     const snap = snapshot()
     const selection = { kind: 'sessions-delete', ids: [snap.sessions[0].id] } as const
     const tasks = buildTrustedTasks(selection, snap, snap.workspace)
-    const preview = makeCleanupPreview(selection, tasks, { running: true, detectionKnown: true, desktopRunning: false, cliCommands: ['codex'], canRestart: false, blockerSummary: 'codex 正在运行' })
-    expect(preview.warnings.join(' ')).toContain('SQLite')
-    expect(preview.blockerSummary).toContain('运行')
+    const preview = makeCleanupPreview(selection, tasks, {
+      running: true, detectionKnown: true, desktopRunning: false,
+      cliCommands: ['codex'], canRestart: false, blockers: [message('blocker.cliRunning', { count: 1 })]
+    })
+    expect(preview.warnings.map((item) => item.key)).toContain('warning.sessionDelete')
+    expect(preview.blockers.map((item) => item.key)).toEqual(['blocker.cliRunning'])
     expect(preview.blockedTitles).toEqual(['active'])
   })
 })

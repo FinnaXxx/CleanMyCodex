@@ -4,6 +4,7 @@ import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { Writable, Readable } from 'node:stream'
+import { MessageError, SCAN_STOPPED, message } from '../../shared/messages'
 
 /** Talks to `codex app-server` over newline-delimited JSON-RPC on stdio. CleanMyCodex
  * currently uses it only to discover installed plugins; session scanning and cleanup
@@ -13,11 +14,6 @@ export interface InstalledPlugin {
   name: string
   version: string | null
   directory: string | null
-}
-
-export interface AppServerError {
-  code: number
-  message: string
 }
 
 /** Locate the `codex` CLI, honouring `CODEX_BINARY` and the usual install paths. */
@@ -76,7 +72,7 @@ export class AppServerSession {
       this.closed = true
       for (const call of this.pending.values()) {
         clearTimeout(call.timer)
-        call.reject(new Error('codex app-server 已退出'))
+        call.reject(new MessageError(message('error.appServerExited')))
       }
       this.pending.clear()
     })
@@ -84,7 +80,7 @@ export class AppServerSession {
       this.closed = true
       for (const call of this.pending.values()) {
         clearTimeout(call.timer)
-        call.reject(new Error(`无法启动 codex app-server：${error.message}`))
+        call.reject(new MessageError(message('error.appServerSpawnFailed', { reason: error.message })))
       }
       this.pending.clear()
     })
@@ -104,12 +100,12 @@ export class AppServerSession {
   }
 
   call(method: string, params: Record<string, unknown>): Promise<unknown> {
-    if (this.closed) return Promise.reject(new Error('codex app-server 已退出'))
+    if (this.closed) return Promise.reject(new MessageError(message('error.appServerExited')))
     const id = this.nextID++
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id)
-        reject(new Error(`调用 ${method} 超时`))
+        reject(new MessageError(message('error.appServerTimeout', { method })))
       }, this.timeout)
       this.pending.set(id, { resolve, reject, timer })
       this.send({ jsonrpc: '2.0', id, method, params })
@@ -150,7 +146,7 @@ export class AppServerSession {
     clearTimeout(pending.timer)
     if (object['error']) {
       const err = object['error'] as { code?: number; message?: string }
-      pending.reject(new Error(`codex 返回错误 ${err.code ?? -1}：${err.message ?? '未知错误'}`))
+      pending.reject(new MessageError(message('error.appServerError', { code: err.code ?? -1, reason: err.message ?? '' })))
     } else {
       pending.resolve(object['result'])
     }
@@ -175,14 +171,14 @@ export class AppServerClient {
   }
 
   async openSession(signal?: AbortSignal): Promise<AppServerSession> {
-    if (!this.executable) throw new Error('没有找到 codex 命令行，无法调用 app server')
+    if (!this.executable) throw new MessageError(message('error.codexBinaryMissing'))
     const session = new AppServerSession(this.executable, this.codexHome, this.clientVersion, this.timeout)
     const abort = () => session.close()
     signal?.addEventListener('abort', abort, { once: true })
     try {
-      if (signal?.aborted) throw new DOMException('扫描已停止', 'AbortError')
+      if (signal?.aborted) throw new DOMException(SCAN_STOPPED, 'AbortError')
       await session.handshake()
-      if (signal?.aborted) throw new DOMException('扫描已停止', 'AbortError')
+      if (signal?.aborted) throw new DOMException(SCAN_STOPPED, 'AbortError')
       return session
     } catch (error) {
       session.close()
@@ -199,7 +195,7 @@ export class AppServerClient {
     signal?.addEventListener('abort', abort, { once: true })
     try {
       session = await this.openSession(signal)
-      if (signal?.aborted) throw new DOMException('扫描已停止', 'AbortError')
+      if (signal?.aborted) throw new DOMException(SCAN_STOPPED, 'AbortError')
       const response = await session.listPlugins()
       const plugins = parsePlugins(response)
       // An empty inventory is indistinguishable from an unknown response shape. Never

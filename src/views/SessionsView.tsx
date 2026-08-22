@@ -11,7 +11,9 @@ import {
   listableSessions,
   formatBytes
 } from '../../shared/types'
+import { message } from '../../shared/messages'
 import { BackIcon, FolderIcon } from '../icons'
+import { formatShortDate } from '../format'
 import { usePreferences } from '../preferences'
 
 interface Props {
@@ -25,15 +27,6 @@ interface Props {
 
 type Scope = 'all' | 'active' | 'archived'
 type Sort = 'total' | 'date' | 'name'
-
-/** Compact enough for one line: this year keeps the time, older entries keep the year. */
-function formatDate(ms: number, locale: string): string {
-  if (!ms) return '—'
-  const date = new Date(ms)
-  return date.getFullYear() === new Date().getFullYear()
-    ? date.toLocaleString(locale, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
-    : date.toLocaleDateString(locale, { year: 'numeric', month: '2-digit', day: '2-digit' })
-}
 
 export default function SessionsView({ snapshot, cleaning, actionsDisabled, cleanProgress, onBack, onCleanup }: Props) {
   const { t, locale } = usePreferences()
@@ -134,16 +127,16 @@ export default function SessionsView({ snapshot, cleaning, actionsDisabled, clea
 }
 
 function SessionRow({ session, checked, locale, onToggle }: { session: SessionItem; checked: boolean; locale: string; onToggle: () => void }) {
-  const { t, language } = usePreferences()
+  const { t, m } = usePreferences()
   return <li className={`session-row ${session.isUnstable ? 'unstable' : ''}`}>
     <input type="checkbox" aria-label={sessionDisplayName(session)} checked={checked} onChange={onToggle} />
     <div className="session-title">
       <span className="session-name">{sessionDisplayName(session)}</span>
-      {session.tags.length > 0 && <span className="session-tags">{session.tags.map((tag) => <span key={tag} className={`tag tag-${tag}`}>{language === 'zh-CN' ? SessionTagLabel[tag] : ({ browser: 'Browser', computerUse: 'Computer Use' } as const)[tag]}</span>)}</span>}
+      {session.tags.length > 0 && <span className="session-tags">{session.tags.map((tag) => <span key={tag} className={`tag tag-${tag}`}>{SessionTagLabel[tag]}</span>)}</span>}
       <span className="session-path">{sessionProjectName(session) ? `${sessionProjectName(session)} · ` : ''}{session.fileURL}{session.isUnstable ? t(' · 正在写入', ' · Being written') : ''}</span>
     </div>
-    <span className="col-status"><span className={`pill loc-${session.location}`}>{session.location === 'active' ? t('未归档', 'Active') : t('已归档', 'Archived')}</span></span>
-    <span className="col-date" title={new Date(session.modifiedAt).toLocaleString(locale)}>{formatDate(session.modifiedAt, locale)}</span>
+    <span className="col-status"><span className={`pill loc-${session.location}`}>{m(message(`location.${session.location}`))}</span></span>
+    <span className="col-date" title={new Date(session.modifiedAt).toLocaleString(locale)}>{formatShortDate(session.modifiedAt, locale)}</span>
     <span className="col-num">{formatBytes(session.fileBytes)}</span>
     <span className="col-num">{formatBytes(sessionTotalBytes(session))}</span>
     <button className="icon-button" title={t('在文件管理器中显示', 'Show in file manager')} aria-label={t('在文件管理器中显示', 'Show in file manager')} onClick={() => window.cleanmycodex.revealPath(session.fileURL)}><FolderIcon /></button>

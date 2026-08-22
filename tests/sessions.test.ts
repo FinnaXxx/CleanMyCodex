@@ -11,7 +11,7 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 
 function fixture(): { locations: CodexLocations; root: string } {
   const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-sessions-')); roots.push(root)
-  return { root, locations: new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), documents: join(root, 'Documents') }) }
+  return { root, locations: new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') }) }
 }
 
 describe('session scanning', () => {

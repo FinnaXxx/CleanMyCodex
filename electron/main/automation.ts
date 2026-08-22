@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writ
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { AutomaticRunRecord, AutomationSettings, AutomationState } from '../../shared/types'
+import { MessageError, formatMessage, message, type Language, type Message } from '../../shared/messages'
 
 export const DEFAULT_AUTOMATION_SETTINGS: AutomationSettings = {
   enabled: false,
@@ -25,7 +26,21 @@ const storeDirectory = (): string => app.getPath('userData')
 const settingsPath = (): string => join(storeDirectory(), 'automation.json')
 const lastRunPath = (): string => join(storeDirectory(), 'last-run.json')
 const launchAgentPath = (): string => join(homedir(), 'Library', 'LaunchAgents', `${serviceLabel}.plist`)
-export const automationLogPath = (): string => join(app.getPath('logs'), 'autoclean.log')
+const languagePath = (): string => join(storeDirectory(), 'language.json')
+const automationLogPath = (): string => join(app.getPath('logs'), 'autoclean.log')
+
+/**
+ * The scheduled run has no window, so it cannot ask the renderer which language to use.
+ * The renderer mirrors the choice here whenever it changes, and the background run reads
+ * it back for its log lines and its completion notification.
+ */
+export function saveUILanguage(language: Language): void {
+  if (language === 'zh-CN' || language === 'en') writeJSON(languagePath(), { language })
+}
+
+export function loadUILanguage(): Language {
+  return readJSON<{ language?: string }>(languagePath())?.language === 'en' ? 'en' : 'zh-CN'
+}
 
 function readJSON<T>(path: string): T | null {
   try { return JSON.parse(readFileSync(path, 'utf8')) as T } catch { return null }
@@ -63,7 +78,7 @@ function xml(value: string): string {
 }
 
 function installLaunchAgent(intervalSeconds: number): void {
-  if (process.platform !== 'darwin') throw new Error('当前系统不支持 macOS LaunchAgent')
+  if (process.platform !== 'darwin') throw new MessageError(message('error.launchAgentUnsupported'))
   const path = launchAgentPath()
   const log = automationLogPath()
   mkdirSync(dirname(path), { recursive: true })
@@ -83,7 +98,7 @@ function installLaunchAgent(intervalSeconds: number): void {
   writeFileSync(path, plist, 'utf8')
   runLaunchctl(['bootout', `gui/${process.getuid?.() ?? 0}/${serviceLabel}`])
   if (!runLaunchctl(['bootstrap', `gui/${process.getuid?.() ?? 0}`, path])) {
-    throw new Error('launchctl 无法加载定时清理任务')
+    throw new MessageError(message('error.launchctlFailed'))
   }
 }
 
@@ -94,13 +109,26 @@ function runSchtasks(args: string[]): boolean {
   } catch { return false }
 }
 
+/** Windows knows the real next run time; ask it rather than estimating from a file. */
+function windowsNextRunAt(): number | null {
+  try {
+    const output = execFileSync('schtasks.exe', ['/Query', '/TN', windowsTaskName, '/FO', 'LIST', '/V'],
+      { encoding: 'utf8', timeout: 10_000, windowsHide: true })
+    const line = output.split(/\r?\n/).find((row) => /^\s*Next Run Time:/i.test(row))
+    const value = line?.split(':').slice(1).join(':').trim()
+    if (!value || /N\/A/i.test(value)) return null
+    const parsed = Date.parse(value)
+    return Number.isFinite(parsed) ? parsed : null
+  } catch { return null }
+}
+
 function installWindowsTask(intervalDays: number): void {
-  if (process.platform !== 'win32') throw new Error('当前系统不支持 Windows 任务计划程序')
+  if (process.platform !== 'win32') throw new MessageError(message('error.schtasksUnsupported'))
   const command = app.isPackaged
     ? `"${process.execPath}" --auto-clean`
     : `"${process.execPath}" "${app.getAppPath()}" --auto-clean`
   if (!runSchtasks(['/Create', '/F', '/SC', 'DAILY', '/MO', String(Math.max(1, Math.floor(intervalDays))), '/TN', windowsTaskName, '/TR', command])) {
-    throw new Error('Windows 任务计划程序无法创建定时清理任务')
+    throw new MessageError(message('error.schtasksFailed'))
   }
 }
 
@@ -122,25 +150,34 @@ export function getAutomationState(): AutomationState {
   const loaded = process.platform === 'darwin'
     ? installed && runLaunchctl(['print', `gui/${process.getuid?.() ?? 0}/${serviceLabel}`])
     : installed
-  let nextRunAt: number | null = null
-  if (installed) {
-    try {
-      const reference = process.platform === 'darwin' ? launchAgentPath() : settingsPath()
-      nextRunAt = statSync(reference).mtimeMs + Math.max(1, settings.intervalDays) * 86_400_000
-    } catch { /* missing */ }
-  }
+  const lastRun = readJSON<AutomaticRunRecord>(lastRunPath())
   return {
     settings,
     installed,
     loaded,
-    nextRunAt,
-    lastRun: readJSON<AutomaticRunRecord>(lastRunPath()),
+    nextRunAt: installed ? nextRunEstimate(settings, lastRun) : null,
+    lastRun,
     supported: process.platform === 'darwin' || process.platform === 'win32'
   }
 }
 
+/**
+ * launchd only knows a `StartInterval`, so the macOS estimate counts forward from the
+ * last completed run — falling back to when the agent was installed — instead of from a
+ * file's mtime, which never advanced once a run had fired.
+ */
+function nextRunEstimate(settings: AutomationSettings, lastRun: AutomaticRunRecord | null): number | null {
+  if (process.platform === 'win32') return windowsNextRunAt()
+  const interval = Math.max(1, settings.intervalDays) * 86_400_000
+  let anchor = lastRun?.finishedAt ?? 0
+  if (!anchor) {
+    try { anchor = statSync(launchAgentPath()).mtimeMs } catch { return null }
+  }
+  return anchor + interval
+}
+
 export function applyAutomationSettings(settings: AutomationSettings): AutomationState {
-  if (!validAutomationSettings(settings)) throw new Error('定时清理设置无效')
+  if (!validAutomationSettings(settings)) throw new MessageError(message('error.invalidAutomationSettings'))
   const sanitized: AutomationSettings = {
     ...settings,
     intervalDays: Math.min(180, Math.max(1, Math.round(settings.intervalDays))),
@@ -151,7 +188,7 @@ export function applyAutomationSettings(settings: AutomationSettings): Automatio
   if (sanitized.enabled) {
     if (process.platform === 'darwin') installLaunchAgent(sanitized.intervalDays * 86_400)
     else if (process.platform === 'win32') installWindowsTask(sanitized.intervalDays)
-    else throw new Error('当前系统不支持定期后台清理')
+    else throw new MessageError(message('error.automationUnsupported'))
   } else {
     uninstallLaunchAgent()
     uninstallWindowsTask()
@@ -169,8 +206,8 @@ function validAutomationSettings(value: unknown): value is AutomationSettings {
     && numbers.every((key) => typeof item[key] === 'number' && Number.isFinite(item[key]))
 }
 
-export function appendAutomationLog(message: string): void {
+export function appendAutomationLog(entry: Message): void {
   const path = automationLogPath()
   mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, `[${new Date().toISOString()}] ${message}\n`, { encoding: 'utf8', flag: 'a' })
+  writeFileSync(path, `[${new Date().toISOString()}] ${formatMessage(entry, loadUILanguage())}\n`, { encoding: 'utf8', flag: 'a' })
 }

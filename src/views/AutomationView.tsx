@@ -8,7 +8,7 @@ const formatMoment = (ms: number, locale: string): string =>
   new Date(ms).toLocaleString(locale, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 
 export default function AutomationView({ onBack }: { onBack: () => void }) {
-  const { t, locale } = usePreferences()
+  const { t, m, locale } = usePreferences()
   const [state, setState] = useState<AutomationState | null>(null)
   const [settings, setSettings] = useState<AutomationSettings | null>(null)
   const [saving, setSaving] = useState(false)
@@ -29,6 +29,7 @@ export default function AutomationView({ onBack }: { onBack: () => void }) {
       <label>{t('每', 'Run every')} <input className="number" type="number" min="1" max="180" value={settings.intervalDays} onChange={(event) => update('intervalDays', Number(event.target.value))}/> {t('天运行一次', 'days')}</label>
       {state.nextRunAt && <small>{t('预计下次运行：', 'Next run: ')}{formatMoment(state.nextRunAt, locale)}</small>}
       {state.lastRun && <small>{t('上次运行：', 'Last run: ')}{formatMoment(state.lastRun.finishedAt, locale)} · {t('释放', 'Freed')} {formatBytes(state.lastRun.freedBytes)} · {t('成功', 'Succeeded')} {state.lastRun.succeeded} · {t('跳过', 'Skipped')} {state.lastRun.deferred} · {t('失败', 'Failed')} {state.lastRun.failed}</small>}
+      {state.lastRun?.note && <small>{m(state.lastRun.note)}</small>}
     </section>
     <section className="card form-card"><h3>{t('定时清理范围', 'Cleanup Scope')}</h3>
       <label><input type="checkbox" checked={settings.cleanCaches} onChange={(event) => update('cleanCaches', event.target.checked)}/> {t('缓存和过期临时文件', 'Caches and stale temporary files')}</label>

@@ -13,10 +13,10 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 describe('cleanup engine', () => {
   it('counts directory contents and moves an allowed target to trash', async () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-cleanup-')); roots.push(root)
-    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), documents: join(root, 'Documents') })
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
     const target = join(locations.home, '.tmp', 'stale')
     mkdirSync(target, { recursive: true }); writeFileSync(join(target, 'payload'), Buffer.alloc(8192))
-    const task: CleanupTask = { id: target, title: 'stale', detail: target, url: target, method: 'trash', expectedBytes: 8192, threadID: null, companionURLs: [], minimumIdleSeconds: null, requiresCodexStopped: false }
+    const task: CleanupTask = { id: target, title: 'stale', detail: target, url: target, expectedBytes: 8192, threadID: null, companionURLs: [], minimumIdleSeconds: null, requiresCodexStopped: false }
     const report = await runCleanup([task], new ProtectedPaths(locations), {
       trash: async (path) => renameSync(path, `${path}.trashed`), isCodexRunning: () => false
     })
@@ -26,10 +26,10 @@ describe('cleanup engine', () => {
 
   it('moves a dedicated app cache root to trash', async () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-cleanup-')); roots.push(root)
-    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), documents: join(root, 'Documents') })
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
     const target = locations.appCaches[0]
     mkdirSync(target, { recursive: true }); writeFileSync(join(target, 'payload'), Buffer.alloc(8192))
-    const task: CleanupTask = { id: target, title: 'Codex', detail: target, url: target, method: 'trash', expectedBytes: 8192, threadID: null, companionURLs: [], minimumIdleSeconds: null, requiresCodexStopped: false }
+    const task: CleanupTask = { id: target, title: 'Codex', detail: target, url: target, expectedBytes: 8192, threadID: null, companionURLs: [], minimumIdleSeconds: null, requiresCodexStopped: false }
     const report = await runCleanup([task], new ProtectedPaths(locations), {
       trash: async (path) => renameSync(path, `${path}.trashed`), isCodexRunning: () => false
     })
@@ -39,12 +39,25 @@ describe('cleanup engine', () => {
     expect(existsSync(`${target}.trashed`)).toBe(true)
   })
 
+  it('reports an emptied directory as cleaned even though it frees no bytes', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-cleanup-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const target = join(locations.home, '.tmp', 'empty')
+    mkdirSync(target, { recursive: true }); writeFileSync(join(target, 'zero-length'), '')
+    const task: CleanupTask = { id: target, title: 'empty', detail: target, url: target, expectedBytes: 0, threadID: null, companionURLs: [], minimumIdleSeconds: null, requiresCodexStopped: false }
+    const report = await runCleanup([task], new ProtectedPaths(locations), {
+      trash: async (path) => renameSync(path, `${path}.trashed`), isCodexRunning: () => false
+    })
+    expect(report.outcomes[0].status.kind).toBe('succeeded')
+    expect(existsSync(`${target}.trashed`)).toBe(true)
+  })
+
   it('rechecks minimum idle time immediately before cleanup', async () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-cleanup-')); roots.push(root)
-    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), documents: join(root, 'Documents') })
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
     const target = join(locations.home, '.tmp', 'active')
     mkdirSync(target, { recursive: true }); writeFileSync(join(target, 'payload'), 'active')
-    const task: CleanupTask = { id: target, title: 'active', detail: target, url: target, method: 'trash', expectedBytes: 1, threadID: null, companionURLs: [], minimumIdleSeconds: 3600, requiresCodexStopped: false }
+    const task: CleanupTask = { id: target, title: 'active', detail: target, url: target, expectedBytes: 1, threadID: null, companionURLs: [], minimumIdleSeconds: 3600, requiresCodexStopped: false }
     const report = await runCleanup([task], new ProtectedPaths(locations), {
       trash: async () => { throw new Error('must not trash') }, isCodexRunning: () => false
     })
@@ -53,7 +66,7 @@ describe('cleanup engine', () => {
 
   it('deletes every rollout and asset companion before removing SQLite records', async () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-cleanup-')); roots.push(root)
-    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), documents: join(root, 'Documents') })
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
     const parent = join(locations.sessions, 'parent.jsonl')
     const resumed = join(locations.sessions, 'parent-resumed.jsonl')
     const child = join(locations.sessions, 'child.jsonl')
@@ -67,7 +80,7 @@ describe('cleanup engine', () => {
     }
     const deletedThreads: Array<{ threadID: string; relatedURLs: string[] }> = []
     const task: CleanupTask = {
-      id: parent, title: 'thread', detail: '', url: parent, method: 'trash', expectedBytes: 1,
+      id: parent, title: 'thread', detail: '', url: parent, expectedBytes: 1,
       threadID: 'parent-thread', companionURLs: [resumed, child, generated, visualization],
       minimumIdleSeconds: null, requiresCodexStopped: false
     }
@@ -86,11 +99,11 @@ describe('cleanup engine', () => {
 
   it('validates every companion before trashing a session', async () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-cleanup-')); roots.push(root)
-    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), documents: join(root, 'Documents') })
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
     const rollout = join(locations.sessions, 'thread.jsonl')
     const protectedCompanion = join(locations.home, 'auth.json')
     mkdirSync(locations.sessions, { recursive: true }); writeFileSync(rollout, '{}\n'); writeFileSync(protectedCompanion, '{}')
-    const task: CleanupTask = { id: rollout, title: 'thread', detail: '', url: rollout, method: 'trash', expectedBytes: 1, threadID: 'thread', companionURLs: [protectedCompanion], minimumIdleSeconds: null, requiresCodexStopped: false }
+    const task: CleanupTask = { id: rollout, title: 'thread', detail: '', url: rollout, expectedBytes: 1, threadID: 'thread', companionURLs: [protectedCompanion], minimumIdleSeconds: null, requiresCodexStopped: false }
     let trashed = false
     const report = await runCleanup([task], new ProtectedPaths(locations), {
       trash: async () => { trashed = true }, isCodexRunning: () => false
@@ -101,10 +114,10 @@ describe('cleanup engine', () => {
 
   it('does not trash rollout files when the SQLite preflight fails', async () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-cleanup-')); roots.push(root)
-    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), documents: join(root, 'Documents') })
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
     const rollout = join(locations.sessions, 'thread.jsonl')
     mkdirSync(locations.sessions, { recursive: true }); writeFileSync(rollout, '{}\n')
-    const task: CleanupTask = { id: rollout, title: 'thread', detail: '', url: rollout, method: 'trash', expectedBytes: 1, threadID: 'thread', companionURLs: [], minimumIdleSeconds: null, requiresCodexStopped: false }
+    const task: CleanupTask = { id: rollout, title: 'thread', detail: '', url: rollout, expectedBytes: 1, threadID: 'thread', companionURLs: [], minimumIdleSeconds: null, requiresCodexStopped: false }
     let trashed = false
     const report = await runCleanup([task], new ProtectedPaths(locations), {
       trash: async () => { trashed = true }, isCodexRunning: () => false,
