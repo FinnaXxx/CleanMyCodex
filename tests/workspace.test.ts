@@ -22,4 +22,27 @@ describe('workspace scanner', () => {
     expect(snapshot.entries[0].children[0].fileCount).toBe(1)
     expect(snapshot.entries[0].bytes).toBeGreaterThan(0)
   })
+
+  it('progressively adds SQLite thread titles without changing unmatched folders', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-workspace-')); roots.push(root)
+    const linked = join(root, '2026-08-21', 'new-chat')
+    const unmatched = join(root, '2026-08-21', 'unknown-output')
+    mkdirSync(linked, { recursive: true })
+    mkdirSync(unmatched, { recursive: true })
+    writeFileSync(join(linked, 'result.txt'), 'result')
+    writeFileSync(join(unmatched, 'result.txt'), 'result')
+
+    const snapshot = scanWorkspace(root, undefined, [
+      { id: 'main', cwd: linked, title: '分析 Codex 磁盘占用文件', archived: false, isSubagent: false, modifiedAt: 20 },
+      { id: 'child', cwd: join(linked, 'work'), title: '子任务', archived: false, isSubagent: true, modifiedAt: 10 },
+      { id: 'outside', cwd: join(root, '..', 'elsewhere'), title: '不应关联', archived: false, isSubagent: false, modifiedAt: 30 }
+    ])
+
+    const date = snapshot.entries[0]
+    const linkedFolder = date.children.find((item) => item.name === 'new-chat')
+    const unmatchedFolder = date.children.find((item) => item.name === 'unknown-output')
+    expect(linkedFolder?.sourceThreads.map((thread) => thread.id)).toEqual(['main', 'child'])
+    expect(date.sourceThreads.map((thread) => thread.id)).toEqual(['main', 'child'])
+    expect(unmatchedFolder?.sourceThreads).toEqual([])
+  })
 })
