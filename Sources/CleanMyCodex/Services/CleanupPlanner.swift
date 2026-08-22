@@ -28,6 +28,27 @@ enum CleanupPlanner {
         }
     }
 
+    /// Slimming keeps the thread, so only sessions that would actually shrink are listed.
+    static func slimTasks(for sessions: [SessionItem], mode: SessionSlimMode) -> [CleanupTask] {
+        sessions.compactMap { session in
+            guard !session.isCompressed, !session.isUnstable else { return nil }
+            let expected = mode == .deduplicate ? session.slimmableBytes : session.strippableBytes
+            guard expected > 0 else { return nil }
+            return CleanupTask(
+                id: session.id,
+                title: session.displayName,
+                detail: mode == .deduplicate
+                    ? "\(session.embeddedImageCount) 张内嵌图片，其中 \(session.embeddedImageCount - session.distinctImageCount) 张是重复"
+                    : "\(session.embeddedImageCount) 张内嵌图片全部替换为占位图",
+                url: session.fileURL,
+                method: .slimSession,
+                expectedBytes: expected,
+                threadID: session.threadID,
+                slimMode: mode
+            )
+        }
+    }
+
     static func automaticSessions(
         in snapshot: ScanSnapshot,
         settings: AutomationSettings,

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 struct CodexStorageScanner: Sendable {
@@ -717,6 +718,8 @@ struct CodexStorageScanner: Sendable {
             assetURLs: assetURLs,
             embeddedImageBytes: content.images.uriBytes,
             embeddedImageCount: content.images.count,
+            distinctImageCount: content.images.distinctCount,
+            duplicateImageBytes: content.images.duplicateBytes,
             workingDirectory: metadata.workingDirectory,
             title: titles.title(forThreadID: threadID, rolloutPath: url) ?? metadata.title,
             preview: metadata.preview,
@@ -1040,6 +1043,10 @@ struct EmbeddedImageScanResult: Equatable, Sendable {
     var uriBytes: Int64 = 0
     var base64Bytes: Int64 = 0
     var truncatedCandidates = 0
+    /// How many of the occurrences are pictures we have not seen before in this file.
+    var distinctCount = 0
+    /// Bytes held by repeat occurrences — what deduplicating the file would give back.
+    var duplicateBytes: Int64 = 0
 }
 
 /// Counts image data URIs directly from JSON bytes. It never materializes a base64 payload.
@@ -1070,6 +1077,7 @@ struct JSONStringImageCounter {
     private var carry = Data()
     private var active: ImageCandidate?
     private var result = EmbeddedImageScanResult()
+    private var seen: Set<Data> = []
 
     mutating func consume(_ chunk: Data) {
         var data = Data()
@@ -1129,14 +1137,21 @@ struct JSONStringImageCounter {
             result.count += 1
             result.uriBytes += active.rawBytes
             result.base64Bytes += max(0, active.rawBytes - active.headerBytesThroughComma)
+            if seen.insert(active.payloadDigest()).inserted {
+                result.distinctCount += 1
+            } else {
+                result.duplicateBytes += active.rawBytes
+            }
         }
         active = nil
     }
 }
 
-private struct ImageCandidate {
+struct ImageCandidate {
     private(set) var rawBytes: Int64 = 0
     private(set) var header = Data()
+    private var hasher = SHA256()
+    private var sawComma = false
 
     var isBase64Image: Bool {
         guard header.contains(0x2C) else { return false }
@@ -1150,10 +1165,26 @@ private struct ImageCandidate {
         return Int64(header.distance(from: header.startIndex, to: comma) + 1)
     }
 
+    /// Identity of the picture itself: the base64 payload, not the surrounding JSON.
+    /// The same screenshot re-serialized into a later turn hashes to the same value.
+    func payloadDigest() -> Data {
+        Data(hasher.finalize())
+    }
+
     mutating func append<S: DataProtocol>(_ bytes: S) {
-        rawBytes += Int64(bytes.count)
-        if header.count < 256 {
-            header.append(contentsOf: bytes.prefix(256 - header.count))
+        let data = Data(bytes)
+        rawBytes += Int64(data.count)
+
+        var payloadStart = data.startIndex
+        if !sawComma {
+            if header.count < 256 {
+                header.append(contentsOf: data.prefix(256 - header.count))
+            }
+            // base64 has no commas, so the first one always ends the data URI header.
+            guard let comma = data.firstIndex(of: 0x2C) else { return }
+            sawComma = true
+            payloadStart = data.index(after: comma)
         }
+        hasher.update(data: data[payloadStart...])
     }
 }

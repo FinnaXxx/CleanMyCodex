@@ -12,6 +12,8 @@ struct SessionScanCache: Sendable {
         var modified: Double
         var imageBytes: Int64
         var imageCount: Int
+        var distinctImageCount: Int
+        var duplicateImageBytes: Int64
         var truncatedCandidates: Int
         var tags: [String]
         var threadID: String?
@@ -26,7 +28,7 @@ struct SessionScanCache: Sendable {
         var records: [String: Record]
     }
 
-    private static let currentVersion = 1
+    private static let currentVersion = 2
     private static let fileName = "session-scan.json"
 
     private var records: [String: Record]
@@ -88,6 +90,8 @@ extension SessionScanCache.Record {
             modified: modified.timeIntervalSince1970,
             imageBytes: scan.images.uriBytes,
             imageCount: scan.images.count,
+            distinctImageCount: scan.images.distinctCount,
+            duplicateImageBytes: scan.images.duplicateBytes,
             truncatedCandidates: scan.images.truncatedCandidates,
             tags: scan.tags.map(\.rawValue).sorted(),
             threadID: scan.metadata.id,
@@ -104,7 +108,9 @@ extension SessionScanCache.Record {
             count: imageCount,
             uriBytes: imageBytes,
             base64Bytes: 0,
-            truncatedCandidates: truncatedCandidates
+            truncatedCandidates: truncatedCandidates,
+            distinctCount: distinctImageCount,
+            duplicateBytes: duplicateImageBytes
         )
         scan.tags = Set(tags.compactMap(SessionTag.init(rawValue:)))
         scan.metadata = SessionMetadata(
