@@ -95,7 +95,6 @@ struct ProtectedPaths: Sendable {
     var protectedURLs: [URL] {
         var urls = Self.protectedHomeEntries.map { locations.home.appending(path: $0) }
         urls += Self.protectedAppSupportEntries.map { locations.appSupport.appending(path: $0) }
-        urls.append(FileManager.default.homeDirectoryForCurrentUser.appending(path: "Documents/Codex"))
         urls += activePluginDirectories
         urls += localMarketplaceSources
         return urls.map(\.standardizedFileURL)
@@ -120,6 +119,8 @@ struct ProtectedPaths: Sendable {
     func validate(_ url: URL) throws {
         let target = url.standardizedFileURL
         let roots = locations.writableRoots
+        // The workspace root itself is never a target — only folders inside it are, and
+        // only when the user picked them by hand. Same rule as ~/.codex itself.
         guard !roots.contains(where: { $0 == target }) else {
             throw CleanupGuardError.rootDirectory(target.path)
         }

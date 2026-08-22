@@ -77,8 +77,21 @@ Codex 的数据分散在 `~/.codex`、`~/Library/Application Support/Codex`、`~
   它旁边的 `openai-bundled.staging-<uuid>` 才是升级残留，可以清理。
 - 保护是**双向包含**判定：目标在受保护路径之内会被拒绝，目标**包含**受保护路径同样被拒绝，
   否则删父目录就能绕过对子目录的保护。
+### 工作产出（~/Documents/Codex）
+
+Codex 每次会话的工作目录和产出文件——克隆的仓库、生成的中间文件、截图、导出物——按日期分组，
+每个日期下再按会话分。这是**你的成果，不是缓存**，所以它走的是和普通清理不同的通道：
+
+- 单独一个界面，按 日期 → 会话 展开，显示每一级的大小和文件数。
+- **默认一项都不勾选**，每次扫描后选择都会清空；**自动清理永远不会碰这里**。
+- 目录根 `~/Documents/Codex` 本身不可删除，只有它下面的子目录才能被选中，和 `~/.codex` 同一条规则。
+- 会检测其中的 git 仓库，并用 `git status` / `@{upstream}..HEAD` 判断是否有**未提交改动或未推送提交**。
+  这类内容只存在本地，删了无法从远端恢复，所以会在行内和确认框里单独标出；git 不可用时状态记为
+  「未知」，按"不安全"处理，绝不当成可以放心删。
+- 依然只是移到废纸篓。
+
 - 以下内容永不清理：`auth.json`、`config.toml`、`state_*.sqlite`（含 WAL/SHM）、`rules`、`hooks`、
-  用户 skills 与 memories、当前启用的插件版本、`~/Documents/Codex`，以及
+  用户 skills 与 memories、当前启用的插件版本、`~/Documents/Codex` 目录根本身，以及
   `Application Support/Codex/Default` 中的 Cookies、Local Storage、登录信息。
 - 每一次删除都会经过路径白名单校验：目标必须位于 Codex 的数据目录内，且不是数据目录本身。
 

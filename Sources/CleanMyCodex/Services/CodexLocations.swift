@@ -4,12 +4,19 @@ import Foundation
 struct CodexLocations: Sendable {
     let home: URL
     let library: URL
+    let documents: URL
 
-    init(home: URL, library: URL? = nil) {
+    init(home: URL, library: URL? = nil, documents: URL? = nil) {
         self.home = home.standardizedFileURL
         self.library = (library ?? FileManager.default.homeDirectoryForCurrentUser
             .appending(path: "Library", directoryHint: .isDirectory)).standardizedFileURL
+        self.documents = (documents ?? FileManager.default.homeDirectoryForCurrentUser
+            .appending(path: "Documents", directoryHint: .isDirectory)).standardizedFileURL
     }
+
+    /// Codex' sandbox workspace: session work directories and outputs. User work product,
+    /// not runtime data — visible and selectable, but never preselected or auto-cleaned.
+    var workspace: URL { documents.appending(path: "Codex", directoryHint: .isDirectory) }
 
     static func resolveHome(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
         if let override = environment["CODEX_HOME"], !override.isEmpty {
@@ -74,6 +81,6 @@ struct CodexLocations: Sendable {
 
     /// Roots the cleanup engine will ever touch. Anything outside is rejected.
     var writableRoots: [URL] {
-        [home, appSupport, appLogs] + appCaches
+        [home, appSupport, appLogs, workspace] + appCaches
     }
 }

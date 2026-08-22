@@ -164,6 +164,7 @@ struct CleanupPlannerTests {
             externalBytes: 0,
             categories: [],
             sessions: sessions,
+            workspace: .empty(at: URL(fileURLWithPath: "/tmp/Documents/Codex")),
             pluginVersions: [],
             notes: []
         )

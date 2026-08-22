@@ -17,6 +17,7 @@ struct OverviewView: View {
                     group(.recommended)
                     sessionsCard
                     group(.review)
+                    workspaceCard
                     group(.protectedData)
                 }
                 .padding(28)
@@ -163,6 +164,47 @@ struct OverviewView: View {
                     }
                     .padding(.vertical, 4)
                 }
+            }
+        }
+    }
+
+    /// Work product, kept out of the checkbox groups on purpose: nothing here is ever
+    /// preselected, and the scheduled run never touches it.
+    @ViewBuilder
+    private var workspaceCard: some View {
+        let workspace = model.snapshot.workspace
+        if !workspace.isEmpty {
+            CleanerCard(padding: 0) {
+                HStack(spacing: 14) {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(Color.cleanerAmber.opacity(0.13))
+                        .frame(width: 38, height: 38)
+                        .overlay {
+                            Image(systemName: "folder.badge.person.crop")
+                                .foregroundStyle(Color.cleanerAmber)
+                        }
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("工作产出 · \(workspace.root.lastPathComponent)").font(.headline)
+                        Text("会话的工作目录和产出文件，属于你的成果。默认不勾选，自动清理不会碰。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 12)
+                    if workspace.repositoryCount > 0 {
+                        StatusPill(text: "\(workspace.repositoryCount) 个 git 仓库", color: .cleanerBlue)
+                    }
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(ByteFormat.string(workspace.bytes))
+                            .font(.body.weight(.semibold))
+                            .monospacedDigit()
+                        Text("\(workspace.fileCount) 个文件")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Button("查看并选择") { model.activeSheet = .workspace }
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
             }
         }
     }
