@@ -33,7 +33,8 @@ Codex 的数据分散在 `~/.codex`、`~/Library/Application Support/Codex`、`~
 - 支持按占用、内嵌图片、最后活动或名称排序，可搜索标题/项目，并按「最后活动早于 N 天」批量选择。
 - 过滤与排序结果有缓存，只在条件变化时重算，长列表滚动不会卡。
 - 删除优先调用 app server 的 `thread/delete`，同时清理 rollout、关联元数据和派生子线程；
-  没有 `codex` 命令行时退回到「移到废纸篓」，并同时处理 `generated_images` / `visualizations` 里的关联资产。
+  没有 `codex` 命令行时退回到「移到废纸篓」，并同时处理 `generated_images` / `visualizations` 里的关联资产；
+  这种回退方式不会更新 `state_*.sqlite` 里的线程索引，删除确认框会提示这一点。
 - 不会改写 JSONL 里的图片字段，避免破坏会话恢复和线程引用。
 
 ### 插件版本
