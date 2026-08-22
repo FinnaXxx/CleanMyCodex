@@ -1,7 +1,8 @@
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
-import { basename, join } from 'node:path'
-import type { WorkspaceFolder, WorkspaceRepository, WorkspaceRepositoryState, WorkspaceSnapshot } from '../../shared/types'
+import { basename, isAbsolute, join, normalize, relative, sep } from 'node:path'
+import type { WorkspaceFolder, WorkspaceRepository, WorkspaceRepositoryState, WorkspaceSnapshot, WorkspaceThreadReference } from '../../shared/types'
+import type { CodexWorkspaceThread } from './thread-index'
 import { fileAllocatedSize } from './fs-size'
 
 function gitState(path: string): WorkspaceRepositoryState {
@@ -56,10 +57,10 @@ function folder(path: string, budget: { value: number }, onProgress?: (path: str
   })).sort((a, b) => a.name.localeCompare(b.name))
   let modifiedAt = 0
   try { modifiedAt = statSync(path).mtimeMs } catch { /* missing */ }
-  return { id: path, path, name: basename(path), bytes: measured.bytes, fileCount: measured.files, modifiedAt, repositories, children: [] }
+  return { id: path, path, name: basename(path), bytes: measured.bytes, fileCount: measured.files, modifiedAt, repositories, sourceThreads: [], children: [] }
 }
 
-export function scanWorkspace(root: string, onProgress?: (path: string) => void): WorkspaceSnapshot {
+export function scanWorkspace(root: string, onProgress?: (path: string) => void, threads: CodexWorkspaceThread[] = []): WorkspaceSnapshot {
   if (!existsSync(root)) return { root, isScanned: true, entries: [] }
   const budget = { value: 32 }
   const entries = childDirectories(root).map((datePath): WorkspaceFolder | null => {
@@ -70,7 +71,46 @@ export function scanWorkspace(root: string, onProgress?: (path: string) => void)
     if (!bytes && !children.length) return null
     let modifiedAt = 0
     try { modifiedAt = statSync(datePath).mtimeMs } catch { /* missing */ }
-    return { id: datePath, path: datePath, name: basename(datePath), bytes, fileCount: own.files, modifiedAt, repositories: [], children }
+    return { id: datePath, path: datePath, name: basename(datePath), bytes, fileCount: own.files, modifiedAt, repositories: [], sourceThreads: [], children }
   }).filter((item): item is WorkspaceFolder => item !== null).sort((a, b) => b.name.localeCompare(a.name))
+  attachSourceThreads(root, entries, threads)
   return { root, isScanned: true, entries }
+}
+
+function attachSourceThreads(root: string, entries: WorkspaceFolder[], threads: CodexWorkspaceThread[]): void {
+  const base = normalize(root)
+  const byPath = new Map<string, WorkspaceFolder>()
+  for (const entry of entries) {
+    byPath.set(normalize(entry.path), entry)
+    for (const child of entry.children) byPath.set(normalize(child.path), child)
+  }
+
+  for (const thread of threads) {
+    const rel = relative(base, normalize(thread.cwd))
+    if (!rel || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) continue
+    const parts = rel.split(sep).filter(Boolean)
+    const targetPath = parts.length >= 2 ? join(base, parts[0], parts[1]) : join(base, parts[0])
+    const target = byPath.get(normalize(targetPath))
+    if (target) target.sourceThreads.push(reference(thread))
+  }
+
+  for (const entry of entries) {
+    entry.sourceThreads = uniqueThreads([...entry.sourceThreads, ...entry.children.flatMap((child) => child.sourceThreads)])
+    for (const child of entry.children) child.sourceThreads = uniqueThreads(child.sourceThreads)
+  }
+}
+
+function reference(thread: CodexWorkspaceThread): WorkspaceThreadReference {
+  return {
+    id: thread.id,
+    title: thread.title,
+    archived: thread.archived,
+    isSubagent: thread.isSubagent,
+    modifiedAt: thread.modifiedAt
+  }
+}
+
+function uniqueThreads(threads: WorkspaceThreadReference[]): WorkspaceThreadReference[] {
+  const unique = new Map(threads.map((thread) => [thread.id, thread]))
+  return [...unique.values()].sort((a, b) => Number(a.isSubagent) - Number(b.isSubagent) || b.modifiedAt - a.modifiedAt || a.title.localeCompare(b.title))
 }
