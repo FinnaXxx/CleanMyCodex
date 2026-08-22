@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { normalizeAutomaticRunRecord, type AutomaticRunRecord, type AutomationSettings, type AutomationState } from '../../shared/types'
+import type { AutomaticRunRecord, AutomationSettings, AutomationState } from '../../shared/types'
 
 export const DEFAULT_AUTOMATION_SETTINGS: AutomationSettings = {
   enabled: false,
@@ -19,7 +19,7 @@ export const DEFAULT_AUTOMATION_SETTINGS: AutomationSettings = {
   launchAtLogin: false
 }
 
-const serviceLabel = 'com.finnaxxx.clean-my-codex.autoclean'
+const serviceLabel = 'com.finnaxxx.cleanmycodex.autoclean'
 const windowsTaskName = 'CleanMyCodex Automatic Cleanup'
 const storeDirectory = (): string => app.getPath('userData')
 const settingsPath = (): string => join(storeDirectory(), 'automation.json')
@@ -134,7 +134,7 @@ export function getAutomationState(): AutomationState {
     installed,
     loaded,
     nextRunAt,
-    lastRun: normalizeAutomaticRunRecord(readJSON<unknown>(lastRunPath())),
+    lastRun: readJSON<AutomaticRunRecord>(lastRunPath()),
     supported: process.platform === 'darwin' || process.platform === 'win32'
   }
 }
