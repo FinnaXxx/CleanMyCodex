@@ -39,7 +39,7 @@ export class ProtectedPaths {
   ]
 
   /** Prefixes of files inside ~/.codex that must never be trashed. */
-  static readonly protectedHomePrefixes = ['state_', 'history']
+  static readonly protectedHomePrefixes = ['state_', 'thread_history_', 'history']
 
   /** Browser profile data that carries the Codex login. */
   static readonly protectedAppSupportEntries = [

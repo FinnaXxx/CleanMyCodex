@@ -1,24 +1,20 @@
 import { createReadStream, existsSync, readdirSync, statSync } from 'node:fs'
 import { join, basename } from 'node:path'
-import { createHash } from 'node:crypto'
 import { CodexLocations } from './locations'
 import { directoryAllocatedSize } from './fs-size'
 import { CodexThreadIndex } from './thread-index'
 import { SessionScanCache, type CachedSessionContent } from './session-cache'
 import { cleanPreview } from './preview'
 import type { SessionItem, SessionLocation, SessionTag } from '../../shared/types'
-import { sessionImageBytes, sessionTotalBytes } from '../../shared/types'
+import { sessionTotalBytes } from '../../shared/types'
 
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
-const PREFIXES = [Buffer.from('data:image/'), Buffer.from('data:image\\/')]
 const TAG_NEEDLES: Array<[SessionTag, Buffer]> = [
   ['browser', Buffer.from('browser_')],
-  ['computerUse', Buffer.from('computer_use')],
-  ['imageGen', Buffer.from('image_gen')]
+  ['computerUse', Buffer.from('computer_use')]
 ]
-const CARRY_LENGTH = Math.max(...PREFIXES.map((value) => value.length), ...TAG_NEEDLES.map(([, value]) => value.length)) - 1
+const CARRY_LENGTH = Math.max(...TAG_NEEDLES.map(([, value]) => value.length)) - 1
 
-interface ImageScan { count: number; uriBytes: number; distinctCount: number; duplicateBytes: number; truncated: number }
 interface SessionMeta { id: string | null; cwd: string | null; title: string | null; threadSource: string | null; parentThreadID: string | null }
 
 function abortError(): DOMException { return new DOMException('扫描已停止', 'AbortError') }
@@ -47,34 +43,7 @@ async function scanContent(path: string, signal?: AbortSignal): Promise<Omit<Cac
   let preview: string | null = null
   let parseWarnings = 0
   const tags = new Set<SessionTag>()
-  const images: ImageScan = { count: 0, uriBytes: 0, distinctCount: 0, duplicateBytes: 0, truncated: 0 }
-  const seen = new Set<string>()
   let carry: Buffer<ArrayBufferLike> = Buffer.alloc(0)
-  let candidate: { rawBytes: number; header: Buffer; sawComma: boolean; hasher: ReturnType<typeof createHash> } | null = null
-
-  const appendCandidate = (bytes: Buffer): void => {
-    if (!candidate || !bytes.length) return
-    candidate.rawBytes += bytes.length
-    if (!candidate.sawComma) {
-      const comma = bytes.indexOf(0x2c)
-      const headerPart = comma < 0 ? bytes : bytes.subarray(0, comma + 1)
-      if (candidate.header.length < 256) candidate.header = Buffer.concat([candidate.header, headerPart.subarray(0, 256 - candidate.header.length)])
-      if (comma < 0) return
-      candidate.sawComma = true
-      candidate.hasher.update(bytes.subarray(comma + 1))
-    } else candidate.hasher.update(bytes)
-  }
-  const finishCandidate = (): void => {
-    if (!candidate) return
-    if (candidate.sawComma && candidate.header.toString('utf8').toLowerCase().includes(';base64,')) {
-      images.count += 1
-      images.uriBytes += candidate.rawBytes
-      const digest = candidate.hasher.digest('hex')
-      if (seen.has(digest)) images.duplicateBytes += candidate.rawBytes
-      else { seen.add(digest); images.distinctCount += 1 }
-    }
-    candidate = null
-  }
 
   for await (const raw of createReadStream(path, { highWaterMark: 1024 * 1024 })) {
     checkAbort(signal)
@@ -104,25 +73,8 @@ async function scanContent(path: string, signal?: AbortSignal): Promise<Omit<Cac
     }
 
     const data = carry.length ? Buffer.concat([carry, chunk]) : chunk
-    carry = Buffer.alloc(0)
     for (const [tag, needle] of TAG_NEEDLES) if (!tags.has(tag) && data.includes(needle)) tags.add(tag)
-    let cursor = 0
-    while (cursor < data.length) {
-      if (candidate) {
-        const quote = data.indexOf(0x22, cursor)
-        if (quote < 0) { appendCandidate(data.subarray(cursor)); cursor = data.length }
-        else { appendCandidate(data.subarray(cursor, quote)); finishCandidate(); cursor = quote + 1 }
-        continue
-      }
-      const matches = PREFIXES.map((prefix) => data.indexOf(prefix, cursor)).filter((index) => index >= 0)
-      if (!matches.length) {
-        const keep = Math.min(CARRY_LENGTH, data.length - cursor)
-        carry = data.subarray(data.length - keep)
-        break
-      }
-      candidate = { rawBytes: 0, header: Buffer.alloc(0), sawComma: false, hasher: createHash('sha256') }
-      cursor = Math.min(...matches)
-    }
+    carry = data.subarray(Math.max(0, data.length - CARRY_LENGTH))
   }
   if (!headerFinished && !skippingHeaderLine && lineBuffer.length) {
     lines += 1
@@ -130,12 +82,10 @@ async function scanContent(path: string, signal?: AbortSignal): Promise<Omit<Cac
     if (parsed.meta && !metadataFound) { meta = parsed.meta; metadataFound = true }
     if (!preview && parsed.preview) preview = parsed.preview
   }
-  if (candidate) images.truncated += 1
   if (!metadataFound && lines > 0) parseWarnings += 1
   return {
     threadID: meta.id, cwd: meta.cwd, metadataTitle: meta.title, preview,
-    imageCount: images.count, imageBytes: images.uriBytes, distinctCount: images.distinctCount,
-    duplicateBytes: images.duplicateBytes, tags: [...tags].sort(), parseWarnings: parseWarnings + images.truncated,
+    tags: [...tags].sort(), parseWarnings,
     isSubagent: meta.threadSource === 'subagent', parentThreadID: meta.parentThreadID
   }
 }
@@ -189,11 +139,33 @@ function listRolloutFiles(root: string, location: SessionLocation, out: Array<{ 
   }
 }
 
-function assetBytesForThread(locations: CodexLocations, threadID: string): { bytes: number; urls: string[] } {
+function visualizationDirectories(root: string): Map<string, string[]> {
+  const result = new Map<string, string[]>()
+  const visit = (directory: string): void => {
+    if (!existsSync(directory)) return
+    let entries
+    try { entries = readdirSync(directory, { withFileTypes: true }) } catch { return }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith('.')) continue
+      const path = join(directory, entry.name)
+      if (new RegExp(`^${UUID_RE.source}$`, 'i').test(entry.name)) {
+        result.set(entry.name.toLowerCase(), [...(result.get(entry.name.toLowerCase()) ?? []), path])
+      } else visit(path)
+    }
+  }
+  visit(root)
+  return result
+}
+
+function assetBytesForThread(
+  locations: CodexLocations,
+  threadID: string,
+  visualizations: Map<string, string[]>
+): { bytes: number; urls: string[] } {
   const urls: string[] = []
   let bytes = 0
-  for (const root of [locations.generatedImages, locations.visualizations]) {
-    const dir = join(root, threadID)
+  const candidates = [join(locations.generatedImages, threadID), ...(visualizations.get(threadID.toLowerCase()) ?? [])]
+  for (const dir of new Set(candidates)) {
     if (existsSync(dir)) { urls.push(dir); bytes += directoryAllocatedSize(dir) }
   }
   return { bytes, urls }
@@ -207,17 +179,76 @@ function assetBytesForThread(locations: CodexLocations, threadID: string): { byt
  * stay visible and cleanable rather than becoming orphans.
  */
 function groupSubagents(items: SessionItem[]): void {
-  const mains = new Map<string, SessionItem>()
-  for (const item of items) if (!item.isSubagent) mains.set(item.threadID, item)
-  for (const child of items) {
-    if (!child.isSubagent || !child.parentThreadID) continue
-    const parent = mains.get(child.parentThreadID)
-    if (!parent) continue
-    parent.childThreadCount += 1
-    parent.childBytes += sessionTotalBytes(child)
-    parent.childImageBytes += sessionImageBytes(child)
-    parent.childURLs.push(child.fileURL, ...child.assetURLs)
+  const byID = new Map(items.map((item) => [item.threadID, item]))
+  const childrenByParent = new Map<string, SessionItem[]>()
+  for (const item of items) {
+    if (!item.isSubagent || !item.parentThreadID || !byID.has(item.parentThreadID)) continue
+    childrenByParent.set(item.parentThreadID, [...(childrenByParent.get(item.parentThreadID) ?? []), item])
   }
+  for (const children of childrenByParent.values()) {
+    children.sort((a, b) => a.modifiedAt - b.modifiedAt || a.fileURL.localeCompare(b.fileURL))
+  }
+  const roots = items.filter((item) => !item.isSubagent || !item.parentThreadID || !byID.has(item.parentThreadID))
+  for (const root of roots) {
+    const descendants: SessionItem[] = []
+    const visited = new Set([root.threadID])
+    const queue = [...(childrenByParent.get(root.threadID) ?? [])]
+    while (queue.length) {
+      const child = queue.shift()!
+      if (visited.has(child.threadID)) continue
+      visited.add(child.threadID)
+      descendants.push(child)
+      queue.push(...(childrenByParent.get(child.threadID) ?? []))
+    }
+    if (!descendants.length) continue
+    const childRolloutURLs = descendants.flatMap((child) => [...child.segmentURLs, child.fileURL])
+    const childAssetURLs = descendants.flatMap((child) => child.assetURLs)
+    root.childThreadCount = descendants.length
+    root.childBytes = descendants.reduce((sum, child) => sum + child.fileBytes + child.assetBytes, 0)
+    root.childURLs = [...new Set([...childRolloutURLs, ...childAssetURLs])]
+  }
+}
+
+/**
+ * Codex Desktop can continue one thread in several rollout files. The session id in
+ * `session_meta` remains stable while the filename gains a turn id suffix, so the
+ * scanner must model those files as segments of one conversation rather than separate
+ * rows. Physical rollout totals are summed, while thread-scoped asset directories
+ * are counted once.
+ */
+function mergeThreadSegments(items: SessionItem[]): SessionItem[] {
+  const groups = new Map<string, SessionItem[]>()
+  for (const item of items) {
+    const group = groups.get(item.threadID)
+    if (group) group.push(item)
+    else groups.set(item.threadID, [item])
+  }
+
+  return [...groups.values()].map((segments) => {
+    if (segments.length === 1) return segments[0]
+    const chronological = [...segments].sort((a, b) => a.modifiedAt - b.modifiedAt || a.fileURL.localeCompare(b.fileURL))
+    const primary = chronological.at(-1)!
+    const firstPreview = chronological.find((segment) => segment.preview)?.preview ?? null
+    const assetURLs = [...new Set(segments.flatMap((segment) => segment.assetURLs))]
+    return {
+      ...primary,
+      segmentURLs: chronological.filter((segment) => segment !== primary).map((segment) => segment.fileURL),
+      location: segments.some((segment) => segment.location === 'active') ? 'active' : 'archived',
+      modifiedAt: Math.max(...segments.map((segment) => segment.modifiedAt)),
+      fileBytes: segments.reduce((sum, segment) => sum + segment.fileBytes, 0),
+      assetBytes: Math.max(...segments.map((segment) => segment.assetBytes)),
+      assetURLs,
+      workingDirectory: primary.workingDirectory ?? chronological.find((segment) => segment.workingDirectory)?.workingDirectory ?? null,
+      title: primary.title ?? chronological.find((segment) => segment.title)?.title ?? null,
+      preview: firstPreview,
+      tags: [...new Set(segments.flatMap((segment) => segment.tags))].sort(),
+      isCompressed: segments.some((segment) => segment.isCompressed),
+      isUnstable: segments.some((segment) => segment.isUnstable),
+      parseWarnings: segments.reduce((sum, segment) => sum + segment.parseWarnings, 0),
+      isSubagent: segments.every((segment) => segment.isSubagent),
+      parentThreadID: primary.parentThreadID ?? chronological.find((segment) => segment.parentThreadID)?.parentThreadID ?? null
+    }
+  })
 }
 
 export async function scanSessions(
@@ -231,6 +262,7 @@ export async function scanSessions(
   const titles = CodexThreadIndex.load(locations.home)
   const cache = SessionScanCache.load(locations.scanCache)
   const items: SessionItem[] = []
+  const visualizationIndex = visualizationDirectories(locations.visualizations)
   const totalBytes = Math.max(1, files.reduce((sum, file) => sum + statAllocated(file.url).logicalBytes, 0))
   let processedBytes = 0
   for (const file of files) {
@@ -245,7 +277,7 @@ export async function scanSessions(
     if (cached) content = cached
     else if (compressed) content = {
       size: before.logicalBytes, modifiedAt: before.modifiedAt, threadID: null, cwd: null, metadataTitle: null,
-      preview: null, imageCount: 0, imageBytes: 0, distinctCount: 0, duplicateBytes: 0, tags: [], parseWarnings: 0,
+      preview: null, tags: [], parseWarnings: 0,
       isSubagent: false, parentThreadID: null
     }
     else {
@@ -255,7 +287,7 @@ export async function scanSessions(
         if (signal?.aborted) throw error
         scanned = {
           threadID: null, cwd: null, metadataTitle: null, preview: null,
-          imageCount: 0, imageBytes: 0, distinctCount: 0, duplicateBytes: 0, tags: [], parseWarnings: 1,
+          tags: [], parseWarnings: 1,
           isSubagent: false, parentThreadID: null
         }
       }
@@ -265,22 +297,20 @@ export async function scanSessions(
       if (!unstable) cache.set(file.url, content)
     }
     const threadID = content.threadID ?? threadIDFromName(name)
-    const assets = assetBytesForThread(locations, threadID)
+    const assets = assetBytesForThread(locations, threadID, visualizationIndex)
     const tags = [...content.tags]
-    if (content.imageBytes > 32 * 1024 * 1024 && before.bytes > 0 && content.imageBytes / before.bytes > 0.4) tags.unshift('imageHeavy')
     items.push({
-      id: file.url, threadID, fileURL: file.url, location: file.location, modifiedAt: before.modifiedAt,
+      id: file.url, threadID, fileURL: file.url, segmentURLs: [], location: file.location, modifiedAt: before.modifiedAt,
       fileBytes: before.bytes, assetBytes: assets.bytes, assetURLs: assets.urls,
-      embeddedImageBytes: content.imageBytes, embeddedImageCount: content.imageCount,
-      distinctImageCount: content.distinctCount, duplicateImageBytes: content.duplicateBytes,
       workingDirectory: content.cwd, title: titles.title(threadID, file.url) ?? content.metadataTitle,
       preview: content.preview, tags, isCompressed: compressed, isUnstable: unstable, parseWarnings: content.parseWarnings,
       isSubagent: content.isSubagent, parentThreadID: content.parentThreadID,
-      childThreadCount: 0, childBytes: 0, childImageBytes: 0, childURLs: []
+      childThreadCount: 0, childBytes: 0, childURLs: []
     })
     processedBytes += before.logicalBytes
   }
-  groupSubagents(items)
+  const mergedItems = mergeThreadSegments(items)
+  groupSubagents(mergedItems)
   if (!signal?.aborted) cache.save(locations.scanCache)
-  return items.sort((a, b) => sessionTotalBytes(b) - sessionTotalBytes(a))
+  return mergedItems.sort((a, b) => sessionTotalBytes(b) - sessionTotalBytes(a))
 }

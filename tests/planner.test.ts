@@ -8,11 +8,10 @@ function storage(id: string, risk: CleanupRisk = 'safe'): StorageEntry {
 
 function session(id: string, overrides: Partial<SessionItem> = {}): SessionItem {
   return {
-    id: `/codex/sessions/${id}.jsonl`, threadID: id, fileURL: `/codex/sessions/${id}.jsonl`, location: 'active',
-    modifiedAt: 0, fileBytes: 100, assetBytes: 0, assetURLs: [], embeddedImageBytes: 60, embeddedImageCount: 2,
-    distinctImageCount: 1, duplicateImageBytes: 30, workingDirectory: null, title: id, preview: null, tags: [],
+    id: `/codex/sessions/${id}.jsonl`, threadID: id, fileURL: `/codex/sessions/${id}.jsonl`, segmentURLs: [], location: 'active',
+    modifiedAt: 0, fileBytes: 100, assetBytes: 0, assetURLs: [], workingDirectory: null, title: id, preview: null, tags: [],
     isCompressed: false, isUnstable: false, parseWarnings: 0, isSubagent: false, parentThreadID: null,
-    childThreadCount: 0, childBytes: 0, childImageBytes: 0, childURLs: [], ...overrides
+    childThreadCount: 0, childBytes: 0, childURLs: [], ...overrides
   }
 }
 
@@ -41,20 +40,20 @@ function snapshot(): ScanSnapshot {
 describe('trusted cleanup planner', () => {
   it('resolves only known selectable IDs and ignores forged or protected entries', () => {
     const snap = snapshot()
-    const tasks = buildTrustedTasks({ kind: 'storage', ids: ['safe', 'shielded', 'trash:/etc/passwd'] }, snap, snap.workspace, true)
+    const tasks = buildTrustedTasks({ kind: 'storage', ids: ['safe', 'shielded', 'trash:/etc/passwd'] }, snap, snap.workspace)
     expect(tasks.map((task) => task.id)).toEqual(['safe'])
     expect(tasks[0].url).toBe('/codex/safe')
   })
 
   it('never lets plugin IDs remove current or unknown versions', () => {
     const snap = snapshot()
-    const tasks = buildTrustedTasks({ kind: 'plugins', ids: ['/codex/plugins/current', '/codex/plugins/old', '/etc'] }, snap, snap.workspace, true)
+    const tasks = buildTrustedTasks({ kind: 'plugins', ids: ['/codex/plugins/current', '/codex/plugins/old', '/etc'] }, snap, snap.workspace)
     expect(tasks.map((task) => task.url)).toEqual(['/codex/plugins/old'])
   })
 
-  it('falls back explicitly to trash when app server deletion is unavailable', () => {
+  it('always plans session deletion as a recoverable Trash operation', () => {
     const snap = snapshot()
-    expect(buildTrustedTasks({ kind: 'sessions-delete', ids: [snap.sessions[0].id], mode: 'appServer' }, snap, snap.workspace, false)[0].method).toBe('trash')
+    expect(buildTrustedTasks({ kind: 'sessions-delete', ids: [snap.sessions[0].id] }, snap, snap.workspace)[0].method).toBe('trash')
   })
 
   it('deletes a selected parent as one task with child rollout companions and bytes', () => {
@@ -66,10 +65,21 @@ describe('trusted cleanup planner', () => {
     })
     const child = session('child', { isSubagent: true, parentThreadID: 'parent', fileBytes: 50, assetBytes: 25 })
     snap.sessions = [parent, child]
-    const tasks = buildTrustedTasks({ kind: 'sessions-delete', ids: [parent.id, child.id], mode: 'trash' }, snap, snap.workspace, true)
+    const tasks = buildTrustedTasks({ kind: 'sessions-delete', ids: [parent.id, child.id] }, snap, snap.workspace)
     expect(tasks).toHaveLength(1)
     expect(tasks[0].expectedBytes).toBe(175)
     expect(tasks[0].companionURLs).toEqual(['/codex/sessions/child.jsonl', '/codex/generated_images/child'])
+  })
+
+  it('keeps resumed rollout segments attached to one deletion task', () => {
+    const snap = snapshot()
+    const resumed = session('resumed', {
+      segmentURLs: ['/codex/sessions/resumed-part-1.jsonl', '/codex/sessions/resumed-part-2.jsonl']
+    })
+    snap.sessions = [resumed]
+    const deletion = buildTrustedTasks({ kind: 'sessions-delete', ids: [resumed.id] }, snap, snap.workspace)
+    expect(deletion).toHaveLength(1)
+    expect(deletion[0].companionURLs).toEqual(resumed.segmentURLs)
   })
 
   it('lists a grouped parent once while keeping an orphan subagent visible and counted', () => {
@@ -82,34 +92,23 @@ describe('trusted cleanup planner', () => {
     expect(snapshotSessionBytes(snap)).toBe(100 + 75 + 40)
   })
 
-  it('excludes compressed and unstable sessions from rewriting', () => {
-    const snap = snapshot()
-    const tasks = buildTrustedTasks({ kind: 'sessions-slim', ids: snap.sessions.map((item) => item.id), mode: 'deduplicate' }, snap, snap.workspace, true)
-    expect(tasks).toHaveLength(1)
-    expect(tasks[0].threadID).toBe('active')
-  })
-
   it('collapses nested workspace choices to their outermost selected directory', () => {
     const snap = snapshot()
     const child = folder('/docs/Codex/day/task')
     const parent = folder('/docs/Codex/day', [child])
     const workspace = { root: '/docs/Codex', isScanned: true, entries: [parent] }
-    const tasks = buildTrustedTasks({ kind: 'workspace', ids: [parent.id, child.id] }, snap, workspace, true)
+    const tasks = buildTrustedTasks({ kind: 'workspace', ids: [parent.id, child.id] }, snap, workspace)
     expect(tasks.map((task) => task.url)).toEqual([parent.path])
-  })
-
-  it('rejects invalid cleanup modes received over IPC', () => {
-    const snap = snapshot()
-    expect(() => buildTrustedTasks({ kind: 'sessions-slim', ids: [], mode: 'bad' } as never, snap, snap.workspace, true)).toThrow('方式无效')
   })
 
   it('explains direct session deletion and exclusive-access blockers in the preview', () => {
     const snap = snapshot()
-    const selection = { kind: 'sessions-delete', ids: [snap.sessions[0].id], mode: 'trash' } as const
-    const tasks = buildTrustedTasks(selection, snap, snap.workspace, true)
+    const selection = { kind: 'sessions-delete', ids: [snap.sessions[0].id] } as const
+    const tasks = buildTrustedTasks(selection, snap, snap.workspace)
     const preview = makeCleanupPreview(selection, tasks, { running: true, detectionKnown: true, desktopRunning: false, cliCommands: ['codex'], canRestart: false, blockerSummary: 'codex 正在运行' })
-    expect(preview.warnings.join(' ')).toContain('历史列表')
+    expect(preview.warnings.join(' ')).toContain('SQLite')
     expect(preview.blockerSummary).toContain('运行')
+    expect(preview.blockedTitles).toEqual(['active'])
   })
 })
 
@@ -122,11 +121,20 @@ describe('automatic cleanup planner', () => {
 
   it('shares safe cache rules and excludes review categories and unstable sessions', () => {
     const snap = snapshot()
-    const tasks = buildAutomaticTasks(snap, settings, true, 100 * 86_400_000)
+    const tasks = buildAutomaticTasks(snap, settings, 100 * 86_400_000)
     expect(tasks.map((task) => task.id)).toContain('safe')
     expect(tasks.map((task) => task.id)).toContain('old-plugin')
     expect(tasks.map((task) => task.id)).not.toContain('market')
     expect(tasks.map((task) => task.threadID)).toContain('active')
     expect(tasks.map((task) => task.threadID)).not.toContain('unstable')
+  })
+
+  it('never schedules a child subagent independently from its visible conversation', () => {
+    const snap = snapshot()
+    const parent = session('parent', { modifiedAt: 99 * 86_400_000, childThreadCount: 1, childBytes: 50, childURLs: ['/codex/sessions/child.jsonl'] })
+    const child = session('child', { isSubagent: true, parentThreadID: 'parent', modifiedAt: 0, fileBytes: 50 })
+    snap.sessions = [parent, child]
+    const tasks = buildAutomaticTasks(snap, settings, 100 * 86_400_000)
+    expect(tasks.some((task) => task.threadID === 'child')).toBe(false)
   })
 })

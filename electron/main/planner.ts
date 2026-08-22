@@ -12,10 +12,10 @@ import type {
 } from '../../shared/types'
 import {
   isSelectable,
+  listableSessions,
   PluginStatusLabel,
   pluginStatusIsRemovable,
   tasksForSessionDeletion,
-  tasksForSessionSlimming,
   tasksForWorkspace,
   tasksFromEntries
 } from '../../shared/types'
@@ -27,8 +27,7 @@ const AUTOMATIC_CACHE_KINDS = new Set(['temporary', 'logDatabase', 'browserCache
 export function buildTrustedTasks(
   selection: CleanupSelection,
   snapshot: ScanSnapshot,
-  workspace: WorkspaceSnapshot,
-  appServerAvailable: boolean
+  workspace: WorkspaceSnapshot
 ): CleanupTask[] {
   if (!selection || typeof selection !== 'object' || typeof selection.kind !== 'string') throw new Error('清理选择无效')
   const ids = safeIDs(selection.ids)
@@ -39,15 +38,8 @@ export function buildTrustedTasks(
       return tasksFromEntries(entries)
     }
     case 'sessions-delete': {
-      if (selection.mode !== 'appServer' && selection.mode !== 'trash') throw new Error('会话删除方式无效')
       const sessions = selectedSessions(ids, snapshot.sessions)
-      const mode = selection.mode === 'appServer' && appServerAvailable ? 'appServer' : 'trash'
-      return tasksForSessionDeletion(sessions, mode)
-    }
-    case 'sessions-slim': {
-      if (selection.mode !== 'deduplicate' && selection.mode !== 'stripAll') throw new Error('图片清理方式无效')
-      const sessions = selectedSessions(ids, snapshot.sessions).filter((session) => !session.isCompressed && !session.isUnstable)
-      return tasksForSessionSlimming(sessions, selection.mode).filter((task) => task.expectedBytes > 0)
+      return tasksForSessionDeletion(sessions)
     }
     case 'plugins': {
       const index = new Map(snapshot.pluginVersions.map((plugin) => [plugin.directoryURL, plugin]))
@@ -87,14 +79,8 @@ export function makeCleanupPreview(
     ? tasks.filter((task) => task.requiresCodexStopped || task.method === 'compactDatabase')
     : []
   const warnings: string[] = []
-  if (selection.kind === 'sessions-delete' && tasks.some((task) => task.method === 'trash')) {
-    warnings.push('Codex 的历史列表里可能暂时保留打不开的记录。')
-  }
-  if (selection.kind === 'sessions-slim') {
-    warnings.push(selection.mode === 'deduplicate'
-      ? '重复出现的图片只保留第一份，会话内容不变。'
-      : '会话里的图片会被删除且无法恢复，文字记录保留。')
-    warnings.push('原会话文件会先移到废纸篓，替换成功后才生效。')
+  if (selection.kind === 'sessions-delete') {
+    warnings.push('会话文件、生成资产和 SQLite 索引记录会一并清理。')
   }
   if (selection.kind === 'workspace') warnings.push('请确认未提交或未推送的内容已经保存。')
   if (tasks.some((task) => task.method === 'compactDatabase')) warnings.push('日志数据库只做 checkpoint 与 VACUUM，不删除诊断记录。')
@@ -119,7 +105,6 @@ export function makeCleanupPreview(
 export function buildAutomaticTasks(
   snapshot: ScanSnapshot,
   settings: AutomationSettings,
-  appServerAvailable: boolean,
   now = Date.now()
 ): CleanupTask[] {
   const entries = snapshot.categories.flatMap((category) => {
@@ -127,7 +112,9 @@ export function buildAutomaticTasks(
     if (settings.cleanCaches && category.group === 'recommended' && AUTOMATIC_CACHE_KINDS.has(category.kind)) return category.entries
     return []
   })
-  const sessions = snapshot.sessions.filter((session) => {
+  // Subagents are part of their visible root conversation and must never be aged out
+  // independently. The root deletion task already carries every descendant path.
+  const sessions = listableSessions(snapshot).filter((session) => {
     if (session.isUnstable) return false
     if (settings.skipRecentSessions && now - session.modifiedAt < 86_400_000) return false
     const days = Math.max(1, session.location === 'archived' ? settings.archivedRetentionDays : settings.activeRetentionDays)
@@ -136,7 +123,7 @@ export function buildAutomaticTasks(
   })
   return [
     ...tasksFromEntries(entries.filter((entry) => isSelectable(entry.risk))),
-    ...tasksForSessionDeletion(sessions, appServerAvailable ? 'appServer' : 'trash')
+    ...tasksForSessionDeletion(sessions)
   ]
 }
 

@@ -24,24 +24,23 @@ export const CleanupRiskLabel: Record<CleanupRisk, string> = {
 
 export const isSelectable = (risk: CleanupRisk): boolean => risk !== 'shielded'
 
-export type CleanupMethod = 'trash' | 'compactDatabase' | 'deleteThread' | 'slimSession'
+export type CleanupMethod = 'trash' | 'compactDatabase'
 
 export const CleanupMethodLabel: Record<CleanupMethod, string> = {
   trash: '移到废纸篓',
-  compactDatabase: '压缩数据库',
-  deleteThread: '删除会话',
-  slimSession: '清理图片'
+  compactDatabase: '压缩数据库'
 }
 
 export type StorageKind =
   | 'logDatabase'
+  | 'sessionDatabase'
   | 'temporary'
   | 'marketplaceCache'
   | 'pluginRemnants'
+  | 'pluginRuntime'
   | 'browserCache'
   | 'appCache'
   | 'appLogs'
-  | 'generatedImages'
   | 'computerUse'
   | 'activeSessions'
   | 'archivedSessions'
@@ -51,13 +50,14 @@ export type StorageKind =
 /** SF Symbol name on macOS; the renderer maps these to an icon set per platform. */
 export const StorageKindSymbol: Record<StorageKind, string> = {
   logDatabase: 'cylinder.split.1x2',
+  sessionDatabase: 'cylinder.split.1x2',
   temporary: 'clock.arrow.circlepath',
   marketplaceCache: 'bag',
   pluginRemnants: 'puzzlepiece.extension',
+  pluginRuntime: 'puzzlepiece.extension',
   browserCache: 'safari',
   appCache: 'externaldrive',
   appLogs: 'doc.text',
-  generatedImages: 'photo.on.rectangle',
   computerUse: 'display',
   activeSessions: 'bubble.left.and.bubble.right',
   archivedSessions: 'archivebox',
@@ -80,13 +80,14 @@ export const StorageSectionOrder: StorageSection[] = ['caches', 'logs', 'plugins
 
 export const StorageKindSection: Record<StorageKind, StorageSection> = {
   logDatabase: 'logs',
+  sessionDatabase: 'assets',
   temporary: 'caches',
   marketplaceCache: 'caches',
   pluginRemnants: 'plugins',
+  pluginRuntime: 'plugins',
   browserCache: 'caches',
   appCache: 'caches',
   appLogs: 'logs',
-  generatedImages: 'assets',
   computerUse: 'plugins',
   activeSessions: 'assets',
   archivedSessions: 'assets',
@@ -148,30 +149,25 @@ export const SessionLocationLabel: Record<SessionLocation, string> = {
   archived: '已归档'
 }
 
-export type SessionTag = 'imageHeavy' | 'browser' | 'computerUse' | 'imageGen'
+export type SessionTag = 'browser' | 'computerUse'
 
 export const SessionTagLabel: Record<SessionTag, string> = {
-  imageHeavy: '图片密集',
   browser: 'Browser',
-  computerUse: 'Computer Use',
-  imageGen: 'ImageGen'
+  computerUse: 'Computer Use'
 }
 
 export interface SessionItem {
   id: string
   threadID: string
   fileURL: string
+  /** Additional rollout segments that belong to the same thread. */
+  segmentURLs: string[]
   location: SessionLocation
   modifiedAt: number // epoch ms
   fileBytes: number
+  /** Generated-image and Visualization directories owned by this thread. */
   assetBytes: number
   assetURLs: string[]
-  embeddedImageBytes: number
-  embeddedImageCount: number
-  /** Occurrences that were pictures not seen earlier in the same file. */
-  distinctImageCount: number
-  /** Bytes held by repeat copies of a picture already stored earlier in the file. */
-  duplicateImageBytes: number
   workingDirectory: string | null
   title: string | null
   /** First user message, so a thread without a title is still recognisable. */
@@ -188,16 +184,11 @@ export interface SessionItem {
   childThreadCount: number
   /** Allocated bytes of grouped subagent rollouts + their assets, so the parent's total reflects the whole conversation. */
   childBytes: number
-  /** Image bytes in grouped subagent rollouts and their associated assets. */
-  childImageBytes: number
   /** Subagent rollout files + their asset dirs, deleted alongside the parent rollout. */
   childURLs: string[]
 }
 
 export const sessionTotalBytes = (s: SessionItem): number => s.fileBytes + s.assetBytes + s.childBytes
-
-/** Embedded images and associated image assets across the whole visible conversation. */
-export const sessionImageBytes = (s: SessionItem): number => s.embeddedImageBytes + s.assetBytes + s.childImageBytes
 
 export const sessionProjectName = (s: SessionItem): string | null => {
   if (!s.workingDirectory || s.workingDirectory.length === 0) return null
@@ -216,15 +207,6 @@ export const sessionDisplayName = (s: SessionItem): string => {
 
 export const sessionHasTitle = (s: SessionItem): boolean =>
   (!!s.title && s.title.length > 0) || (!!s.preview && s.preview.length > 0)
-
-export const sessionSlimmableBytes = (s: SessionItem): number => s.duplicateImageBytes
-export const sessionStrippableBytes = (s: SessionItem): number => s.embeddedImageBytes
-export const sessionHasDuplicateImages = (s: SessionItem): boolean => s.duplicateImageBytes > 0
-
-export const sessionImageShare = (s: SessionItem): number => {
-  if (s.fileBytes <= 0) return 0
-  return Math.min(1, s.embeddedImageBytes / s.fileBytes)
-}
 
 export type PluginStatus = 'current' | 'outdated' | 'orphaned' | 'unconfirmed'
 
@@ -340,27 +322,17 @@ export const snapshotCategoryList = (s: ScanSnapshot, group: StorageGroup): Stor
 
 /** Sessions shown as top-level rows: subagents whose parent is present are rolled into the parent, so exclude them to avoid double-counting rows and bytes. */
 export const listableSessions = (s: ScanSnapshot): SessionItem[] => {
-  const mainThreadIDs = new Set(s.sessions.filter((x) => !x.isSubagent).map((x) => x.threadID))
-  return s.sessions.filter((x) => !(x.isSubagent && x.parentThreadID && mainThreadIDs.has(x.parentThreadID)))
+  const presentThreadIDs = new Set(s.sessions.map((x) => x.threadID))
+  return s.sessions.filter((x) => !(x.isSubagent && x.parentThreadID && presentThreadIDs.has(x.parentThreadID)))
 }
 
 export const snapshotSessionBytes = (s: ScanSnapshot): number =>
-  listableSessions(s).reduce((sum, x) => sum + sessionTotalBytes(x), 0)
+  listableSessions(s).reduce((sum, x) => sum + sessionTotalBytes(x), 0) +
+  s.categories.filter((category) => category.kind === 'sessionDatabase').reduce((sum, category) => sum + categoryBytes(category), 0)
 
-export const snapshotEmbeddedImageBytes = (s: ScanSnapshot): number =>
-  s.sessions.reduce((sum, x) => sum + x.embeddedImageBytes, 0)
-
-export type SessionSlimMode = 'deduplicate' | 'stripAll'
-
-export const SessionSlimModeLabel: Record<SessionSlimMode, string> = {
-  deduplicate: '清理重复图片',
-  stripAll: '清理所有图片'
-}
-
-export const SessionSlimModeDetail: Record<SessionSlimMode, string> = {
-  deduplicate: '每张图片保留第一份，删除后续重复副本',
-  stripAll: '删除会话里的全部图片，文字记录保持不变'
-}
+export const snapshotPluginBytes = (s: ScanSnapshot): number =>
+  s.categories.filter((category) => category.kind === 'pluginRemnants' || category.kind === 'pluginRuntime')
+    .reduce((sum, category) => sum + categoryBytes(category), 0)
 
 export interface CleanupTask {
   id: string
@@ -369,12 +341,10 @@ export interface CleanupTask {
   url: string
   method: CleanupMethod
   expectedBytes: number
-  /** Only for session deletion, where the app server owns the rollout file. */
+  /** Thread identity retained for direct session-database cleanup. */
   threadID: string | null
   /** Extra files removed with the primary target. */
   companionURLs: string[]
-  /** Only for slimSession. */
-  slimMode: SessionSlimMode | null
   minimumIdleSeconds: number | null
   requiresCodexStopped: boolean
 }
@@ -386,14 +356,14 @@ export interface CleanupTask {
  */
 export type CleanupSelection =
   | { kind: 'storage'; ids: string[] }
-  | { kind: 'sessions-delete'; ids: string[]; mode: SessionDeletionMode }
-  | { kind: 'sessions-slim'; ids: string[]; mode: SessionSlimMode }
+  | { kind: 'sessions-delete'; ids: string[] }
   | { kind: 'plugins'; ids: string[] }
   | { kind: 'workspace'; ids: string[] }
 
 export interface CleanupRequest {
   selection: CleanupSelection
   restartCodex: boolean
+  forceQuitCodex: boolean
 }
 
 export interface CleanupPreviewItem {
@@ -426,46 +396,25 @@ export function tasksFromEntries(entries: StorageEntry[]): CleanupTask[] {
     expectedBytes: entry.reclaimableBytes,
     threadID: null,
     companionURLs: [],
-    slimMode: null,
     minimumIdleSeconds: entry.minimumIdleSeconds,
     requiresCodexStopped: entry.requiresCodexStopped
   }))
 }
 
 /** Build delete-thread tasks from the sessions selected in the sessions list. */
-export function tasksForSessionDeletion(
-  sessions: SessionItem[],
-  mode: SessionDeletionMode = 'appServer'
-): CleanupTask[] {
+export function tasksForSessionDeletion(sessions: SessionItem[]): CleanupTask[] {
   const selectedParents = new Set(sessions.filter((s) => !s.isSubagent).map((s) => s.threadID))
   return sessions.filter((s) => !(s.isSubagent && s.parentThreadID && selectedParents.has(s.parentThreadID))).map((s) => ({
     id: s.id,
     title: sessionDisplayName(s),
     detail: s.fileURL,
     url: s.fileURL,
-    method: mode === 'appServer' ? 'deleteThread' : 'trash',
+    method: 'trash',
     expectedBytes: sessionTotalBytes(s),
     threadID: s.threadID,
-    companionURLs: [...s.assetURLs, ...s.childURLs],
-    slimMode: null,
+    companionURLs: [...s.segmentURLs, ...s.assetURLs, ...s.childURLs],
     minimumIdleSeconds: null,
-    requiresCodexStopped: false
-  }))
-}
-
-export function tasksForSessionSlimming(sessions: SessionItem[], mode: SessionSlimMode): CleanupTask[] {
-  return sessions.map((session) => ({
-    id: `slim:${mode}:${session.id}`,
-    title: sessionDisplayName(session),
-    detail: session.fileURL,
-    url: session.fileURL,
-    method: 'slimSession',
-    expectedBytes: mode === 'deduplicate' ? session.duplicateImageBytes : session.embeddedImageBytes,
-    threadID: session.threadID,
-    companionURLs: [],
-    slimMode: mode,
-    minimumIdleSeconds: null,
-    requiresCodexStopped: false
+    requiresCodexStopped: true
   }))
 }
 
@@ -479,7 +428,6 @@ export function tasksForWorkspace(entries: WorkspaceFolder[]): CleanupTask[] {
     expectedBytes: entry.bytes,
     threadID: null,
     companionURLs: [],
-    slimMode: null,
     minimumIdleSeconds: null,
     requiresCodexStopped: false
   }))
@@ -539,18 +487,6 @@ export interface CleanupProgress {
   completed: number
   total: number
   currentTitle: string
-}
-
-export type SessionDeletionMode = 'appServer' | 'trash'
-
-export const SessionDeletionModeLabel: Record<SessionDeletionMode, string> = {
-  appServer: '通过 Codex 删除',
-  trash: '移到废纸篓'
-}
-
-export const SessionDeletionModeDetail: Record<SessionDeletionMode, string> = {
-  appServer: '调用 app server 的 thread/delete，同时清理 rollout、元数据和派生子线程',
-  trash: '直接把 rollout 文件和关联资产移到废纸篓，Codex 的索引可能仍保留记录'
 }
 
 /** Binary units, matching how macOS reports Codex' own directories. */

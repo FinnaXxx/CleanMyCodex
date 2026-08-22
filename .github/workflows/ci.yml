@@ -13,7 +13,7 @@ jobs:
   test:
     strategy:
       matrix:
-        os: [macos-26, windows-latest, ubuntu-latest]
+        os: [macos-26, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -26,10 +26,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
-      - if: runner.os != 'Linux'
-        run: pnpm test
-      - if: runner.os == 'Linux'
-        run: xvfb-run -a pnpm test
+      - run: pnpm test
       - run: pnpm build
       - name: Package (without publishing)
         run: pnpm exec electron-builder --dir

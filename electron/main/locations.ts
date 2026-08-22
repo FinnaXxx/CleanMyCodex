@@ -49,6 +49,7 @@ export class CodexLocations {
   get archivedSessions(): string { return join(this.home, 'archived_sessions') }
   get plugins(): string { return join(this.home, 'plugins') }
   get pluginCache(): string { return join(this.plugins, 'cache') }
+  get pluginRuntime(): string { return join(this.plugins, '.plugin-appserver') }
   get temporary(): string { return join(this.home, '.tmp') }
   /** Where Codex unpacks the marketplace that ships with the release. Scratch-looking,
    *  but live: config.toml registers it as the `openai-bundled` marketplace source. */

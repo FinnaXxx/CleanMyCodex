@@ -8,7 +8,6 @@ import type {
 } from '../../shared/types'
 import { ProtectedPaths, ProtectedPathError } from './guard'
 import { compactDatabase } from './sqlite-maintenance'
-import { slimSession } from './session-slimmer'
 import { directoryAllocatedSize } from './fs-size'
 import type { FileUsage } from './platform-services'
 
@@ -19,10 +18,8 @@ export interface CleanupDeps {
   isCodexRunning: () => boolean
   /** Whether one exact rollout/database is open. */
   fileUsage?: (path: string) => FileUsage
-  /** Codex app server, used to delete threads cleanly (drops derived metadata + children). */
-  appServer: {
-    isAvailable: boolean
-    deleteThread: (threadID: string) => Promise<void>
+  sessionDatabase?: {
+    deleteThread: (threadID: string) => { removedRows: number; freedBytes: number }
   }
 }
 
@@ -57,8 +54,8 @@ function latestActivity(path: string): number {
  * Performs the cleanup. Every task passes the protected-path guard first, and ordinary
  * files are moved to the trash so a mistake is always recoverable.
  *
- * Database compaction and rollout rewriting are deliberately narrow operations and run
- * only after the same protected-path validation as trash cleanup.
+ * Database compaction is deliberately narrow and runs only after the same protected-path
+ * validation as trash cleanup.
  */
 export async function runCleanup(
   tasks: CleanupTask[],
@@ -92,10 +89,6 @@ async function runOne(
       return runTrash(task, guards, deps, codexRunning)
     case 'compactDatabase':
       return runCompactDatabase(task, guards, deps, codexRunning)
-    case 'deleteThread':
-      return runDeleteThread(task, guards, deps)
-    case 'slimSession':
-      return runSlimSession(task, guards, deps, codexRunning)
   }
 }
 
@@ -113,11 +106,15 @@ async function runTrash(
   }
 
   const targets = [task.url, ...task.companionURLs]
+  try {
+    for (const target of targets) guards.validate(target)
+  } catch (err) {
+    return outcome(task, { kind: 'failed', reason: errorMessage(err) }, 0)
+  }
   let freed = 0
   for (const target of targets) {
     if (!pathExists(target)) continue
     try {
-      guards.validate(target)
       const bytes = fileAllocated(target)
       await deps.trash(target)
       freed += bytes
@@ -128,7 +125,17 @@ async function runTrash(
       return outcome(task, { kind: 'failed', reason: errorMessage(err) }, freed)
     }
   }
-  if (freed === 0) {
+  let removedRows = 0
+  if (task.threadID && deps.sessionDatabase) {
+    try {
+      const report = deps.sessionDatabase.deleteThread(task.threadID)
+      removedRows = report.removedRows
+      freed += report.freedBytes
+    } catch (err) {
+      return outcome(task, { kind: 'failed', reason: `会话文件已处理，但 SQLite 记录清理失败：${errorMessage(err)}` }, freed)
+    }
+  }
+  if (freed === 0 && removedRows === 0) {
     return outcome(task, { kind: 'skipped', reason: '路径已不存在' }, 0)
   }
   return outcome(task, { kind: 'succeeded' }, freed)
@@ -155,84 +162,6 @@ function runCompactDatabase(
   } catch (err) {
     return outcome(task, { kind: 'failed', reason: errorMessage(err) }, 0)
   }
-}
-
-async function runSlimSession(
-  task: CleanupTask,
-  guards: ProtectedPaths,
-  deps: CleanupDeps,
-  codexRunning: boolean
-): Promise<CleanupOutcome> {
-  if (!task.slimMode) return outcome(task, { kind: 'failed', reason: '缺少图片清理方式' }, 0)
-  if (!pathExists(task.url)) return outcome(task, { kind: 'skipped', reason: '路径已不存在' }, 0)
-  const usage = deps.fileUsage?.(task.url) ?? { kind: 'unknown' as const }
-  if (usage.kind === 'inUse') {
-    return outcome(task, { kind: 'skipped', reason: `这个会话正在被使用（${usage.processes.join('、')}）` }, 0)
-  }
-  if (usage.kind === 'unknown' && codexRunning) {
-    return outcome(task, { kind: 'skipped', reason: '无法确认会话是否正在写入，请退出 Codex 后重新清理' }, 0)
-  }
-  try {
-    guards.validate(task.url)
-    const report = await slimSession(task.url, task.slimMode, deps.trash)
-    return outcome(task, { kind: 'succeeded' }, report.freedBytes)
-  } catch (err) {
-    return outcome(task, { kind: 'failed', reason: errorMessage(err) }, 0)
-  }
-}
-
-/**
- * Delete a session through the app server when available — that also drops the derived
- * metadata and spawned child threads — then trash anything left behind (the rollout file
- * and its generated-image assets). Falls back to trashing directly when there is no
- * `codex` CLI.
- */
-async function runDeleteThread(
-  task: CleanupTask,
-  guards: ProtectedPaths,
-  deps: CleanupDeps
-): Promise<CleanupOutcome> {
-  const targets = [task.url, ...task.companionURLs]
-  const beforeBytes = targets.filter(pathExists).reduce((sum, t) => sum + fileAllocated(t), 0)
-  let deletedThroughAppServer = false
-
-  try {
-    for (const target of targets) guards.validate(target)
-  } catch (err) {
-    return outcome(task, { kind: 'failed', reason: errorMessage(err) }, 0)
-  }
-
-  if (!task.threadID) return outcome(task, { kind: 'failed', reason: '缺少会话 ID' }, 0)
-  if (!deps.appServer.isAvailable) return outcome(task, { kind: 'failed', reason: '没有连接到 codex app server' }, 0)
-  try {
-    await deps.appServer.deleteThread(task.threadID)
-    deletedThroughAppServer = true
-  } catch (err) {
-    return outcome(task, { kind: 'failed', reason: errorMessage(err) }, 0)
-  }
-
-  let freed = 0
-  for (const target of targets) {
-    if (!pathExists(target)) continue
-    try {
-      guards.validate(target)
-      const bytes = fileAllocated(target)
-      await deps.trash(target)
-      freed += bytes
-    } catch (err) {
-      if (err instanceof ProtectedPathError) {
-        return outcome(task, { kind: 'failed', reason: err.message }, freed)
-      }
-      return outcome(task, { kind: 'failed', reason: errorMessage(err) }, freed)
-    }
-  }
-
-  const afterBytes = targets.filter(pathExists).reduce((sum, t) => sum + fileAllocated(t), 0)
-  freed = Math.max(0, beforeBytes - afterBytes)
-  if (freed === 0 && !deletedThroughAppServer) {
-    return outcome(task, { kind: 'skipped', reason: '路径已不存在' }, 0)
-  }
-  return outcome(task, { kind: 'succeeded' }, freed)
 }
 
 function outcome(task: CleanupTask, status: CleanupStatus, freedBytes: number): CleanupOutcome {

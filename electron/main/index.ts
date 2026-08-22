@@ -6,9 +6,10 @@ import { CodexLocations } from './locations'
 import { scanSnapshot } from './scanner'
 import { ProtectedPaths } from './guard'
 import { runCleanup, type CleanupDeps } from './cleanup'
-import { AppServerClient, type AppServerSession } from './app-server'
+import { AppServerClient } from './app-server'
 import { buildAutomaticTasks, buildTrustedTasks, makeCleanupPreview } from './planner'
 import { codexEnvironment, codexIsRunning, probeFileUsage, quitCodexDesktop, relaunchCodex } from './platform-services'
+import { deleteSessionRecords } from './session-database'
 import {
   appendAutomationLog,
   applyAutomationSettings,
@@ -153,20 +154,18 @@ ipcMain.handle('cleanup:prepare', (_event, selection: CleanupSelection) => {
 })
 
 ipcMain.handle('cleanup:run', async (_event, request: CleanupRequest) => {
-  if (!request || typeof request !== 'object' || typeof request.restartCodex !== 'boolean') throw new Error('清理请求无效')
+  if (!request || typeof request !== 'object' || typeof request.restartCodex !== 'boolean' || typeof request.forceQuitCodex !== 'boolean') throw new Error('清理请求无效')
   const tasks = trustedTasks(request.selection)
   let reopen: string[] = []
   if (request.restartCodex && tasks.some((task) => task.requiresCodexStopped || task.method === 'compactDatabase')) {
     mainWindow?.webContents.send('cleanup:stage', '正在退出 Codex…')
-    reopen = await quitCodexDesktop()
+    reopen = await quitCodexDesktop(20_000, request.forceQuitCodex)
   }
-  const session = await openBatchSession(tasks.some((task) => task.method === 'deleteThread'))
   try {
-    return await runCleanup(tasks, guards, cleanupDependencies(session), (progress: CleanupProgress) => {
+    return await runCleanup(tasks, guards, cleanupDependencies(), (progress: CleanupProgress) => {
       mainWindow?.webContents.send('cleanup:progress', progress)
     })
   } finally {
-    session?.close()
     if (reopen.length) {
       mainWindow?.webContents.send('cleanup:stage', '正在重新打开 Codex…')
       await relaunchCodex(reopen)
@@ -177,7 +176,7 @@ ipcMain.handle('cleanup:run', async (_event, request: CleanupRequest) => {
 
 function trustedTasks(selection: CleanupSelection) {
   if (!latestSnapshot) throw new Error('请先完成扫描')
-  return buildTrustedTasks(selection, latestSnapshot, latestWorkspace, appServer.isAvailable)
+  return buildTrustedTasks(selection, latestSnapshot, latestWorkspace)
 }
 
 function assertTrustedDisplayPath(path: unknown): asserts path is string {
@@ -207,22 +206,13 @@ function guardsFor(snapshot: ScanSnapshot): ProtectedPaths {
     .map((plugin) => plugin.directoryURL))
 }
 
-async function openBatchSession(required: boolean): Promise<AppServerSession | null> {
-  if (!required || !appServer.isAvailable) return null
-  try { return await appServer.openSession() } catch { return null }
-}
-
-function cleanupDependencies(session: AppServerSession | null): CleanupDeps {
+function cleanupDependencies(): CleanupDeps {
   return {
     trash: (path: string) => shell.trashItem(path),
     isCodexRunning: codexIsRunning,
     fileUsage: probeFileUsage,
-    appServer: {
-      isAvailable: session !== null,
-      deleteThread: async (threadID: string) => {
-        if (!session) throw new Error('没有连接到 codex app server')
-        await session.deleteThread(threadID)
-      }
+    sessionDatabase: {
+      deleteThread: (threadID) => deleteSessionRecords(locations.home, threadID)
     }
   }
 }
@@ -235,7 +225,7 @@ function createWindow(): void {
     minHeight: 640,
     show: false,
     autoHideMenuBar: true,
-    title: 'CleanMyCodex',
+    title: 'Clean My Codex',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
@@ -262,17 +252,14 @@ async function openExternalWebURL(value: string): Promise<void> {
 
 async function runAutomaticCleanup(): Promise<void> {
   const settings = loadAutomationSettings()
-  if (!settings.enabled) { appendAutomationLog('自动清理未开启，跳过。'); return }
+  if (!settings.enabled) { appendAutomationLog('定时清理未开启，跳过。'); return }
   try {
     const installedPlugins = await appServer.installedPlugins()
     const snapshot = await scanSnapshot(locations, installedPlugins)
     guards = guardsFor(snapshot)
-    const tasks = buildAutomaticTasks(snapshot, settings, appServer.isAvailable)
+    const tasks = buildAutomaticTasks(snapshot, settings)
     if (!tasks.length) { appendAutomationLog('没有需要清理的项目。'); return }
-    const batchSession = await openBatchSession(tasks.some((task) => task.method === 'deleteThread'))
-    let report
-    try { report = await runCleanup(tasks, guards, cleanupDependencies(batchSession)) }
-    finally { batchSession?.close() }
+    const report = await runCleanup(tasks, guards, cleanupDependencies())
     const deferred = report.outcomes.filter((item) => item.status.kind === 'skipped')
     const failed = report.outcomes.filter((item) => item.status.kind === 'failed')
     saveAutomaticRun({
@@ -284,9 +271,9 @@ async function runAutomaticCleanup(): Promise<void> {
     const summary = `已释放 ${reportFreedBytes(report)} 字节，成功 ${report.outcomes.length - deferred.length - failed.length} 项，跳过 ${deferred.length} 项，失败 ${failed.length} 项`
     appendAutomationLog(summary)
     for (const item of deferred) appendAutomationLog(`跳过：${item.title} — ${item.status.kind === 'skipped' ? item.status.reason : ''}`)
-    if (settings.notifyWhenFinished && Notification.isSupported()) new Notification({ title: 'CleanMyCodex', body: summary }).show()
+    if (settings.notifyWhenFinished && Notification.isSupported()) new Notification({ title: 'Clean My Codex', body: summary }).show()
   } catch (err) {
-    appendAutomationLog(`自动清理失败：${err instanceof Error ? err.message : String(err)}`)
+    appendAutomationLog(`定时清理失败：${err instanceof Error ? err.message : String(err)}`)
   }
 }
 

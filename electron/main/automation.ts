@@ -83,7 +83,7 @@ function installLaunchAgent(intervalSeconds: number): void {
   writeFileSync(path, plist, 'utf8')
   runLaunchctl(['bootout', `gui/${process.getuid?.() ?? 0}/${serviceLabel}`])
   if (!runLaunchctl(['bootstrap', `gui/${process.getuid?.() ?? 0}`, path])) {
-    throw new Error('launchctl 无法加载自动清理任务')
+    throw new Error('launchctl 无法加载定时清理任务')
   }
 }
 
@@ -100,7 +100,7 @@ function installWindowsTask(intervalDays: number): void {
     ? `"${process.execPath}" --auto-clean`
     : `"${process.execPath}" "${app.getAppPath()}" --auto-clean`
   if (!runSchtasks(['/Create', '/F', '/SC', 'DAILY', '/MO', String(Math.max(1, Math.floor(intervalDays))), '/TN', windowsTaskName, '/TR', command])) {
-    throw new Error('Windows 任务计划程序无法创建自动清理任务')
+    throw new Error('Windows 任务计划程序无法创建定时清理任务')
   }
 }
 
@@ -140,7 +140,7 @@ export function getAutomationState(): AutomationState {
 }
 
 export function applyAutomationSettings(settings: AutomationSettings): AutomationState {
-  if (!validAutomationSettings(settings)) throw new Error('自动清理设置无效')
+  if (!validAutomationSettings(settings)) throw new Error('定时清理设置无效')
   const sanitized: AutomationSettings = {
     ...settings,
     intervalDays: Math.min(180, Math.max(1, Math.round(settings.intervalDays))),
