@@ -118,7 +118,7 @@ final class AppModel: ObservableObject {
                     Task { @MainActor in self?.scanProgress = progress }
                 }
             } catch {
-                await MainActor.run { self?.errorMessage = error.localizedDescription }
+                await Task { @MainActor in self?.errorMessage = error.localizedDescription }.value
                 return .empty(at: home)
             }
         }
@@ -332,7 +332,7 @@ final class AppModel: ObservableObject {
         let places = locations
         let worker = Task.detached(priority: .userInitiated) { [weak self] in
             let result = scanner.workspaceSnapshot(in: places, reporter: nil)
-            await MainActor.run { self?.applyWorkspace(result) }
+            await Task { @MainActor in self?.applyWorkspace(result) }.value
         }
         workspaceWorker = worker
     }
