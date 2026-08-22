@@ -38,9 +38,13 @@ struct CodexStorageScanner: Sendable {
         CodexLocations(home: codexHome, library: libraryDirectory, documents: documentsDirectory)
     }
 
+    /// `includeWorkspace` is off by default on purpose. Reading `~/Documents/Codex` makes
+    /// macOS ask for access to the Documents folder, and most runs never need it — the
+    /// prompt should appear when the user opens the workspace screen, not at launch.
     func scan(
         codexHome: URL,
         installedPlugins: [InstalledPlugin]? = nil,
+        includeWorkspace: Bool = false,
         progress: @Sendable @escaping (ScanProgress) -> Void = { _ in }
     ) throws -> ScanSnapshot {
         let places = locations(for: codexHome)
@@ -73,8 +77,11 @@ struct CodexStorageScanner: Sendable {
         reporter.enter(stage: "资产目录", base: 0.92, span: 0.05)
         let assetItems = assetCategories(in: places, sessions: sessions, reporter: reporter)
 
-        reporter.enter(stage: "工作产出", base: 0.97, span: 0.02)
-        let workspace = workspaceSnapshot(in: places, reporter: reporter)
+        var workspace = WorkspaceSnapshot.empty(at: places.workspace)
+        if includeWorkspace {
+            reporter.enter(stage: "工作产出", base: 0.97, span: 0.02)
+            workspace = workspaceSnapshot(in: places, reporter: reporter)
+        }
 
         reporter.enter(stage: "受保护的数据", base: 0.99, span: 0.01)
         let protectedItems = protectedCategories(in: places, guards: guards, reporter: reporter)

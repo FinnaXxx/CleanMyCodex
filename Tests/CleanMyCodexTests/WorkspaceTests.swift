@@ -90,7 +90,9 @@ struct WorkspaceTests {
         #expect(targets == ["2026-08-21"])
     }
 
-    @Test func nothingIsPreselectedAfterAScan() throws {
+    /// The default scan must not read ~/Documents at all — that read is what triggers the
+    /// Documents permission prompt, and most runs have no reason to pay for it.
+    @Test func theDefaultScanDoesNotReadTheWorkspace() throws {
         let fixture = try TemporaryFixture()
         defer { fixture.remove() }
         let places = locations(fixture)
@@ -101,6 +103,23 @@ struct WorkspaceTests {
             libraryDirectory: places.library,
             documentsDirectory: places.documents
         ).scan(codexHome: places.home)
+
+        #expect(!snapshot.workspace.isScanned)
+        #expect(snapshot.workspace.entries.isEmpty)
+        #expect(snapshot.workspace.bytes == 0)
+    }
+
+    @Test func nothingIsPreselectedAfterAScan() throws {
+        let fixture = try TemporaryFixture()
+        defer { fixture.remove() }
+        let places = locations(fixture)
+        let directory = fixture.directory("Documents/Codex/2026-08-21/new-chat")
+        try Data(repeating: 0x41, count: 20_000).write(to: directory.appending(path: "file.bin"))
+
+        let snapshot = try CodexStorageScanner(
+            libraryDirectory: places.library,
+            documentsDirectory: places.documents
+        ).scan(codexHome: places.home, includeWorkspace: true)
 
         #expect(!snapshot.workspace.isEmpty)
         // The workspace never appears among the things a cleanup would select.
@@ -118,7 +137,7 @@ struct WorkspaceTests {
         let snapshot = try CodexStorageScanner(
             libraryDirectory: places.library,
             documentsDirectory: places.documents
-        ).scan(codexHome: places.home)
+        ).scan(codexHome: places.home, includeWorkspace: true)
         var settings = AutomationSettings()
         settings.cleanCaches = true
         settings.cleanOldPlugins = true

@@ -280,7 +280,8 @@ struct ScanSnapshot: Sendable {
     let externalBytes: Int64
     let categories: [StorageCategory]
     let sessions: [SessionItem]
-    let workspace: WorkspaceSnapshot
+    /// Filled in separately, the first time the user opens the workspace screen.
+    var workspace: WorkspaceSnapshot
     let pluginVersions: [PluginVersionItem]
     let notes: [String]
 

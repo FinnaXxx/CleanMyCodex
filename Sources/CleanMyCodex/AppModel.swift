@@ -83,6 +83,7 @@ final class AppModel: ObservableObject {
     private var sessionSearchIndex: [String: String] = [:]
     private var sessionCounts: [SessionScope: Int] = [:]
     private var workspaceIndex: [String: WorkspaceEntry] = [:]
+    private var workspaceWorker: Task<Void, Never>?
 
     var codexHome: URL { locations.home }
 
@@ -175,11 +176,12 @@ final class AppModel: ObservableObject {
         )
         selectedSessionIDs = selectedSessionIDs.intersection(sessionIndex.keys)
         selectedPluginIDs = selectedPluginIDs.intersection(Set(result.pluginVersions.map(\.id)))
-        workspaceIndex = Dictionary(
-            result.workspace.entries.flatMap(\.flattened).map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
+        // A rescan drops the workspace result too; it is re-read on demand.
+        workspaceIndex = [:]
         selectedWorkspaceIDs.removeAll()
+        workspaceWorker?.cancel()
+        workspaceWorker = nil
+        isScanningWorkspace = false
         rebuildVisibleSessions()
         refreshAutomationStatus()
     }
@@ -316,6 +318,42 @@ final class AppModel: ObservableObject {
     }
 
     // MARK: - Workspace
+
+    @Published private(set) var isScanningWorkspace = false
+
+    /// Deliberately separate from the main scan: the first read of ~/Documents/Codex is
+    /// what makes macOS ask for Documents access, so it happens when the user opens the
+    /// workspace screen and can see why it is being asked.
+    func scanWorkspaceIfNeeded() {
+        guard !snapshot.workspace.isScanned, !isScanningWorkspace, workspaceWorker == nil else { return }
+        isScanningWorkspace = true
+
+        let scanner = scanner
+        let places = locations
+        let worker = Task.detached(priority: .userInitiated) { [weak self] in
+            let result = scanner.workspaceSnapshot(in: places, reporter: nil)
+            await MainActor.run { self?.applyWorkspace(result) }
+        }
+        workspaceWorker = worker
+    }
+
+    func rescanWorkspace() {
+        workspaceWorker?.cancel()
+        workspaceWorker = nil
+        snapshot.workspace = .empty(at: locations.workspace)
+        scanWorkspaceIfNeeded()
+    }
+
+    private func applyWorkspace(_ result: WorkspaceSnapshot) {
+        snapshot.workspace = result
+        workspaceIndex = Dictionary(
+            result.entries.flatMap(\.flattened).map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        selectedWorkspaceIDs.removeAll()
+        isScanningWorkspace = false
+        workspaceWorker = nil
+    }
 
     func isWorkspaceSelected(_ id: String) -> Bool { selectedWorkspaceIDs.contains(id) }
 
