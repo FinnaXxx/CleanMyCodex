@@ -205,11 +205,15 @@ struct SessionsView: View {
 
 /// A pure value row: no environment object, so scrolling never re-reads the model.
 private struct SessionRow: View, Equatable {
-    let session: SessionItem
-    let isSelected: Bool
+    // `SessionRow` is a `View`, so it inherits `@MainActor` isolation. The `Equatable`
+    // conformance needs a nonisolated `==`, which can only read nonisolated stored
+    // properties — hence the `nonisolated` markers below. Both compared values are
+    // Sendable (`SessionItem` is a value type, `Bool` is trivial), so this is safe.
+    nonisolated let session: SessionItem
+    nonisolated let isSelected: Bool
     let onSelect: (Bool) -> Void
 
-    static func == (lhs: SessionRow, rhs: SessionRow) -> Bool {
+    nonisolated static func == (lhs: SessionRow, rhs: SessionRow) -> Bool {
         lhs.session.id == rhs.session.id && lhs.isSelected == rhs.isSelected
     }
 
