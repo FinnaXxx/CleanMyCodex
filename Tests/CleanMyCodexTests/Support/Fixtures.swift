@@ -59,6 +59,35 @@ enum SQLiteFixture {
         execute(handle, "PRAGMA wal_checkpoint(TRUNCATE);")
     }
 
+    /// Mirrors the `threads` table Codex keeps in `state_*.sqlite`.
+    static func makeStateDatabase(at url: URL, threads: [(id: String, title: String?, rollout: String?)]) {
+        var handle: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil) == SQLITE_OK,
+              let handle
+        else { return }
+        defer { sqlite3_close(handle) }
+
+        execute(handle, """
+            CREATE TABLE IF NOT EXISTS threads(
+                id TEXT PRIMARY KEY,
+                cwd TEXT,
+                title TEXT,
+                archived INTEGER,
+                rollout_path TEXT,
+                updated_at INTEGER
+            );
+            """)
+        for thread in threads {
+            let title = thread.title.map { "'\($0.replacingOccurrences(of: "'", with: "''"))'" } ?? "NULL"
+            let rollout = thread.rollout.map { "'\($0.replacingOccurrences(of: "'", with: "''"))'" } ?? "NULL"
+            execute(
+                handle,
+                "INSERT INTO threads(id, cwd, title, archived, rollout_path, updated_at) "
+                    + "VALUES('\(thread.id)', '/tmp/demo', \(title), 0, \(rollout), 1);"
+            )
+        }
+    }
+
     private static func execute(_ handle: OpaquePointer, _ sql: String) {
         sqlite3_exec(handle, sql, nil, nil, nil)
     }

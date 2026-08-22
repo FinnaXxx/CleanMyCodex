@@ -298,6 +298,68 @@ struct StorageScannerTests {
         #expect((third.first?.embeddedImageCount ?? 0) > (first.first?.embeddedImageCount ?? 0))
     }
 
+    @Test func sessionTitlesComeFromCodexOwnStateDatabase() throws {
+        let fixture = try TemporaryFixture()
+        defer { fixture.remove() }
+        let id = "44444444-5555-6666-7777-888888888888"
+        let file = fixture.directory("sessions").appending(path: "rollout-\(id).jsonl")
+        let meta = "{\"type\":\"session_meta\",\"payload\":{\"id\":\"\(id)\",\"cwd\":\"/tmp/demo\"}}\n"
+        let preamble = "{\"payload\":{\"role\":\"user\",\"content\":"
+            + "[{\"type\":\"input_text\",\"text\":\"<environment_context>cwd=/tmp/demo</environment_context>\"}]}}\n"
+        try Data((meta + preamble).utf8).write(to: file)
+
+        SQLiteFixture.makeStateDatabase(
+            at: fixture.file("state_5.sqlite"),
+            threads: [(id: id, title: "重写扫描器的进度报告", rollout: file.path)]
+        )
+
+        let sessions = try CodexStorageScanner(libraryDirectory: fixture.directory("Library"))
+            .scanSessions(in: fixture.root)
+
+        #expect(sessions.first?.title == "重写扫描器的进度报告")
+        #expect(sessions.first?.displayName == "重写扫描器的进度报告")
+        // The injected context turn must never be mistaken for a title.
+        #expect(sessions.first?.preview == nil)
+    }
+
+    @Test func threadIndexMatchesByIDAndByRolloutPath() throws {
+        let fixture = try TemporaryFixture()
+        defer { fixture.remove() }
+        let moved = fixture.file("archived_sessions/rollout-b.jsonl")
+        SQLiteFixture.makeStateDatabase(
+            at: fixture.file("state_5.sqlite"),
+            threads: [
+                (id: "aaa", title: "按 id 命中", rollout: nil),
+                (id: "bbb", title: "按路径命中", rollout: moved.path),
+                (id: "ccc", title: nil, rollout: nil)
+            ]
+        )
+
+        let index = CodexThreadIndex.load(codexHome: fixture.root)
+
+        #expect(index.title(forThreadID: "aaa", rolloutPath: nil) == "按 id 命中")
+        #expect(index.title(forThreadID: "unknown", rolloutPath: moved) == "按路径命中")
+        #expect(index.title(forThreadID: "ccc", rolloutPath: nil) == nil)
+        #expect(index.title(forThreadID: "missing", rolloutPath: nil) == nil)
+    }
+
+    @Test func newestStateDatabaseIsPreferred() throws {
+        let fixture = try TemporaryFixture()
+        defer { fixture.remove() }
+        SQLiteFixture.makeStateDatabase(
+            at: fixture.file("state_4.sqlite"),
+            threads: [(id: "aaa", title: "旧库", rollout: nil)]
+        )
+        SQLiteFixture.makeStateDatabase(
+            at: fixture.file("state_5.sqlite"),
+            threads: [(id: "aaa", title: "新库", rollout: nil)]
+        )
+
+        let ordered = CodexThreadIndex.stateDatabases(in: fixture.root).map(\.lastPathComponent)
+        #expect(ordered == ["state_5.sqlite", "state_4.sqlite"])
+        #expect(CodexThreadIndex.load(codexHome: fixture.root).title(forThreadID: "aaa", rolloutPath: nil) == "新库")
+    }
+
     @Test func byteFormatUsesBinaryUnits() {
         #expect(ByteFormat.string(0) == "0 B")
         #expect(ByteFormat.string(512) == "512 B")

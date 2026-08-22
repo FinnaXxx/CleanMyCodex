@@ -25,7 +25,11 @@ Codex 的数据分散在 `~/.codex`、`~/Library/Application Support/Codex`、`~
 
 - 未归档与已归档会话统一列出：归档只是隐藏，不释放空间。
 - 每个会话显示会话文件大小、内嵌图片占用和图片数量，并标记 Browser / Computer Use / ImageGen / 图片密集会话。
-- 每行显示会话标题（没有标题时回落到第一句用户消息）和所属项目，而不是只有一串 UUID。
+- 会话标题直接读 Codex 自己的 `~/.codex/state_*.sqlite`（`threads` 表的 `title`），
+  和 Codex 界面里显示的短标题一致；按 `rollout_path` 和线程 id 两路匹配。
+  该数据库只读打开，从不写入；WAL 状态下读不了时改读一份有大小上限的临时副本，用完即删。
+- 读不到标题时才回落到第一句用户消息（`<environment_context>`、`<user_instructions>`、
+  AGENTS.md 这类注入内容会跳过），再回落到项目名。
 - 支持按占用、内嵌图片、最后活动或名称排序，可搜索标题/项目，并按「最后活动早于 N 天」批量选择。
 - 过滤与排序结果有缓存，只在条件变化时重算，长列表滚动不会卡。
 - 删除优先调用 app server 的 `thread/delete`，同时清理 rollout、关联元数据和派生子线程；
