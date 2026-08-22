@@ -353,3 +353,8 @@ export function formatBytes(bytes: number): string {
   const digits = index === 0 ? 0 : value >= 100 ? 0 : value >= 10 ? 1 : 2
   return `${value.toFixed(digits)} ${units[index]}`
 }
+
+export interface AppInfo {
+  version: string
+  platform: string
+}
