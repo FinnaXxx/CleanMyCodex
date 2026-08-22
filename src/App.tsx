@@ -261,7 +261,7 @@ function CleanupExperience({ preview, report, progress, scanProgress, stage, onD
             </li>)}
           </ul>
         </section>
-        <div className="result-actions"><button className="btn primary btn-large result-done" onClick={onDone}>{t('回到首页', 'Back to Home')}</button></div>
+        <div className="result-actions"><button className="btn primary btn-large result-done" onClick={onDone}>{t('返回', 'Back')}</button></div>
       </div>
     </div>
   }
