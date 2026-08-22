@@ -166,14 +166,14 @@ struct CodexStorageScanner: Sendable {
                         : "\(temporaryGraceDays) 天内没有改动的临时目录",
                     url: url,
                     bytes: bytes,
-                    risk: .safe,
                     // Re-checked immediately before deletion: a scan result can be minutes
                     // old, and an upgrade can start in that window.
                     minimumIdleSeconds: idleRequirement,
                     // `.tmp` is where Codex unpacks upgrades. Nothing here is touched
                     // while it is running — an idle-time heuristic cannot tell an
                     // abandoned staging directory from one being written into.
-                    requiresCodexStopped: true
+                    requiresCodexStopped: true,
+                    risk: .safe
                 )
             )
         }
