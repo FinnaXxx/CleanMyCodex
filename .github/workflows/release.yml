@@ -9,19 +9,7 @@ permissions:
 
 jobs:
   release:
-    strategy:
-      matrix:
-        include:
-          - os: macos-26
-            command: build:mac
-            args: --arm64 --x64
-          - os: windows-latest
-            command: build:win
-            args: ""
-          - os: ubuntu-latest
-            command: build:linux
-            args: ""
-    runs-on: ${{ matrix.os }}
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -36,7 +24,7 @@ jobs:
         shell: bash
         run: test "$GITHUB_REF_NAME" = "v$(node -p "require('./package.json').version")"
       - run: pnpm check
-      - run: pnpm ${{ matrix.command }} -- ${{ matrix.args }} --publish never
+      - run: pnpm build:mac -- --arm64 --x64 --publish never
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true

@@ -26,7 +26,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
-      - run: pnpm test
+      - if: runner.os != 'Linux'
+        run: pnpm test
+      - if: runner.os == 'Linux'
+        run: xvfb-run -a pnpm test
       - run: pnpm build
       - name: Package (without publishing)
         run: pnpm exec electron-builder --dir
