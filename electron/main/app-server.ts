@@ -176,28 +176,42 @@ export class AppServerClient {
     return this.executable !== null
   }
 
-  async openSession(): Promise<AppServerSession> {
+  async openSession(signal?: AbortSignal): Promise<AppServerSession> {
     if (!this.executable) throw new Error('没有找到 codex 命令行，无法调用 app server')
     const session = new AppServerSession(this.executable, this.codexHome, this.timeout)
-    await session.handshake()
-    return session
+    const abort = () => session.close()
+    signal?.addEventListener('abort', abort, { once: true })
+    try {
+      if (signal?.aborted) throw new DOMException('扫描已停止', 'AbortError')
+      await session.handshake()
+      if (signal?.aborted) throw new DOMException('扫描已停止', 'AbortError')
+      return session
+    } catch (error) {
+      session.close()
+      throw error
+    } finally {
+      signal?.removeEventListener('abort', abort)
+    }
   }
 
   /** Best-effort plugin inventory. Returns null when the app server cannot be reached. */
-  async installedPlugins(): Promise<InstalledPlugin[] | null> {
+  async installedPlugins(signal?: AbortSignal): Promise<InstalledPlugin[] | null> {
+    let session: AppServerSession | null = null
+    const abort = () => session?.close()
+    signal?.addEventListener('abort', abort, { once: true })
     try {
-      const session = await this.openSession()
-      try {
-        const response = await session.listPlugins()
-        const plugins = parsePlugins(response)
-        // An empty inventory is indistinguishable from an unknown response shape. Never
-        // turn every on-disk plugin into an "orphan" on that evidence.
-        return plugins.length ? plugins : null
-      } finally {
-        session.close()
-      }
+      session = await this.openSession(signal)
+      if (signal?.aborted) throw new DOMException('扫描已停止', 'AbortError')
+      const response = await session.listPlugins()
+      const plugins = parsePlugins(response)
+      // An empty inventory is indistinguishable from an unknown response shape. Never
+      // turn every on-disk plugin into an "orphan" on that evidence.
+      return plugins.length ? plugins : null
     } catch {
       return null
+    } finally {
+      signal?.removeEventListener('abort', abort)
+      session?.close()
     }
   }
 }

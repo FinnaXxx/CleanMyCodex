@@ -1,5 +1,10 @@
 import { homedir, platform } from 'node:os'
-import { join, normalize } from 'node:path'
+import { join, normalize, win32 } from 'node:path'
+
+export function windowsAppCacheDirectories(localAppData: string): string[] {
+  const relatives = ['Cache', 'Code Cache', 'GPUCache', 'ShaderCache', 'GrShaderCache']
+  return ['Codex', 'com.openai.codex'].flatMap((root) => relatives.map((name) => win32.join(localAppData, root, name)))
+}
 
 /**
  * Every directory CleanMyCodex is allowed to look at, derived from a single Codex home.
@@ -68,10 +73,9 @@ export class CodexLocations {
       ]
     }
     const local = process.env['LOCALAPPDATA'] ?? join(homedir(), 'AppData', 'Local')
-    return [
-      join(local, 'Codex'),
-      join(local, 'com.openai.codex')
-    ]
+    // Never classify the whole LocalAppData/Codex directory as cache: installers and
+    // future builds may put executable or profile data beside these well-known folders.
+    return windowsAppCacheDirectories(local)
   }
 
   get appLogs(): string {
@@ -82,7 +86,8 @@ export class CodexLocations {
   /** Where CleanMyCodex keeps its own rescan cache. Never a cleanup target. */
   get scanCache(): string {
     const isMac = platform() === 'darwin'
-    return join(this.library, isMac ? 'Caches/CleanMyCodex' : 'Local/CleanMyCodex')
+    if (isMac) return join(this.library, 'Caches/CleanMyCodex')
+    return join(process.env['LOCALAPPDATA'] ?? join(homedir(), 'AppData', 'Local'), 'CleanMyCodex')
   }
 
   /** Chromium-style caches that the desktop app rebuilds on demand. */

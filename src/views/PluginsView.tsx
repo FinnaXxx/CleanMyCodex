@@ -1,15 +1,16 @@
 import { useMemo, useState } from 'react'
-import type { CleanupProgress, CleanupTask, PluginVersionItem, ScanSnapshot } from '../../shared/types'
-import { formatBytes, PluginStatusLabel, pluginStatusIsRemovable, tasksFromEntries } from '../../shared/types'
+import type { CleanupProgress, CleanupSelection, PluginVersionItem, ScanSnapshot } from '../../shared/types'
+import { formatBytes, PluginStatusLabel, pluginStatusIsRemovable } from '../../shared/types'
 
 interface Props {
   snapshot: ScanSnapshot
   cleaning: boolean
+  actionsDisabled: boolean
   cleanProgress: CleanupProgress | null
-  onCleanup: (tasks: CleanupTask[]) => void
+  onCleanup: (selection: CleanupSelection) => void
 }
 
-export default function PluginsView({ snapshot, cleaning, cleanProgress, onCleanup }: Props) {
+export default function PluginsView({ snapshot, cleaning, actionsDisabled, cleanProgress, onCleanup }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const groups = useMemo(() => {
     const map = new Map<string, PluginVersionItem[]>()
@@ -27,12 +28,7 @@ export default function PluginsView({ snapshot, cleaning, cleanProgress, onClean
     next.has(id) ? next.delete(id) : next.add(id)
     return next
   })
-  const cleanup = () => window.confirm(`确认清理 ${chosen.length} 个非当前插件版本，预计释放 ${formatBytes(bytes)}？`) && onCleanup(tasksFromEntries(chosen.map((item) => ({
-    id: `trash:${item.directoryURL}`, title: `${item.plugin} · ${item.version}`,
-    detail: PluginStatusLabel[item.status], url: item.directoryURL, bytes: item.bytes,
-    reclaimableBytes: item.bytes, minimumIdleSeconds: null, requiresCodexStopped: false,
-    method: 'trash', risk: 'safe'
-  }))))
+  const cleanup = () => onCleanup({ kind: 'plugins', ids: chosen.map((item) => item.directoryURL) })
 
   return <>
     <section className="page-heading">
@@ -53,6 +49,6 @@ export default function PluginsView({ snapshot, cleaning, cleanProgress, onClean
         </div>)}
       </section>)}
     </div>
-    <div className="page-footer"><span>{chosen.length ? `已选择 ${chosen.length} 个版本 · ${formatBytes(bytes)}` : `可清理 ${removable.length} 个版本`}</span><button className="clean" disabled={!chosen.length || cleaning} onClick={cleanup}>{cleaning ? `清理中… ${cleanProgress?.completed ?? 0}/${chosen.length}` : '清理所选版本'}</button></div>
+    <div className="page-footer"><span>{chosen.length ? `已选择 ${chosen.length} 个版本 · ${formatBytes(bytes)}` : `可清理 ${removable.length} 个版本`}</span><button className="clean" disabled={!chosen.length || cleaning || actionsDisabled} onClick={cleanup}>{cleaning ? `清理中… ${cleanProgress?.completed ?? 0}/${chosen.length}` : '清理所选版本'}</button></div>
   </>
 }
