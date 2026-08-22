@@ -103,6 +103,7 @@ export default function SessionsView({ snapshot, appServerAvailable, cleaning, a
   }, [confirmStripAll])
 
   return <>
+    <div className="detail-content">
     <section className="page-heading">
       <div><h2>会话记录</h2></div>
     </section>
@@ -143,6 +144,7 @@ export default function SessionsView({ snapshot, appServerAvailable, cleaning, a
         {visible.map((session) => <SessionRow key={session.id} session={session} checked={selected.has(session.id)} onToggle={() => toggle(session.id)} />)}
       </ul>
       {!visible.length && <p className="empty-inline">没有符合筛选条件的会话</p>}
+    </div>
     </div>
 
     {selectedSessions.length > 0 && <div className="action-bar">

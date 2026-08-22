@@ -102,9 +102,9 @@ function logDatabases(home: string): { path: string; bytes: number }[] {
 }
 
 /**
- * Builds the complete Codex snapshot. Workspace output remains opt-in because reading
- * Documents may trigger an OS permission prompt; it is scanned by `scanWorkspace` when
- * that page opens. `onProgress` lets the renderer show the path currently measured.
+ * Builds the core Codex snapshot. The interactive worker fills in workspace output
+ * immediately afterward so the Documents permission prompt belongs to the main scan.
+ * Automatic background cleanup deliberately leaves that user-data scan untouched.
  */
 export async function scanSnapshot(
   locations: CodexLocations,
