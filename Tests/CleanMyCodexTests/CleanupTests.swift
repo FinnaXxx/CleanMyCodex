@@ -259,6 +259,111 @@ struct CleanupPlannerTests {
     }
 }
 
+struct MarketplaceProtectionTests {
+    @Test func readsLocalMarketplaceSourcesFromTOML() {
+        let toml = """
+        model = "gpt-5"
+
+        [marketplaces.openai-bundled]
+        source_type = "local"
+        source = "/Users/someone/.codex/.tmp/bundled-marketplaces/openai-bundled"
+
+        [marketplaces.remote]
+        source_type = "git"
+        source = "https://example.com/marketplace.git"
+        """
+
+        let sources = CodexConfiguration.marketplaceSources(inTOML: toml)
+
+        #expect(sources.contains("/Users/someone/.codex/.tmp/bundled-marketplaces/openai-bundled"))
+        #expect(sources.contains("https://example.com/marketplace.git"))
+        // `source_type` must never be mistaken for `source`.
+        #expect(!sources.contains("local"))
+        #expect(!sources.contains("git"))
+    }
+
+    @Test func readsInlineTableForm() {
+        let toml = #"marketplaces.openai-bundled = { source_type = "local", source = "~/.codex/.tmp/bundled-marketplaces/openai-bundled" }"#
+        let sources = CodexConfiguration.marketplaceSources(inTOML: toml)
+        #expect(sources == ["~/.codex/.tmp/bundled-marketplaces/openai-bundled"])
+    }
+
+    @Test func ignoresCommentedOutSources() {
+        let toml = """
+        [marketplaces.openai-bundled]
+        # source = "/old/path"
+        source = "/new/path"
+        """
+        #expect(CodexConfiguration.marketplaceSources(inTOML: toml) == ["/new/path"])
+    }
+
+    /// The bundled marketplace lives under `.tmp`, so it must be protected even when
+    /// config.toml cannot be read at all.
+    @Test func bundledMarketplaceIsProtectedWithoutConfig() throws {
+        let fixture = try TemporaryFixture()
+        defer { fixture.remove() }
+        let locations = CodexLocations(home: fixture.root, library: fixture.directory("Library"))
+        let guards = ProtectedPaths(locations: locations)
+
+        let bundled = fixture.directory(".tmp/bundled-marketplaces/openai-bundled/plugins/browser")
+        #expect(guards.isProtected(bundled))
+        #expect(guards.isProtected(fixture.file(".tmp/bundled-marketplaces")))
+        #expect(throws: CleanupGuardError.self) {
+            try guards.validate(fixture.file(".tmp/bundled-marketplaces"))
+        }
+
+        // Upgrade leftovers sitting next to it are still fair game.
+        let staging = fixture.file(".tmp/openai-bundled.staging-64e5ba9c")
+        #expect(!guards.isProtected(staging))
+    }
+
+    /// Regression: containment was only checked one way, so deleting the parent of a
+    /// protected directory was allowed and would have taken it along.
+    @Test func deletingTheParentOfAProtectedPathIsRefused() throws {
+        let fixture = try TemporaryFixture()
+        defer { fixture.remove() }
+        let locations = CodexLocations(home: fixture.root, library: fixture.directory("Library"))
+        let active = fixture.directory("plugins/cache/personal/codex-seo/1.9.6+codex.5")
+        let guards = ProtectedPaths(locations: locations, activePluginDirectories: [active])
+
+        #expect(guards.isProtected(active))
+        #expect(guards.isProtected(fixture.file("plugins/cache/personal/codex-seo")))
+        #expect(guards.isProtected(fixture.file("plugins/cache")))
+        #expect(throws: CleanupGuardError.self) {
+            try guards.validate(fixture.file("plugins/cache/personal/codex-seo"))
+        }
+
+        // A sibling version is not a parent of anything protected.
+        #expect(!guards.isProtected(fixture.file("plugins/cache/personal/codex-seo/1.0.0")))
+    }
+
+    @Test func configuredSourceOutsideTheBundledPathIsProtectedToo() throws {
+        let fixture = try TemporaryFixture()
+        defer { fixture.remove() }
+        let locations = CodexLocations(home: fixture.root, library: fixture.directory("Library"))
+        let custom = fixture.directory(".tmp/my-marketplace")
+        try fixture.write(
+            "[marketplaces.mine]\nsource_type = \"local\"\nsource = \"\(custom.path)\"\n",
+            to: "config.toml"
+        )
+
+        let guards = ProtectedPaths(locations: locations)
+
+        #expect(guards.isProtected(custom))
+        #expect(throws: CleanupGuardError.self) { try guards.validate(custom) }
+    }
+
+    @Test func outermostDropsNestedDuplicates() {
+        let parent = URL(fileURLWithPath: "/tmp/codex/.tmp/bundled-marketplaces")
+        let child = parent.appending(path: "openai-bundled")
+        let other = URL(fileURLWithPath: "/tmp/codex/.tmp/other")
+
+        let result = ProtectedPaths.outermost([child, parent, other, parent]).map(\.path)
+
+        #expect(result == [parent.path, other.path])
+    }
+}
+
 struct AppServerParsingTests {
     @Test func parsesPluginListFromObjectAndArrayShapes() {
         let object: [String: Any] = [

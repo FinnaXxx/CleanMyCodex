@@ -33,8 +33,10 @@ struct CodexStorageScanner: Sendable {
         let reporter = ProgressReporter(emit: progress)
         var notes: [String] = []
 
+        let guards = ProtectedPaths(locations: places)
+
         reporter.enter(stage: "缓存与临时文件", base: 0, span: 0.18)
-        let temporaryItems = temporaryCategories(in: places, reporter: reporter)
+        let temporaryItems = temporaryCategories(in: places, guards: guards, reporter: reporter)
         let cacheItems = cacheCategories(in: places, reporter: reporter)
 
         reporter.enter(stage: "日志数据库", base: 0.18, span: 0.07)
@@ -58,7 +60,7 @@ struct CodexStorageScanner: Sendable {
         let assetItems = assetCategories(in: places, sessions: sessions, reporter: reporter)
 
         reporter.enter(stage: "受保护的数据", base: 0.97, span: 0.03)
-        let protectedItems = protectedCategories(in: places, reporter: reporter)
+        let protectedItems = protectedCategories(in: places, guards: guards, reporter: reporter)
 
         let categories = temporaryItems
             + cacheItems
@@ -89,7 +91,11 @@ struct CodexStorageScanner: Sendable {
 
     // MARK: - Temporary files
 
-    private func temporaryCategories(in places: CodexLocations, reporter: ProgressReporter?) -> [StorageCategory] {
+    private func temporaryCategories(
+        in places: CodexLocations,
+        guards: ProtectedPaths,
+        reporter: ProgressReporter?
+    ) -> [StorageCategory] {
         let manager = FileManager()
         let children = contents(of: places.temporary, manager: manager)
         let cutoff = Calendar.current.date(byAdding: .day, value: -temporaryGraceDays, to: .now) ?? .distantPast
@@ -102,6 +108,9 @@ struct CodexStorageScanner: Sendable {
             let modified = modificationDate(of: url)
             let bytes = directorySize(url, reporter: reporter)
             guard bytes > 0 else { continue }
+            // A marketplace Codex loads plugins from is not scratch, whatever it is called
+            // or where it sits. It is listed under 受保护 instead.
+            guard !guards.isProtected(url) else { continue }
 
             if name.localizedCaseInsensitiveContains("marketplace") {
                 marketplace.append(
@@ -476,6 +485,16 @@ struct CodexStorageScanner: Sendable {
         ]
     }
 
+    /// `.tmp/bundled-marketplaces` reads better than `bundled-marketplaces` on its own.
+    static func relativeName(of url: URL, under root: URL) -> String {
+        let rootComponents = root.standardizedFileURL.pathComponents
+        let components = url.standardizedFileURL.pathComponents
+        guard components.count > rootComponents.count,
+              Array(components.prefix(rootComponents.count)) == rootComponents
+        else { return url.lastPathComponent }
+        return components.dropFirst(rootComponents.count).joined(separator: "/")
+    }
+
     static func assetDetail(for session: SessionItem?, threadID: String) -> String {
         guard let session else {
             return "会话已删除，只剩下图片 · \(threadID.prefix(8))"
@@ -489,12 +508,17 @@ struct CodexStorageScanner: Sendable {
 
     // MARK: - Protected data
 
-    private func protectedCategories(in places: CodexLocations, reporter: ProgressReporter?) -> [StorageCategory] {
+    private func protectedCategories(
+        in places: CodexLocations,
+        guards: ProtectedPaths,
+        reporter: ProgressReporter?
+    ) -> [StorageCategory] {
         let manager = FileManager()
-        let guards = ProtectedPaths(locations: places)
 
         var configuration: [StorageEntry] = []
-        for url in guards.protectedURLs where ProtectedPaths.contains(places.home, url) {
+        let marketplaceSources = Set(guards.localMarketplaceSources.map(\.path))
+        for url in guards.protectedURLs
+        where ProtectedPaths.contains(places.home, url) && !marketplaceSources.contains(url.path) {
             reporter?.note(url.path)
             guard manager.fileExists(atPath: url.path) else { continue }
             let bytes = directorySize(url, reporter: nil)
@@ -504,6 +528,18 @@ struct CodexStorageScanner: Sendable {
                     detail: "配置、凭据或用户规则",
                     url: url,
                     bytes: bytes,
+                    risk: .shielded
+                )
+            )
+        }
+        for url in guards.localMarketplaceSources where manager.fileExists(atPath: url.path) {
+            reporter?.note(url.path)
+            configuration.append(
+                StorageEntry(
+                    title: Self.relativeName(of: url, under: places.home),
+                    detail: "config.toml 里注册的本地插件市场，Codex 正在从这里加载插件",
+                    url: url,
+                    bytes: directorySize(url, reporter: nil),
                     risk: .shielded
                 )
             )
