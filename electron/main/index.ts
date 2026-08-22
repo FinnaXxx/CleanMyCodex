@@ -9,7 +9,7 @@ import { runCleanup, type CleanupDeps } from './cleanup'
 import { AppServerClient } from './app-server'
 import { buildAutomaticTasks, buildTrustedTasks, makeCleanupPreview } from './planner'
 import { codexEnvironment, codexIsRunning, quitCodexDesktop, relaunchCodex } from './platform-services'
-import { deleteSessionRecords, preflightSessionRecords } from './session-database'
+import { deleteSessionRecords, preflightSessionRecords, sessionProtocolThreadIDs } from './session-database'
 import { scanPluginVersions } from './plugins'
 import {
   appendAutomationLog,
@@ -224,7 +224,13 @@ function cleanupDependencies(): CleanupDeps {
     isCodexRunning: codexIsRunning,
     sessionDatabase: {
       preflightDelete: (threadID, relatedURLs) => preflightSessionRecords(locations.home, threadID, relatedURLs),
-      deleteThread: (threadID, relatedURLs) => deleteSessionRecords(locations.home, threadID, relatedURLs)
+      deleteThreadWithProtocol: async (threadID, relatedURLs) => {
+        const protocolIDs = sessionProtocolThreadIDs(threadID, relatedURLs)
+        return appServer.deleteThreads(protocolIDs)
+      },
+      // Older app servers do not expose thread/delete. Run this only after the
+      // recoverable file cleanup when the preferred protocol was unavailable.
+      deleteThreadLocally: (threadID, relatedURLs) => deleteSessionRecords(locations.home, threadID, relatedURLs)
     }
   }
 }

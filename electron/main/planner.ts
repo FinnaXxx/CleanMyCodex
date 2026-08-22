@@ -80,7 +80,7 @@ export function makeCleanupPreview(
     : []
   const warnings: string[] = []
   if (selection.kind === 'sessions-delete') {
-    warnings.push('会话文件、生成资产和 SQLite 索引记录会一并清理。')
+    warnings.push('会话文件、生成资产和 Codex 会话索引记录会一并清理。')
   }
   if (selection.kind === 'workspace') warnings.push('请确认未提交或未推送的内容已经保存。')
   return {

@@ -201,10 +201,13 @@ function CleanupDialog({ preview, restart, forceQuit, onRestart, onForceQuit, on
   preview: CleanupPreview; restart: boolean; forceQuit: boolean; onRestart: (value: boolean) => void; onForceQuit: (value: boolean) => void; onConfirm: () => void; onClose: () => void
 }) {
   const { t, language } = usePreferences()
+  const deletesSessions = preview.selection.kind === 'sessions-delete'
   return <div className="modal-backdrop"><section className="cleanup-dialog" role="dialog" aria-modal="true">
     <><h2>{t(`确认清理 ${preview.items.length} 项`, `Confirm cleanup of ${preview.items.length} items`)}</h2>
-      <p className="dialog-lead">{t(`预计释放 ${formatBytes(preview.expectedBytes)}，文件会移到系统废纸篓。`, `About ${formatBytes(preview.expectedBytes)} will be freed. Files will be moved to the system Trash.`)}</p>
-      <ul className="preview-list">{preview.items.map((item) => <li key={item.id}><span><strong>{item.title} <em className="method-badge">{language === 'zh-CN' ? CleanupMethodLabel[item.method] : 'Move to Trash'}</em></strong><small>{item.detail}</small></span><b>{formatBytes(item.expectedBytes)}</b></li>)}</ul>
+      <p className="dialog-lead">{deletesSessions
+        ? t(`预计释放 ${formatBytes(preview.expectedBytes)}，会话将永久删除，附属生成资产会移到系统废纸篓。`, `About ${formatBytes(preview.expectedBytes)} will be freed. Sessions will be permanently deleted; generated assets will be moved to the system Trash.`)
+        : t(`预计释放 ${formatBytes(preview.expectedBytes)}，文件会移到系统废纸篓。`, `About ${formatBytes(preview.expectedBytes)} will be freed. Files will be moved to the system Trash.`)}</p>
+      <ul className="preview-list">{preview.items.map((item) => <li key={item.id}><span><strong>{item.title} <em className="method-badge">{deletesSessions ? t('永久删除', 'Delete Permanently') : language === 'zh-CN' ? CleanupMethodLabel[item.method] : 'Move to Trash'}</em></strong><small>{item.detail}</small></span><b>{formatBytes(item.expectedBytes)}</b></li>)}</ul>
       {preview.warnings.map((warning) => <p className="notice warning" key={warning}>{warning}</p>)}
       {!!preview.blockedTitles.length && <div className="notice warning"><strong>{t('需要 Codex 完全退出', 'Codex must quit completely')}</strong><br/>{preview.blockedTitles.slice(0, 4).join(t('、', ', '))}
         {preview.canRestartCodex ? <><label><input type="checkbox" checked={restart} onChange={(event) => { onRestart(event.target.checked); if (!event.target.checked) onForceQuit(false) }}/> {t('先退出 Codex，清理完成后重新打开', 'Quit Codex first, then reopen it after cleanup')}</label>

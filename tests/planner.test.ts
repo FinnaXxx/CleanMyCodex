@@ -106,7 +106,7 @@ describe('trusted cleanup planner', () => {
     const selection = { kind: 'sessions-delete', ids: [snap.sessions[0].id] } as const
     const tasks = buildTrustedTasks(selection, snap, snap.workspace)
     const preview = makeCleanupPreview(selection, tasks, { running: true, detectionKnown: true, desktopRunning: false, cliCommands: ['codex'], canRestart: false, blockerSummary: 'codex 正在运行' })
-    expect(preview.warnings.join(' ')).toContain('SQLite')
+    expect(preview.warnings.join(' ')).toContain('Codex 会话索引')
     expect(preview.blockerSummary).toContain('运行')
     expect(preview.blockedTitles).toEqual(['active'])
   })
