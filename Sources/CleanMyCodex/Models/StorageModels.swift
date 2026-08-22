@@ -104,6 +104,9 @@ struct StorageEntry: Identifiable, Hashable, Sendable {
     let bytes: Int64
     /// Space actually returned to the volume. Equals `bytes` except for database compaction.
     let reclaimableBytes: Int64
+    /// When set, the target must still have been untouched this long at the moment of
+    /// deletion — not merely when it was scanned.
+    let minimumIdleSeconds: TimeInterval?
     let method: CleanupMethod
     let risk: CleanupRisk
 
@@ -113,6 +116,7 @@ struct StorageEntry: Identifiable, Hashable, Sendable {
         url: URL,
         bytes: Int64,
         reclaimableBytes: Int64? = nil,
+        minimumIdleSeconds: TimeInterval? = nil,
         method: CleanupMethod = .trash,
         risk: CleanupRisk
     ) {
@@ -122,6 +126,7 @@ struct StorageEntry: Identifiable, Hashable, Sendable {
         self.url = url.standardizedFileURL
         self.bytes = bytes
         self.reclaimableBytes = reclaimableBytes ?? bytes
+        self.minimumIdleSeconds = minimumIdleSeconds
         self.method = method
         self.risk = risk
     }
