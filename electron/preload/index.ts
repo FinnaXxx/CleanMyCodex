@@ -3,6 +3,7 @@ import type {
   ScanSnapshot, ScanProgress, AppInfo, CleanupReport, CleanupProgress,
   WorkspaceSnapshot, AutomationSettings, AutomationState, CleanupSelection, CleanupPreview, CleanupRequest
 } from '../../shared/types'
+import type { Language, Message } from '../../shared/messages'
 
 const api = {
   appInfo: (): Promise<AppInfo> => ipcRenderer.invoke('app:info'),
@@ -20,13 +21,14 @@ const api = {
   openPath: (path: string): Promise<void> => ipcRenderer.invoke('path:open', path),
   getAutomation: (): Promise<AutomationState> => ipcRenderer.invoke('automation:get'),
   saveAutomation: (settings: AutomationSettings): Promise<AutomationState> => ipcRenderer.invoke('automation:save', settings),
+  saveLanguage: (language: Language): Promise<void> => ipcRenderer.invoke('preferences:language', language),
   onCleanupProgress: (listener: (progress: CleanupProgress) => void): (() => void) => {
     const handler = (_event: unknown, progress: CleanupProgress): void => listener(progress)
     ipcRenderer.on('cleanup:progress', handler)
     return () => ipcRenderer.removeListener('cleanup:progress', handler)
   },
-  onCleanupStage: (listener: (stage: string) => void): (() => void) => {
-    const handler = (_event: unknown, stage: string): void => listener(stage)
+  onCleanupStage: (listener: (stage: Message | null) => void): (() => void) => {
+    const handler = (_event: unknown, stage: Message | null): void => listener(stage)
     ipcRenderer.on('cleanup:stage', handler)
     return () => ipcRenderer.removeListener('cleanup:stage', handler)
   }

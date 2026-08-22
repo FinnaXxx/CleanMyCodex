@@ -22,6 +22,7 @@ import {
   workspaceBytes,
   formatBytes
 } from '../../shared/types'
+import { message } from '../../shared/messages'
 import { FolderIcon } from '../icons'
 import { usePreferences } from '../preferences'
 
@@ -42,7 +43,7 @@ interface Props {
 }
 
 export default function OverviewView({ snapshot, workspace, appInfo, cleaning, scanning, scanProgress, actionsDisabled, cleanProgress, onCleanup, onScan, onOpenDetail }: Props) {
-  const { t, language } = usePreferences()
+  const { t, m } = usePreferences()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [expanded, setExpanded] = useState<Set<StorageKind>>(new Set())
 
@@ -61,7 +62,7 @@ export default function OverviewView({ snapshot, workspace, appInfo, cleaning, s
 
   const distribution = useMemo(() => {
     const grouped = sections.map(({ section, categories }) => ({
-      label: sectionLabel(section, language),
+      label: m(message(`section.${section}`)),
       bytes: categories.reduce((sum, category) => sum + categoryBytes(category), 0)
     })).filter((item) => item.bytes > 0).sort((a, b) => b.bytes - a.bytes)
     const classified = grouped.reduce((sum, item) => sum + item.bytes, 0)
@@ -70,8 +71,11 @@ export default function OverviewView({ snapshot, workspace, appInfo, cleaning, s
     const visible = grouped.slice(0, 3)
     const rest = grouped.slice(3).reduce((sum, item) => sum + item.bytes, 0)
     if (rest) visible.push({ label: t('其他', 'Other'), bytes: rest })
-    return visible
-  }, [language, sections, snapshot.totalCodexBytes, t])
+    // Protected marketplace sources can live outside the Codex home, so the classified
+    // total can exceed it; scale to whichever is larger to keep the bar inside its track.
+    const total = Math.max(snapshot.totalCodexBytes, classified + rest, 1)
+    return visible.map((item) => ({ ...item, share: item.bytes / total }))
+  }, [m, sections, snapshot.totalCodexBytes, t])
 
   useEffect(() => {
     setSelected(new Set(snapshot.categories
@@ -133,16 +137,16 @@ export default function OverviewView({ snapshot, workspace, appInfo, cleaning, s
           <div className="usage-distribution">
             <div className="distribution-bar" aria-label={t('空间占用分布', 'Storage distribution')}>
               {distribution.map((item, index) => <span key={item.label} className={`distribution-tone-${index + 1}`}
-                style={{ width: `${item.bytes / Math.max(snapshot.totalCodexBytes, 1) * 100}%` }} />)}
+                style={{ width: `${item.share * 100}%` }} />)}
             </div>
           </div>
         </div>
       </section>
 
-      {scanProgress && <div className="progress overview-progress"><progress value={scanProgress.fraction} max={1}/><span>{scanProgress.stage} · {scanProgress.currentPath}</span></div>}
+      {scanProgress && <div className="progress overview-progress"><progress value={scanProgress.fraction} max={1}/><span>{scanProgress.stage && `${m(scanProgress.stage)} · `}{scanProgress.currentPath}</span></div>}
 
-      {appInfo?.codexRunning && <p className="notice warning">{language === 'zh-CN' ? (appInfo.runtimeSummary ?? 'Codex 正在运行') : 'Codex is running'}{t('，需要独占文件的项目本次会跳过；退出 Codex 后需重新清理。', '. Items requiring exclusive file access will be skipped; quit Codex and run cleanup again.')}</p>}
-      {snapshot.notes.map((note) => <p className="notice" key={note}>{note}</p>)}
+      {appInfo?.codexRunning && <p className="notice warning">{appInfo.blockers.map(m).join(t('；', '; '))}{t('，需要独占文件的项目本次会跳过；退出 Codex 后需重新清理。', '. Items requiring exclusive file access will be skipped; quit Codex and run cleanup again.')}</p>}
+      {snapshot.notes.map((note) => <p className="notice" key={note.key}>{m(note)}</p>)}
 
       <section className="shortcuts">
         <Shortcut kind="sessions" title={t('会话记录', 'Sessions')} detail={t('查看占用并完整删除会话', 'Review usage and delete complete sessions')} value={t(`${sessionCount} 个 · ${formatBytes(snapshotSessionBytes(snapshot))}`, `${sessionCount} · ${formatBytes(snapshotSessionBytes(snapshot))}`)}
@@ -163,11 +167,11 @@ export default function OverviewView({ snapshot, workspace, appInfo, cleaning, s
         return (
           <section key={section} className={`section section-${section}`}>
             <div className="section-head">
-              {selectable.length > 0 && <input type="checkbox" aria-label={t(`选择全部${sectionLabel(section, language)}`, `Select all ${sectionLabel(section, language)}`)} checked={allSelected}
+              {selectable.length > 0 && <input type="checkbox" aria-label={t(`选择全部${m(message(`section.${section}`))}`, `Select all ${m(message(`section.${section}`))}`)} checked={allSelected}
                 ref={(input) => { if (input) input.indeterminate = someSelected && !allSelected }}
                 onChange={(event) => setMany(selectable, event.target.checked)} />}
               <SectionIcon section={section} />
-              <h2>{sectionLabel(section, language)}</h2>
+              <h2>{m(message(`section.${section}`))}</h2>
               <span className="section-total">
                 {t('共', 'Total')} {formatBytes(categories.reduce((sum, category) => sum + categoryBytes(category), 0))}
                 {sectionSelectedBytes > 0 && <>{t('，已选 ', ', selected ')}<b>{formatBytes(sectionSelectedBytes)}</b></>}
@@ -221,7 +225,7 @@ function CategoryRow({ category, selected, expanded, onExpand, onSelectAll, onTo
   onSelectAll: (on: boolean) => void
   onToggleEntry: (entry: StorageEntry) => void
 }) {
-  const { t, language } = usePreferences()
+  const { t, m } = usePreferences()
   const selectableEntries = category.entries.filter((entry) => isSelectable(entry.risk))
   const allSelected = selectableEntries.length > 0 && selectableEntries.every((entry) => selected.has(entry.id))
   const someSelected = selectableEntries.some((entry) => selected.has(entry.id))
@@ -230,20 +234,18 @@ function CategoryRow({ category, selected, expanded, onExpand, onSelectAll, onTo
     <div className={`row-block${expanded ? ' expanded' : ''}`}>
       <div className="row">
         {selectableEntries.length > 0
-          ? <input type="checkbox" aria-label={categoryTitle(category, language)} checked={allSelected}
+          ? <input type="checkbox" aria-label={m(message(`category.${category.kind}.title`))} checked={allSelected}
               ref={(input) => { if (input) input.indeterminate = someSelected && !allSelected }}
               onChange={(event) => onSelectAll(event.target.checked)} />
           : <span className="checkbox-space" />}
         <button className="row-main" onClick={onExpand} aria-expanded={expanded}>
           <span className="row-text">
-            <span className="row-title">{categoryTitle(category, language)}</span>
-            <span className="row-detail">{categoryDetail(category, language)}</span>
+            <span className="row-title">{m(message(`category.${category.kind}.title`))}</span>
+            <span className="row-detail">{m(message(`category.${category.kind}.detail`))}</span>
           </span>
           <span className="row-meta">
             <span className="row-bytes">{formatBytes(categoryBytes(category))}</span>
-            <span className={`advice advice-${category.group}`}>{language === 'zh-CN'
-              ? ({ recommended: '建议清理', review: '谨慎清理', protectedData: '受保护' } as const)[category.group]
-              : ({ recommended: 'Recommended', review: 'Review', protectedData: 'Protected' } as const)[category.group]}</span>
+            <span className={`advice advice-${category.group}`}>{m(message(`group.${category.group}`))}</span>
           </span>
           <span className="chevron">{expanded ? '⌃' : '⌄'}</span>
         </button>
@@ -277,65 +279,16 @@ const ShortcutGlyph: Record<'sessions' | 'plugins' | 'workspace', string> = {
 }
 
 function EntryText({ entry }: { entry: StorageEntry }) {
-  const { language } = usePreferences()
+  const { m } = usePreferences()
   return (
     <span className="entry-text">
       <span className="entry-title">
         {entry.title}
-        {entry.tags.map((tag) => <span key={tag.label} className={`pill tone-${tag.tone}`}>{language === 'zh-CN' ? tag.label : knownText(tag.label)}</span>)}
+        {entry.tags.map((tag) => <span key={tag.label.key} className={`pill tone-${tag.tone}`}>{m(tag.label)}</span>)}
       </span>
-      {entry.detail && <span className="entry-detail">{language === 'zh-CN' ? entry.detail : knownText(entry.detail)}</span>}
+      {entry.note && <span className="entry-detail">{m(entry.note)}</span>}
     </span>
   )
-}
-
-const sectionNames: Record<StorageSection, [string, string]> = {
-  caches: ['缓存与临时文件', 'Caches & Temporary Files'],
-  logs: ['日志与数据库', 'Logs & Databases'],
-  plugins: ['插件与组件', 'Plugins & Components'],
-  assets: ['会话资产', 'Session Assets'],
-  protectedData: ['受保护的数据', 'Protected Data']
-}
-
-const categoryNames: Record<StorageKind, [string, string, string, string]> = {
-  logDatabase: ['日志数据库', 'Log Databases', '仅统计占用；SQLite 空闲页会复用，不提供清理', 'Usage only; SQLite reuses free pages and no cleanup is offered'],
-  sessionDatabase: ['会话投影数据库', 'Session Projection Database', 'Codex 加载会话使用的 SQLite 投影', 'SQLite projection used by Codex to load sessions'],
-  temporary: ['过期临时目录', 'Stale Temporary Folders', '安装和更新过程留下的临时目录，Codex 退出后清理', 'Temporary folders left by installation and updates; cleaned after Codex quits'],
-  marketplaceCache: ['插件市场缓存', 'Marketplace Cache', '可重新下载，离线时会影响插件安装', 'Can be downloaded again; removing may affect offline plugin installation'],
-  pluginRemnants: ['老版本插件与卸载残留', 'Old Plugins & Leftovers', '旧版本与卸载残留', 'Old versions and uninstall leftovers'],
-  pluginRuntime: ['当前插件与运行组件', 'Current Plugins & Runtime', '已统计但不会自动删除', 'Counted but never removed automatically'],
-  browserCache: ['浏览器与渲染缓存', 'Browser & Rendering Cache', '桌面应用按需重建的浏览器缓存', 'Browser cache rebuilt by the desktop app as needed'],
-  appCache: ['应用缓存', 'App Cache', '桌面应用的本地缓存目录', 'Local cache folders used by the desktop app'],
-  appLogs: ['旧应用日志', 'Old App Logs', '保留最近 10 天，其余可以清理', 'Keeps the latest 10 days; older logs can be removed'],
-  computerUse: ['Computer Use 资产', 'Computer Use Assets', 'Computer Use 会话留下的资产', 'Assets left by Computer Use sessions'],
-  activeSessions: ['未归档会话', 'Active Sessions', '当前会话记录与内嵌资产', 'Current session records and embedded assets'],
-  archivedSessions: ['已归档会话', 'Archived Sessions', '已归档的会话记录与内嵌资产', 'Archived session records and embedded assets'],
-  protectedConfig: ['受保护的配置', 'Protected Configuration', '凭据、配置和状态数据库', 'Credentials, configuration, and state databases'],
-  protectedUserData: ['受保护的用户数据', 'Protected User Data', '登录状态和浏览器用户数据', 'Sign-in state and browser user data']
-}
-
-function sectionLabel(section: StorageSection, language: 'zh-CN' | 'en'): string {
-  return sectionNames[section][language === 'zh-CN' ? 0 : 1]
-}
-
-function categoryTitle(category: StorageCategory, language: 'zh-CN' | 'en'): string {
-  return language === 'zh-CN' ? category.title : categoryNames[category.kind][1]
-}
-
-function categoryDetail(category: StorageCategory, language: 'zh-CN' | 'en'): string {
-  return language === 'zh-CN' ? category.detail : categoryNames[category.kind][3]
-}
-
-function knownText(value: string): string {
-  const texts: Record<string, string> = {
-    '卸载残留': 'Uninstall leftover', '旧版本': 'Old version', '缓存目录，可重新生成': 'Cache folder; can be rebuilt',
-    '插件市场的本地副本，可重新下载': 'Local marketplace copy; can be downloaded again',
-    '安装或更新时留下的目录': 'Folder left by installation or update', '超过 3 天没有改动': 'Not modified for over 3 days',
-    '早于 10 天的应用日志': 'App log older than 10 days', '配置、凭据或用户规则': 'Configuration, credentials, or user rules',
-    'Codex 状态数据库': 'Codex state database', '浏览器配置与登录状态': 'Browser configuration and sign-in state'
-  }
-  if (texts[value]) return texts[value]
-  return value.replace(/^已使用 /, 'Used ')
 }
 
 function Shortcut({ kind, title, detail, value, disabled = false, onClick }: {

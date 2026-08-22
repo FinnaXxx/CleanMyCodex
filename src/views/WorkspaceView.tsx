@@ -1,18 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CleanupProgress, CleanupSelection, SessionLocation, WorkspaceFolder, WorkspaceSnapshot } from '../../shared/types'
-import { formatBytes, workspaceBytes, workspaceFolderFileCount, workspaceFolderIsUnsafe } from '../../shared/types'
+import { formatBytes, repositoryStateIsSafe, workspaceBytes, workspaceFolderFileCount, workspaceFolderIsUnsafe } from '../../shared/types'
+import { message } from '../../shared/messages'
 import { BackIcon, FolderIcon } from '../icons'
+import { formatShortDate } from '../format'
 import { usePreferences } from '../preferences'
 
 interface Props { snapshot: WorkspaceSnapshot; cleaning: boolean; actionsDisabled: boolean; cleanProgress: CleanupProgress | null; onBack: () => void; onCleanup: (selection: CleanupSelection) => void }
-
-function formatDate(ms: number, locale: string): string {
-  if (!ms) return '—'
-  const date = new Date(ms)
-  return date.getFullYear() === new Date().getFullYear()
-    ? date.toLocaleString(locale, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
-    : date.toLocaleDateString(locale, { year: 'numeric', month: '2-digit', day: '2-digit' })
-}
 
 export default function WorkspaceView({ snapshot, cleaning, actionsDisabled, cleanProgress, onBack, onCleanup }: Props) {
   const { t, locale } = usePreferences()
@@ -49,7 +43,7 @@ export default function WorkspaceView({ snapshot, cleaning, actionsDisabled, cle
           onChange={() => setSelected(() => allSelected ? new Set() : new Set(rows.flatMap((entry) => [entry.id, ...entry.children.map((child) => child.id)])))}/>
         <span>{t('产出', 'Output')}</span><span className="col-status">{t('状态', 'Status')}</span><span className="col-date">{t('最后改动', 'Modified')}</span><span className="col-num">{t('占用', 'Size')}</span><span/>
       </div>
-      {rows.map((entry) => <WorkspaceRow key={entry.id} entry={entry} checked={selected.has(entry.id)} onToggle={() => toggle(entry)} date={formatDate(entry.modifiedAt, locale)} />)}
+      {rows.map((entry) => <WorkspaceRow key={entry.id} entry={entry} checked={selected.has(entry.id)} onToggle={() => toggle(entry)} date={formatShortDate(entry.modifiedAt, locale)} />)}
     </section>}
     </div>
     <div className="page-footer"><span className={targets.some(workspaceFolderIsUnsafe) ? 'unsafe' : ''}>{targets.some(workspaceFolderIsUnsafe) ? t('⚠ 所选内容包含未提交、未推送或状态未知的 git 仓库', '⚠ Selection contains uncommitted, unpushed, or unknown Git repositories') : snapshot.root}</span><button className="btn danger" disabled={!targets.length || cleaning || actionsDisabled} onClick={() => onCleanup({ kind: 'workspace', ids: targets.map((entry) => entry.id) })}>{cleaning ? t(`处理中… ${cleanProgress?.completed ?? 0}/${targets.length}`, `Processing… ${cleanProgress?.completed ?? 0}/${targets.length}`) : t(`移到废纸篓 · ${formatBytes(chosenBytes)}`, `Move to Trash · ${formatBytes(chosenBytes)}`)}</button></div>
@@ -57,7 +51,7 @@ export default function WorkspaceView({ snapshot, cleaning, actionsDisabled, cle
 }
 
 function WorkspaceRow({ entry, checked, date, onToggle }: { entry: WorkspaceFolder; checked: boolean; date: string; onToggle: () => void }) {
-  const { t, language, locale } = usePreferences()
+  const { t, m, locale } = usePreferences()
   const display = workspaceDisplay(entry)
   const status = workspaceStatus(entry)
   return <div className="workspace-row">
@@ -69,10 +63,10 @@ function WorkspaceRow({ entry, checked, date, onToggle }: { entry: WorkspaceFold
         {entry.children.length > 0 && t(` · 含下方 ${entry.children.length} 项产出`, ` · Includes ${entry.children.length} outputs below`)}
         {workspaceFolderIsUnsafe(entry) && <span className="unsafe" title={t('有未提交、未推送或状态未知的 git 仓库', 'Contains uncommitted, unpushed, or unknown Git repositories')}> ⚠</span>}
         {' '}
-        {entry.repositories.map((repo) => <span className={`repo ${repo.state === 'clean' ? 'safe' : 'unsafe'}`} key={repo.id}>{repo.name} · {language === 'zh-CN' ? ({ clean: '已同步', dirty: '有未提交改动', unpushed: '有未推送提交', unknown: '状态未知' } as const)[repo.state] : ({ clean: 'Synced', dirty: 'Uncommitted changes', unpushed: 'Unpushed commits', unknown: 'Unknown' } as const)[repo.state]}</span>)}
+        {entry.repositories.map((repo) => <span className={`repo ${repositoryStateIsSafe(repo.state) ? 'safe' : 'unsafe'}`} key={repo.id}>{repo.name} · {m(message(`repoState.${repo.state}`))}</span>)}
       </small>
     </div>
-    <span className="col-status">{status ? <span className={`pill loc-${status.location}`}>{status.location === 'active' ? t('未归档', 'Active') : t('已归档', 'Archived')}</span> : <span className="muted">—</span>}</span>
+    <span className="col-status">{status ? <span className={`pill loc-${status.location}`}>{m(message(`location.${status.location}`))}</span> : <span className="muted">—</span>}</span>
     <span className="col-date" title={entry.modifiedAt ? new Date(entry.modifiedAt).toLocaleString(locale) : undefined}>{date}</span>
     <span className="col-num">{formatBytes(entry.bytes)}</span>
     <button className="icon-button" title={t('在文件管理器中显示', 'Show in file manager')} aria-label={t('在文件管理器中显示', 'Show in file manager')} onClick={() => window.cleanmycodex.revealPath(entry.path)}><FolderIcon /></button>

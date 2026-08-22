@@ -8,6 +8,7 @@ import type {
 } from '../../shared/types'
 import { ProtectedPaths, ProtectedPathError } from './guard'
 import { directoryAllocatedSize } from './fs-size'
+import { decodeMessage, message, type Message } from '../../shared/messages'
 
 export interface CleanupDeps {
   /** Move a file or directory to the OS trash. Injected so the engine stays testable. */
@@ -48,11 +49,8 @@ function latestActivity(path: string): number {
 }
 
 /**
- * Performs the cleanup. Every task passes the protected-path guard first, and ordinary
- * files are moved to the trash so a mistake is always recoverable.
- *
- * Database compaction is deliberately narrow and runs only after the same protected-path
- * validation as trash cleanup.
+ * Performs the cleanup. Every task passes the protected-path guard first, and files are
+ * moved to the trash so a mistake is always recoverable.
  */
 export async function runCleanup(
   tasks: CleanupTask[],
@@ -68,23 +66,11 @@ export async function runCleanup(
     const task = tasks[i]
     onProgress?.({ completed: i, total: tasks.length, currentTitle: task.title })
 
-    outcomes.push(await runOne(task, guards, deps, running))
+    outcomes.push(await runTrash(task, guards, deps, running))
   }
 
   onProgress?.({ completed: tasks.length, total: tasks.length, currentTitle: '' })
   return { startedAt, finishedAt: Date.now(), outcomes }
-}
-
-async function runOne(
-  task: CleanupTask,
-  guards: ProtectedPaths,
-  deps: CleanupDeps,
-  codexRunning: boolean
-): Promise<CleanupOutcome> {
-  switch (task.method) {
-    case 'trash':
-      return runTrash(task, guards, deps, codexRunning)
-  }
 }
 
 async function runTrash(
@@ -94,10 +80,10 @@ async function runTrash(
   codexRunning: boolean
 ): Promise<CleanupOutcome> {
   if (task.requiresCodexStopped && codexRunning) {
-    return outcome(task, { kind: 'skipped', reason: 'Codex 正在运行，请退出后重新清理' }, 0)
+    return outcome(task, { kind: 'skipped', reason: message('cleanup.skipCodexRunning') }, 0)
   }
   if (task.minimumIdleSeconds !== null && Date.now() - latestActivity(task.url) < task.minimumIdleSeconds * 1000) {
-    return outcome(task, { kind: 'skipped', reason: '扫描后路径又有写入，请稍后重新扫描并清理' }, 0)
+    return outcome(task, { kind: 'skipped', reason: message('cleanup.skipRecentlyWritten') }, 0)
   }
 
   const targets = [task.url, ...task.companionURLs]
@@ -105,20 +91,19 @@ async function runTrash(
     for (const target of targets) guards.validate(target)
     if (task.threadID) deps.sessionDatabase?.preflightDelete?.(task.threadID, targets)
   } catch (err) {
-    return outcome(task, { kind: 'failed', reason: errorMessage(err) }, 0)
+    return outcome(task, { kind: 'failed', reason: failure(err) }, 0)
   }
   let freed = 0
+  let trashed = 0
   for (const target of targets) {
     if (!pathExists(target)) continue
     try {
       const bytes = fileAllocated(target)
       await deps.trash(target)
+      trashed += 1
       freed += bytes
     } catch (err) {
-      if (err instanceof ProtectedPathError) {
-        return outcome(task, { kind: 'failed', reason: err.message }, freed)
-      }
-      return outcome(task, { kind: 'failed', reason: errorMessage(err) }, freed)
+      return outcome(task, { kind: 'failed', reason: failure(err) }, freed)
     }
   }
   let removedRows = 0
@@ -128,11 +113,11 @@ async function runTrash(
       removedRows = report.removedRows
       freed += report.freedBytes
     } catch (err) {
-      return outcome(task, { kind: 'failed', reason: `会话文件已处理，但 SQLite 记录清理失败：${errorMessage(err)}` }, freed)
+      return outcome(task, { kind: 'failed', reason: message('cleanup.sqliteFailed', { reason: errorText(err) }) }, freed)
     }
   }
-  if (freed === 0 && removedRows === 0) {
-    return outcome(task, { kind: 'skipped', reason: '路径已不存在' }, 0)
+  if (trashed === 0 && removedRows === 0) {
+    return outcome(task, { kind: 'skipped', reason: message('cleanup.skipMissing') }, 0)
   }
   return outcome(task, { kind: 'succeeded' }, freed)
 }
@@ -142,7 +127,6 @@ function outcome(task: CleanupTask, status: CleanupStatus, freedBytes: number): 
     id: task.id,
     title: task.title,
     detail: task.detail,
-    method: task.method,
     status,
     freedBytes
   }
@@ -157,6 +141,13 @@ function fileAllocated(path: string): number {
   } catch { return 0 }
 }
 
-function errorMessage(err: unknown): string {
+/** A guard rejection already carries a `Message`; anything else keeps its own text. */
+function failure(err: unknown): Message {
+  if (err instanceof ProtectedPathError) return err.info
+  const decoded = err instanceof Error ? decodeMessage(err.message) : null
+  return decoded ?? message('error.verbatim', { text: errorText(err) })
+}
+
+function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }

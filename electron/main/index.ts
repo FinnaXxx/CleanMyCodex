@@ -16,9 +16,12 @@ import {
   applyAutomationSettings,
   getAutomationState,
   loadAutomationSettings,
-  saveAutomaticRun
+  loadUILanguage,
+  saveAutomaticRun,
+  saveUILanguage
 } from './automation'
 import {
+  formatBytes,
   reportFreedBytes,
   type AutomationSettings,
   type CleanupProgress,
@@ -27,6 +30,15 @@ import {
   type ScanSnapshot,
   type WorkspaceSnapshot
 } from '../../shared/types'
+import {
+  MessageError,
+  SCAN_STOPPED,
+  decodeMessage,
+  formatMessage,
+  message,
+  type Language,
+  type Message
+} from '../../shared/messages'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 
@@ -48,7 +60,7 @@ ipcMain.handle('app:info', () => {
     platform: process.platform,
     appServerAvailable: appServer.isAvailable,
     codexRunning: environment.running,
-    runtimeSummary: environment.blockerSummary
+    blockers: environment.blockers
   }
 })
 
@@ -92,11 +104,12 @@ async function runInteractiveScan<T>(operation: (signal: AbortSignal) => Promise
 }
 
 function throwIfScanCancelled(signal: AbortSignal): void {
-  if (signal.aborted) throw new DOMException('扫描已停止', 'AbortError')
+  if (signal.aborted) throw new DOMException(SCAN_STOPPED, 'AbortError')
 }
 
 function isScanCancellation(error: unknown): boolean {
-  return error instanceof Error && (error.name === 'AbortError' || error.message === '扫描已停止')
+  return error instanceof Error &&
+    (error.name === 'AbortError' || decodeMessage(error.message)?.key === 'error.scanStopped')
 }
 
 function runWorker<T>(request: object): Promise<T> {
@@ -110,14 +123,19 @@ function runWorker<T>(request: object): Promise<T> {
       if (scanWorker === worker) scanWorker = null
       callback()
     }
-    worker.on('message', (message: { type: string; progress?: unknown; result?: T; message?: string }) => {
-      if (message.type === 'progress') mainWindow?.webContents.send('scan:progress', message.progress)
-      else if (message.type === 'result') { finish(() => resolve(message.result as T)); void worker.terminate() }
-      else if (message.type === 'error') { finish(() => reject(new Error(message.message ?? '扫描失败'))); void worker.terminate() }
+    worker.on('message', (event: { type: string; progress?: unknown; result?: T; message?: string }) => {
+      if (event.type === 'progress') mainWindow?.webContents.send('scan:progress', event.progress)
+      else if (event.type === 'result') { finish(() => resolve(event.result as T)); void worker.terminate() }
+      else if (event.type === 'error') {
+        finish(() => reject(event.message ? new Error(event.message) : new MessageError(message('error.scanFailed'))))
+        void worker.terminate()
+      }
     })
     worker.on('error', (error) => finish(() => reject(error)))
     worker.on('exit', (code) => {
-      finish(() => reject(new Error(cancelledWorkers.has(worker) ? '扫描已停止' : `扫描进程已退出（${code}）`)))
+      finish(() => reject(new MessageError(cancelledWorkers.has(worker)
+        ? message('error.scanStopped')
+        : message('error.scanWorkerExited', { code: code ?? -1 }))))
     })
     worker.postMessage(request)
   })
@@ -148,6 +166,7 @@ ipcMain.handle('path:open', async (_event, path: string) => {
 })
 ipcMain.handle('automation:get', () => getAutomationState())
 ipcMain.handle('automation:save', (_event, settings: AutomationSettings) => applyAutomationSettings(settings))
+ipcMain.handle('preferences:language', (_event, language: Language) => saveUILanguage(language))
 
 ipcMain.handle('cleanup:prepare', (_event, selection: CleanupSelection) => {
   const tasks = trustedTasks(selection)
@@ -155,12 +174,12 @@ ipcMain.handle('cleanup:prepare', (_event, selection: CleanupSelection) => {
 })
 
 ipcMain.handle('cleanup:run', async (_event, request: CleanupRequest) => {
-  if (!request || typeof request !== 'object' || typeof request.restartCodex !== 'boolean' || typeof request.forceQuitCodex !== 'boolean') throw new Error('清理请求无效')
+  if (!request || typeof request !== 'object' || typeof request.restartCodex !== 'boolean' || typeof request.forceQuitCodex !== 'boolean') throw new MessageError(message('error.invalidRequest'))
   if (request.selection.kind === 'plugins') await refreshPluginsBeforeCleanup()
   const tasks = trustedTasks(request.selection)
   let reopen: string[] = []
   if (request.restartCodex && tasks.some((task) => task.requiresCodexStopped)) {
-    mainWindow?.webContents.send('cleanup:stage', '正在退出 Codex…')
+    mainWindow?.webContents.send('cleanup:stage', message('cleanup.quitting'))
     reopen = await quitCodexDesktop(20_000, request.forceQuitCodex)
   }
   try {
@@ -169,15 +188,15 @@ ipcMain.handle('cleanup:run', async (_event, request: CleanupRequest) => {
     })
   } finally {
     if (reopen.length) {
-      mainWindow?.webContents.send('cleanup:stage', '正在重新打开 Codex…')
+      mainWindow?.webContents.send('cleanup:stage', message('cleanup.reopening'))
       await relaunchCodex(reopen)
     }
-    mainWindow?.webContents.send('cleanup:stage', '')
+    mainWindow?.webContents.send('cleanup:stage', null)
   }
 })
 
 async function refreshPluginsBeforeCleanup(): Promise<void> {
-  if (!latestSnapshot) throw new Error('请先完成扫描')
+  if (!latestSnapshot) throw new MessageError(message('error.scanFirst'))
   const installedPlugins = await appServer.installedPlugins()
   latestSnapshot = {
     ...latestSnapshot,
@@ -187,12 +206,12 @@ async function refreshPluginsBeforeCleanup(): Promise<void> {
 }
 
 function trustedTasks(selection: CleanupSelection) {
-  if (!latestSnapshot) throw new Error('请先完成扫描')
+  if (!latestSnapshot) throw new MessageError(message('error.scanFirst'))
   return buildTrustedTasks(selection, latestSnapshot, latestWorkspace)
 }
 
 function assertTrustedDisplayPath(path: unknown): asserts path is string {
-  if (typeof path !== 'string' || !trustedDisplayPaths().has(path)) throw new Error('不能打开未扫描的路径')
+  if (typeof path !== 'string' || !trustedDisplayPaths().has(path)) throw new MessageError(message('error.untrustedPath'))
 }
 
 function trustedDisplayPaths(): Set<string> {
@@ -262,30 +281,57 @@ async function openExternalWebURL(value: string): Promise<void> {
   if (url.protocol === 'https:' || url.protocol === 'http:') await shell.openExternal(url.toString())
 }
 
+/**
+ * Every completed run is recorded, including the ones that cleaned nothing and the ones
+ * that failed, so the settings page never shows a stale "last run" while the schedule
+ * has in fact been firing.
+ */
 async function runAutomaticCleanup(): Promise<void> {
   const settings = loadAutomationSettings()
-  if (!settings.enabled) { appendAutomationLog('定时清理未开启，跳过。'); return }
+  const language = loadUILanguage()
+  const record = (freedBytes: number, succeeded: number, failed: number, deferred: number, note: Message | null) =>
+    saveAutomaticRun({ finishedAt: Date.now(), freedBytes, succeeded, failed, deferred, note })
+
+  if (!settings.enabled) {
+    appendAutomationLog(message('auto.disabled'))
+    record(0, 0, 0, 0, message('auto.disabled'))
+    return
+  }
   try {
     const installedPlugins = await appServer.installedPlugins()
     const snapshot = await scanSnapshot(locations, installedPlugins)
     guards = guardsFor(snapshot)
     const tasks = buildAutomaticTasks(snapshot, settings)
-    if (!tasks.length) { appendAutomationLog('没有需要清理的项目。'); return }
+    if (!tasks.length) {
+      appendAutomationLog(message('auto.nothingToClean'))
+      record(0, 0, 0, 0, message('auto.nothingToClean'))
+      return
+    }
     const report = await runCleanup(tasks, guards, cleanupDependencies())
     const deferred = report.outcomes.filter((item) => item.status.kind === 'skipped')
     const failed = report.outcomes.filter((item) => item.status.kind === 'failed')
-    saveAutomaticRun({
-      finishedAt: Date.now(), freedBytes: reportFreedBytes(report),
-      succeeded: report.outcomes.length - deferred.length - failed.length,
-      failed: failed.length, skippedReason: null, deferred: deferred.length,
-      deferredNote: deferred[0]?.status.kind === 'skipped' ? deferred[0].status.reason : null
+    const succeeded = report.outcomes.length - deferred.length - failed.length
+    const summary = message('auto.summary', {
+      bytes: formatBytes(reportFreedBytes(report)),
+      succeeded, skipped: deferred.length, failed: failed.length
     })
-    const summary = `已释放 ${reportFreedBytes(report)} 字节，成功 ${report.outcomes.length - deferred.length - failed.length} 项，跳过 ${deferred.length} 项，失败 ${failed.length} 项`
+    record(reportFreedBytes(report), succeeded, failed.length, deferred.length,
+      deferred[0]?.status.kind === 'skipped' ? deferred[0].status.reason : null)
     appendAutomationLog(summary)
-    for (const item of deferred) appendAutomationLog(`跳过：${item.title} — ${item.status.kind === 'skipped' ? item.status.reason : ''}`)
-    if (settings.notifyWhenFinished && Notification.isSupported()) new Notification({ title: 'Clean My Codex', body: summary }).show()
+    for (const item of deferred) {
+      if (item.status.kind !== 'skipped') continue
+      appendAutomationLog(message('auto.skippedItem', {
+        title: item.title, reason: formatMessage(item.status.reason, language)
+      }))
+    }
+    if (settings.notifyWhenFinished && Notification.isSupported()) {
+      new Notification({ title: 'Clean My Codex', body: formatMessage(summary, language) }).show()
+    }
   } catch (err) {
-    appendAutomationLog(`定时清理失败：${err instanceof Error ? err.message : String(err)}`)
+    const reason = err instanceof Error ? err.message : String(err)
+    const note = message('auto.failed', { reason: formatMessage(decodeMessage(reason) ?? message('error.verbatim', { text: reason }), language) })
+    appendAutomationLog(note)
+    record(0, 0, 1, 0, note)
   }
 }
 

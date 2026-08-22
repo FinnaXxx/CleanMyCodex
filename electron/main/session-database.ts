@@ -2,6 +2,7 @@ import { existsSync, readdirSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import Database from 'better-sqlite3'
 import { fileAllocatedSize } from './fs-size'
+import { MessageError, message } from '../../shared/messages'
 
 export interface SessionDatabaseReport {
   removedRows: number
@@ -98,8 +99,8 @@ function preflightDatabase(path: string | null, requiredTable: string): void {
   const db = new Database(path, { fileMustExist: true, timeout: 8_000 })
   try {
     const integrity = db.pragma('quick_check(1)', { simple: true })
-    if (integrity !== 'ok') throw new Error(`${path} 完整性检查失败：${String(integrity)}`)
-    if (!hasTable(db, requiredTable)) throw new Error(`${path} 缺少 ${requiredTable}，暂不支持这个数据库版本`)
+    if (integrity !== 'ok') throw new MessageError(message('error.integrityCheckFailed', { path, reason: String(integrity) }))
+    if (!hasTable(db, requiredTable)) throw new MessageError(message('error.unsupportedDatabase', { path, table: requiredTable }))
     db.exec('BEGIN IMMEDIATE; ROLLBACK;')
   } finally { db.close() }
 }
@@ -110,7 +111,9 @@ export function preflightSessionRecords(home: string, threadID: string, relatedU
   const historyPath = latestDatabase(home, 'thread_history_')
   preflightDatabase(statePath, 'threads')
   preflightDatabase(historyPath, 'thread_items')
-  sessionThreadIDs(statePath, threadID, relatedURLs)
+  // Resolve the same thread set the deletion will use, so an unreadable spawn-edge
+  // table surfaces here rather than after the rollouts are already in the trash.
+  void sessionThreadIDs(statePath, threadID, relatedURLs)
 }
 
 /** Remove a thread and its spawned descendants from both Codex session databases. */

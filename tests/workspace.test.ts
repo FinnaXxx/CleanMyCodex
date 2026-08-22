@@ -42,7 +42,9 @@ describe('workspace scanner', () => {
     const linkedFolder = date.children.find((item) => item.name === 'new-chat')
     const unmatchedFolder = date.children.find((item) => item.name === 'unknown-output')
     expect(linkedFolder?.sourceThreads.map((thread) => thread.id)).toEqual(['main', 'child'])
-    expect(date.sourceThreads.map((thread) => thread.id)).toEqual(['main', 'child'])
+    // The date folder is listed next to its own children, so it must not borrow their
+    // threads: doing so titled it with a child's session and gave it a status pill.
+    expect(date.sourceThreads).toEqual([])
     expect(unmatchedFolder?.sourceThreads).toEqual([])
   })
 })

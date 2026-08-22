@@ -9,23 +9,44 @@ export function windowsAppCacheDirectories(localAppData: string): string[] {
 /**
  * Every directory CleanMyCodex is allowed to look at, derived from a single Codex home.
  *
- * On macOS the layout mirrors what the Codex desktop app writes: `~/.codex` for runtime
- * data, `~/Library/Application Support/Codex` for profile data, `~/Library/Caches/…` for
- * rebuildable caches, `~/Library/Logs/com.openai.codex` for logs, and `~/Documents/Codex`
- * for the sandbox workspace. On Windows the same roles map to `%APPDATA%` / `%LOCALAPPDATA%`.
+ * Three roots are injectable, and every platform-specific path below hangs off one of
+ * them, so a test (or a future sandbox) can point the whole app at a temporary tree:
  *
- * `CODEX_HOME` overrides the home directory, mirroring Codex itself.
+ * - `home` — Codex' runtime data (`~/.codex`, or `CODEX_HOME`).
+ * - `library` — profile and application-support data. macOS `~/Library`, Windows
+ *   `%APPDATA%`, Linux `$XDG_CONFIG_HOME`.
+ * - `caches` — rebuildable caches. macOS `~/Library/Caches`, Windows `%LOCALAPPDATA%`,
+ *   Linux `$XDG_CACHE_HOME`.
+ *
+ * `documents` holds the sandbox workspace (`~/Documents/Codex`).
  */
 export class CodexLocations {
   readonly home: string
   readonly library: string
+  readonly caches: string
   readonly documents: string
 
-  constructor(opts: { home?: string; library?: string; documents?: string } = {}) {
+  constructor(opts: { home?: string; library?: string; caches?: string; documents?: string } = {}) {
     this.home = normalize(opts.home ?? CodexLocations.resolveHome())
-    const isMac = platform() === 'darwin'
-    this.library = normalize(opts.library ?? (isMac ? join(homedir(), 'Library') : process.env['APPDATA'] ?? join(homedir(), 'AppData', 'Roaming')))
+    this.library = normalize(opts.library ?? CodexLocations.defaultLibrary())
+    this.caches = normalize(opts.caches ?? CodexLocations.defaultCaches())
     this.documents = normalize(opts.documents ?? join(homedir(), 'Documents'))
+  }
+
+  private static defaultLibrary(): string {
+    switch (platform()) {
+      case 'darwin': return join(homedir(), 'Library')
+      case 'win32': return process.env['APPDATA'] ?? join(homedir(), 'AppData', 'Roaming')
+      default: return process.env['XDG_CONFIG_HOME'] ?? join(homedir(), '.config')
+    }
+  }
+
+  private static defaultCaches(): string {
+    switch (platform()) {
+      case 'darwin': return join(homedir(), 'Library', 'Caches')
+      case 'win32': return process.env['LOCALAPPDATA'] ?? join(homedir(), 'AppData', 'Local')
+      default: return process.env['XDG_CACHE_HOME'] ?? join(homedir(), '.cache')
+    }
   }
 
   /** Codex' sandbox workspace: session work dirs and outputs. User work product — visible
@@ -40,7 +61,7 @@ export class CodexLocations {
   }
 
   static standard(): CodexLocations {
-    return new CodexLocations({ home: CodexLocations.resolveHome() })
+    return new CodexLocations()
   }
 
   // --- Inside ~/.codex ---
@@ -48,7 +69,6 @@ export class CodexLocations {
   get sessions(): string { return join(this.home, 'sessions') }
   get archivedSessions(): string { return join(this.home, 'archived_sessions') }
   get plugins(): string { return join(this.home, 'plugins') }
-  get pluginCache(): string { return join(this.plugins, 'cache') }
   get pluginRuntime(): string { return join(this.plugins, '.plugin-appserver') }
   get temporary(): string { return join(this.home, '.tmp') }
   get codexCache(): string { return join(this.home, 'cache') }
@@ -63,34 +83,29 @@ export class CodexLocations {
   // --- Outside ~/.codex ---
 
   get appSupport(): string {
-    const isMac = platform() === 'darwin'
-    return join(this.library, isMac ? 'Application Support/Codex' : 'Codex')
+    return join(this.library, platform() === 'darwin' ? 'Application Support/Codex' : 'Codex')
   }
 
   get appCaches(): string[] {
-    const isMac = platform() === 'darwin'
-    if (isMac) {
-      return [
-        join(this.library, 'Caches/Codex'),
-        join(this.library, 'Caches/com.openai.codex')
-      ]
+    switch (platform()) {
+      case 'darwin':
+        return [join(this.caches, 'Codex'), join(this.caches, 'com.openai.codex')]
+      case 'win32':
+        // Never classify the whole LocalAppData/Codex directory as cache: installers and
+        // future builds may put executable or profile data beside these well-known folders.
+        return windowsAppCacheDirectories(this.caches)
+      default:
+        return [join(this.caches, 'Codex')]
     }
-    const local = process.env['LOCALAPPDATA'] ?? join(homedir(), 'AppData', 'Local')
-    // Never classify the whole LocalAppData/Codex directory as cache: installers and
-    // future builds may put executable or profile data beside these well-known folders.
-    return windowsAppCacheDirectories(local)
   }
 
   get appLogs(): string {
-    const isMac = platform() === 'darwin'
-    return join(this.library, isMac ? 'Logs/com.openai.codex' : 'Codex/Logs')
+    return join(this.library, platform() === 'darwin' ? 'Logs/com.openai.codex' : 'Codex/Logs')
   }
 
   /** Where CleanMyCodex keeps its own rescan cache. Never a cleanup target. */
   get scanCache(): string {
-    const isMac = platform() === 'darwin'
-    if (isMac) return join(this.library, 'Caches/CleanMyCodex')
-    return join(process.env['LOCALAPPDATA'] ?? join(homedir(), 'AppData', 'Local'), 'CleanMyCodex')
+    return join(this.caches, 'CleanMyCodex')
   }
 
   /** Chromium-style caches that the desktop app rebuilds on demand. */

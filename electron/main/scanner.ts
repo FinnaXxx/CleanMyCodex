@@ -7,6 +7,7 @@ import { pluginStorageCategory, scanPluginVersions } from './plugins'
 import { ProtectedPaths } from './guard'
 import type { InstalledPlugin } from './app-server'
 import type { ScanProgress, ScanSnapshot, SessionItem, StorageCategory, StorageEntry } from '../../shared/types'
+import { SCAN_STOPPED, message, type Message, type MessageKey } from '../../shared/messages'
 
 const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 
@@ -24,7 +25,7 @@ function pathAllocatedSize(path: string): number {
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) throw new DOMException('扫描已停止', 'AbortError')
+  if (signal?.aborted) throw new DOMException(SCAN_STOPPED, 'AbortError')
 }
 
 function measureTree(path: string, signal?: AbortSignal): { bytes: number; latestActivity: number } {
@@ -47,37 +48,33 @@ function measureTree(path: string, signal?: AbortSignal): { bytes: number; lates
 
 function entry(
   title: string,
-  detail: string,
+  note: MessageKey | null,
   url: string,
   bytes: number,
   risk: StorageEntry['risk'],
-  method: StorageEntry['method'] = 'trash',
   extra: Partial<Pick<StorageEntry, 'minimumIdleSeconds' | 'requiresCodexStopped' | 'tags'>> = {}
 ): StorageEntry {
   return {
-    id: `${method}:${url}`,
+    id: `trash:${url}`,
     title,
-    detail,
+    note: note ? message(note) : null,
     tags: extra.tags ?? [],
     url,
     bytes,
     reclaimableBytes: bytes,
     minimumIdleSeconds: extra.minimumIdleSeconds ?? null,
     requiresCodexStopped: extra.requiresCodexStopped ?? false,
-    method,
     risk
   }
 }
 
 function category(
   kind: StorageCategory['kind'],
-  title: string,
-  detail: string,
   group: StorageCategory['group'],
   risk: StorageCategory['risk'],
   entries: StorageEntry[]
 ): StorageCategory {
-  return { kind, title, detail, group, risk, entries: entries.filter((e) => e.bytes > 0).sort((a, b) => b.bytes - a.bytes || a.title.localeCompare(b.title)) }
+  return { kind, group, risk, entries: entries.filter((e) => e.bytes > 0).sort((a, b) => b.bytes - a.bytes || a.title.localeCompare(b.title)) }
 }
 
 /** Finds `logs_*.sqlite` directly under ~/.codex (Codex' rolling log database). */
@@ -122,13 +119,13 @@ export async function scanSnapshot(
   signal?: AbortSignal
 ): Promise<ScanSnapshot> {
   const categories: StorageCategory[] = []
-  const notes: string[] = []
+  const notes: Message[] = []
   const guards = new ProtectedPaths(locations)
-  const progress = (stage: string, currentPath: string, fraction: number): void => {
-    onProgress?.({ stage, currentPath, scannedBytes: 0, fraction })
+  const progress = (stage: MessageKey, currentPath: string, fraction: number): void => {
+    onProgress?.({ stage: message(stage), currentPath, fraction })
   }
 
-  const measure = (path: string, stage = '缓存与临时文件', fraction = 0): number => {
+  const measure = (path: string, stage: MessageKey = 'stage.caches', fraction = 0): number => {
     throwIfAborted(signal)
     progress(stage, path, fraction)
     return pathAllocatedSize(path)
@@ -152,7 +149,7 @@ export async function scanSnapshot(
         const measured = measureTree(bundledPath, signal)
         const idleSeconds = 3_600
         if (measured.bytes && Date.now() - measured.latestActivity >= idleSeconds * 1000) {
-          staleTemporary.push(entry(bundledName, '插件市场更新留下的 staging 目录', bundledPath, measured.bytes, 'safe', 'trash', {
+          staleTemporary.push(entry(bundledName, 'note.marketplaceStaging', bundledPath, measured.bytes, 'safe', {
             minimumIdleSeconds: idleSeconds, requiresCodexStopped: true
           }))
         }
@@ -160,11 +157,11 @@ export async function scanSnapshot(
       continue
     }
     if (guards.isProtected(path)) continue
-    progress('缓存与临时文件', path, 0.08)
+    progress('stage.caches', path, 0.08)
     const measured = measureTree(path, signal)
     if (!measured.bytes) continue
     if (name.toLowerCase().includes('marketplace')) {
-      marketplaceCaches.push(entry(name, '插件市场的本地副本，可重新下载', path, measured.bytes, 'rebuildable', 'trash', {
+      marketplaceCaches.push(entry(name, 'note.marketplaceCopy', path, measured.bytes, 'rebuildable', {
         requiresCodexStopped: true
       }))
       continue
@@ -172,32 +169,28 @@ export async function scanSnapshot(
     const staging = name.includes('.staging-') || name.startsWith('plugins-clone-')
     const idleSeconds = staging ? 3_600 : 3 * 86_400
     if (Date.now() - measured.latestActivity < idleSeconds * 1000) continue
-    staleTemporary.push(entry(name, staging ? '安装或更新时留下的目录' : '超过 3 天没有改动', path, measured.bytes, 'safe', 'trash', {
+    staleTemporary.push(entry(name, staging ? 'note.installLeftover' : 'note.idleThreeDays', path, measured.bytes, 'safe', {
       minimumIdleSeconds: idleSeconds, requiresCodexStopped: true
     }))
   }
-  categories.push(category('temporary', '过期临时目录', '安装和更新过程留下的临时目录，Codex 退出后清理', 'recommended', 'safe', staleTemporary))
-  categories.push(category('marketplaceCache', '插件市场缓存', '可重新下载，离线时会影响插件安装', 'review', 'rebuildable', marketplaceCaches))
+  categories.push(category('temporary', 'recommended', 'safe', staleTemporary))
+  categories.push(category('marketplaceCache', 'review', 'rebuildable', marketplaceCaches))
   await yieldToEventLoop()
 
   const browserEntries = locations.browserCacheDirectories
     .filter(entryExists)
-    .map((path) => entry(basename(path), '缓存目录，可重新生成', path, measure(path, '缓存与临时文件', 0.12), 'rebuildable', 'trash', {
+    .map((path) => entry(basename(path), 'note.rebuildableCache', path, measure(path, 'stage.caches', 0.12), 'rebuildable', {
       requiresCodexStopped: true
     }))
-  categories.push(
-    category('browserCache', '浏览器与渲染缓存', '桌面应用按需重建的浏览器缓存', 'recommended', 'rebuildable', browserEntries)
-  )
+  categories.push(category('browserCache', 'recommended', 'rebuildable', browserEntries))
   await yieldToEventLoop()
 
   const appCacheEntries = [locations.codexCache, ...locations.appCaches]
     .filter(entryExists)
-    .map((path) => entry(basename(path), '缓存目录，可重新生成', path, measure(path, '缓存与临时文件', 0.16), 'rebuildable', 'trash', {
+    .map((path) => entry(basename(path), 'note.rebuildableCache', path, measure(path, 'stage.caches', 0.16), 'rebuildable', {
       requiresCodexStopped: true
     }))
-  categories.push(
-    category('appCache', '应用缓存', '桌面应用的本地缓存目录', 'recommended', 'rebuildable', appCacheEntries)
-  )
+  categories.push(category('appCache', 'recommended', 'rebuildable', appCacheEntries))
   await yieldToEventLoop()
 
   const logCutoff = Date.now() - 10 * 86_400_000
@@ -207,35 +200,33 @@ export async function scanSnapshot(
     const path = join(locations.appLogs, name)
     try {
       if (statSync(path).mtimeMs >= logCutoff) return []
-      return [entry(name, '早于 10 天的应用日志', path, measure(path, '缓存与临时文件', 0.18), 'rebuildable')]
+      return [entry(name, 'note.oldAppLog', path, measure(path, 'stage.caches', 0.18), 'rebuildable')]
     } catch { return [] }
   })
-  categories.push(category('appLogs', '旧应用日志', '保留最近 10 天，其余可以清理', 'recommended', 'rebuildable', oldLogs))
+  categories.push(category('appLogs', 'recommended', 'rebuildable', oldLogs))
   await yieldToEventLoop()
 
   const logs = logDatabases(locations.home)
-  categories.push(
-    category('logDatabase', '日志数据库', '仅统计占用；SQLite 空闲页会复用，不提供清理', 'protectedData', 'shielded',
-      logs.map((db) => entry(basename(db.path), 'Codex 诊断日志数据库（含 WAL/SHM）', db.path, db.bytes, 'shielded')))
-  )
+  categories.push(category('logDatabase', 'protectedData', 'shielded',
+    logs.map((db) => entry(basename(db.path), 'note.logDatabase', db.path, db.bytes, 'shielded'))))
   await yieldToEventLoop()
 
-  const pluginVersions = scanPluginVersions(locations.plugins, installedPlugins, (path) => progress('插件', path, 0.32))
+  const pluginVersions = scanPluginVersions(locations.plugins, installedPlugins, (path) => progress('stage.plugins', path, 0.32))
   const pluginCategory = pluginStorageCategory(pluginVersions)
   if (pluginCategory.entries.length) categories.push(pluginCategory)
   const pluginRuntimeEntries: StorageEntry[] = pluginVersions
     .filter((plugin) => plugin.status === 'current' || plugin.status === 'unconfirmed')
-    .map((plugin) => entry(`${plugin.plugin} · ${plugin.version}`, plugin.status === 'current' ? '当前使用的插件版本' : '无法确认状态的插件版本', plugin.directoryURL, plugin.bytes, 'shielded', 'trash', {
-      tags: [{ label: plugin.status === 'current' ? '当前版本' : '未确认', tone: 'neutral' }]
-    }))
+    .map((plugin) => entry(`${plugin.plugin} · ${plugin.version}`,
+      plugin.status === 'current' ? 'note.currentPlugin' : 'note.unconfirmedPlugin',
+      plugin.directoryURL, plugin.bytes, 'shielded', {
+        tags: [{ label: message(plugin.status === 'current' ? 'tag.current' : 'tag.unconfirmed'), tone: 'neutral' }]
+      }))
   if (entryExists(locations.pluginRuntime)) {
-    pluginRuntimeEntries.push(entry('.plugin-appserver', 'Codex 插件运行组件', locations.pluginRuntime,
-      measure(locations.pluginRuntime, '插件', 0.36), 'shielded', 'trash', { tags: [{ label: '运行组件', tone: 'info' }] }))
+    pluginRuntimeEntries.push(entry('.plugin-appserver', 'note.pluginRuntime', locations.pluginRuntime,
+      measure(locations.pluginRuntime, 'stage.plugins', 0.36), 'shielded', { tags: [{ label: message('tag.runtime'), tone: 'info' }] }))
   }
-  categories.push(category('pluginRuntime', '当前插件与运行组件', '已统计但不会自动删除', 'protectedData', 'shielded', pluginRuntimeEntries))
-  if (installedPlugins === null && pluginVersions.length) {
-    notes.push('未连接 codex app server，无法确认插件的当前版本，已全部锁定。')
-  }
+  categories.push(category('pluginRuntime', 'protectedData', 'shielded', pluginRuntimeEntries))
+  if (installedPlugins === null && pluginVersions.length) notes.push(message('scanNote.appServerUnavailable'))
   await yieldToEventLoop()
 
   // --- Review: rebuildable but affects offline use ---
@@ -244,15 +235,13 @@ export async function scanSnapshot(
 
   // --- Protected: shown for awareness, never selected ---
 
-  const sessions = await scanSessions(locations, (path, fraction) => progress('会话', path, 0.43 + fraction * 0.49), signal)
-  if (sessions.length && !sessions.some((session) => session.title)) {
-    notes.push('没有读到 Codex 的会话标题，列表改用会话首句或项目名显示。')
-  }
+  const sessions = await scanSessions(locations, (path, fraction) => progress('stage.sessions', path, 0.43 + fraction * 0.49), signal)
+  if (sessions.length && !sessions.some((session) => session.title)) notes.push(message('scanNote.noSessionTitles'))
   throwIfAborted(signal)
   const sessionDatabases = databaseFiles(locations.home, 'thread_history_').map((db) =>
-    entry(basename(db.path), '会话内容投影数据库（含 WAL/SHM）', db.path, db.bytes, 'shielded'))
-  categories.push(category('sessionDatabase', '会话投影数据库', 'Codex 加载会话使用的 SQLite 投影', 'protectedData', 'shielded', sessionDatabases))
-  categories.push(...assetCategories(locations, (path) => measure(path, '资产目录', 0.93)))
+    entry(basename(db.path), 'note.sessionProjection', db.path, db.bytes, 'shielded'))
+  categories.push(category('sessionDatabase', 'protectedData', 'shielded', sessionDatabases))
+  categories.push(...assetCategories(locations, (path) => measure(path, 'stage.assets', 0.93)))
 
   const marketplaceSources = new Set(guards.localMarketplaceSources)
   const protectedConfigEntries: StorageEntry[] = []
@@ -260,7 +249,7 @@ export async function scanSnapshot(
     if ((!ProtectedPaths.contains(locations.home, path) && !marketplaceSources.has(path)) || !entryExists(path)) continue
     protectedConfigEntries.push(entry(
       marketplaceSources.has(path) ? relativeToHome(path, locations.home) : basename(path),
-      marketplaceSources.has(path) ? 'config.toml 注册的本地插件市场' : '配置、凭据或用户规则',
+      marketplaceSources.has(path) ? 'note.localMarketplace' : 'note.configOrCredentials',
       path,
       pathAllocatedSize(path),
       'shielded'
@@ -270,22 +259,20 @@ export async function scanSnapshot(
   try { homeEntries = readdirSync(locations.home) } catch { /* missing home */ }
   for (const db of homeEntries.filter((name) => !name.startsWith('thread_history_') && ProtectedPaths.protectedHomePrefixes.some((prefix) => name.startsWith(prefix)))) {
     const path = join(locations.home, db)
-    protectedConfigEntries.push(entry(db, 'Codex 状态数据库', path, fileAllocatedSize(path), 'shielded'))
+    protectedConfigEntries.push(entry(db, 'note.stateDatabase', path, fileAllocatedSize(path), 'shielded'))
   }
-  categories.push(
-    category('protectedConfig', '受保护的配置', '凭据、配置和状态数据库', 'protectedData', 'shielded', protectedConfigEntries)
-  )
+  categories.push(category('protectedConfig', 'protectedData', 'shielded', protectedConfigEntries))
 
   const protectedUserEntries = ProtectedPaths.protectedAppSupportEntries.flatMap((relative): StorageEntry[] => {
     const path = join(locations.appSupport, relative)
-    return entryExists(path) ? [entry(relative, '浏览器配置与登录状态', path, pathAllocatedSize(path), 'shielded')] : []
+    return entryExists(path) ? [entry(relative, 'note.browserProfile', path, pathAllocatedSize(path), 'shielded')] : []
   })
-  categories.push(category('protectedUserData', '用户数据', '浏览器登录状态与本地配置', 'protectedData', 'shielded', protectedUserEntries))
+  categories.push(category('protectedUserData', 'protectedData', 'shielded', protectedUserEntries))
 
   const externalBytes = outermostStorageRoots([locations.appSupport, ...locations.appCaches, locations.appLogs].filter(entryExists))
     .reduce((sum, path) => sum + directoryAllocatedSize(path), 0)
   const totalCodexBytes = directoryAllocatedSize(locations.home) + externalBytes
-  progress('完成', '', 1)
+  progress('stage.done', '', 1)
 
   return {
     codexHome: locations.home,
@@ -316,11 +303,9 @@ function assetCategories(
   measure: (path: string) => number
 ): StorageCategory[] {
   const computerUse = entryExists(locations.computerUse)
-    ? [entry('computer-use', 'Computer Use 辅助组件，删除后需要重新下载', locations.computerUse, measure(locations.computerUse), 'caution', 'trash', {
+    ? [entry('computer-use', 'note.computerUseComponent', locations.computerUse, measure(locations.computerUse), 'caution', {
         requiresCodexStopped: true
       })]
     : []
-  return [
-    category('computerUse', 'Computer Use 组件', 'Computer Use 运行所需的本地组件', 'review', 'caution', computerUse)
-  ]
+  return [category('computerUse', 'review', 'caution', computerUse)]
 }

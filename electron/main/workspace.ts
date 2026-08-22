@@ -18,6 +18,10 @@ function gitState(path: string): WorkspaceRepositoryState {
   return Number(ahead.stdout.trim()) > 0 ? 'unpushed' : 'clean'
 }
 
+/** Each repository costs up to three git subprocesses, so a scan inspects at most this
+ *  many and marks the rest `unchecked` rather than stalling on a huge workspace. */
+const GIT_INSPECTION_BUDGET = 32
+
 interface WalkResult { bytes: number; files: number; repositories: string[] }
 
 function walk(path: string, recursive: boolean): WalkResult {
@@ -53,7 +57,7 @@ function folder(path: string, budget: { value: number }, onProgress?: (path: str
     id: repository,
     path: repository,
     name: basename(repository),
-    state: budget.value-- > 0 ? gitState(repository) : 'unknown'
+    state: budget.value > 0 ? (budget.value--, gitState(repository)) : 'unchecked'
   })).sort((a, b) => a.name.localeCompare(b.name))
   let modifiedAt = 0
   try { modifiedAt = statSync(path).mtimeMs } catch { /* missing */ }
@@ -62,7 +66,7 @@ function folder(path: string, budget: { value: number }, onProgress?: (path: str
 
 export function scanWorkspace(root: string, onProgress?: (path: string) => void, threads: CodexWorkspaceThread[] = []): WorkspaceSnapshot {
   if (!existsSync(root)) return { root, isScanned: true, entries: [] }
-  const budget = { value: 32 }
+  const budget = { value: GIT_INSPECTION_BUDGET }
   const entries = childDirectories(root).map((datePath): WorkspaceFolder | null => {
     onProgress?.(datePath)
     const children = childDirectories(datePath).map((path) => folder(path, budget, onProgress)).filter((item): item is WorkspaceFolder => item !== null).sort((a, b) => b.bytes - a.bytes)
@@ -94,8 +98,10 @@ function attachSourceThreads(root: string, entries: WorkspaceFolder[], threads: 
     if (target) target.sourceThreads.push(reference(thread))
   }
 
+  // Deliberately not aggregated upward: a date folder is listed alongside its own
+  // children, so inheriting their threads would title it with a child's session.
   for (const entry of entries) {
-    entry.sourceThreads = uniqueThreads([...entry.sourceThreads, ...entry.children.flatMap((child) => child.sourceThreads)])
+    entry.sourceThreads = uniqueThreads(entry.sourceThreads)
     for (const child of entry.children) child.sourceThreads = uniqueThreads(child.sourceThreads)
   }
 }
