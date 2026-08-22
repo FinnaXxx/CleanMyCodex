@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { listableSessions, snapshotSessionBytes, type AutomationSettings, type CleanupRisk, type ScanSnapshot, type SessionItem, type StorageEntry, type WorkspaceFolder } from '../shared/types'
+import { listableSessions, snapshotSessionBytes, type AutomationSettings, type CleanupRisk, type CleanupSelection, type ScanSnapshot, type SessionItem, type StorageEntry, type WorkspaceFolder } from '../shared/types'
 import { buildAutomaticTasks, buildTrustedTasks, makeCleanupPreview } from '../electron/main/planner'
 import { message } from '../shared/messages'
 
@@ -41,7 +41,7 @@ function snapshot(): ScanSnapshot {
 describe('trusted cleanup planner', () => {
   it('resolves only known selectable IDs and ignores forged or protected entries', () => {
     const snap = snapshot()
-    const tasks = buildTrustedTasks({ kind: 'storage', ids: ['safe', 'shielded', 'trash:/etc/passwd'] }, snap, snap.workspace)
+    const tasks = buildTrustedTasks({ kind: 'storage', ids: ['safe', 'shielded', 'remove:/etc/passwd'] }, snap, snap.workspace)
     expect(tasks.map((task) => task.id)).toEqual(['safe'])
     expect(tasks[0].url).toBe('/codex/safe')
   })
@@ -106,7 +106,7 @@ describe('trusted cleanup planner', () => {
 
   it('explains direct session deletion and exclusive-access blockers in the preview', () => {
     const snap = snapshot()
-    const selection = { kind: 'sessions-delete', ids: [snap.sessions[0].id] } as const
+    const selection: CleanupSelection = { kind: 'sessions-delete', ids: [snap.sessions[0].id] }
     const tasks = buildTrustedTasks(selection, snap, snap.workspace)
     const preview = makeCleanupPreview(selection, tasks, {
       running: true, detectionKnown: true, desktopRunning: false,

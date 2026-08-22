@@ -44,7 +44,7 @@ export class ProtectedPaths {
     'log'
   ]
 
-  /** Prefixes of files inside ~/.codex that must never be trashed. */
+  /** Prefixes of files inside ~/.codex that must never be deleted. */
   static readonly protectedHomePrefixes = ['state_', 'thread_history_', 'goals_', 'queue_', 'memories_', 'history']
 
   /** Browser profile data that carries the Codex login. */

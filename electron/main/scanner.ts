@@ -55,7 +55,7 @@ function entry(
   extra: Partial<Pick<StorageEntry, 'minimumIdleSeconds' | 'requiresCodexStopped' | 'tags'>> = {}
 ): StorageEntry {
   return {
-    id: `trash:${url}`,
+    id: `remove:${url}`,
     title,
     note: note ? message(note) : null,
     tags: extra.tags ?? [],

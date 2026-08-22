@@ -72,7 +72,7 @@ export function pluginStorageCategory(plugins: PluginVersionItem[]): StorageCate
     group: 'recommended',
     risk: 'safe',
     entries: plugins.filter((plugin) => plugin.status === 'outdated' || plugin.status === 'orphaned').map((plugin): StorageEntry => ({
-      id: `trash:${plugin.directoryURL}`,
+      id: `remove:${plugin.directoryURL}`,
       title: `${plugin.plugin} · ${plugin.version}`,
       note: null,
       tags: [plugin.status === 'orphaned'

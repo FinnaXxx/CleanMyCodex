@@ -159,14 +159,14 @@ function preflightDatabase(path: string | null, requiredTable: string): void {
   } finally { db.close() }
 }
 
-/** Validate supported schemas and acquire each write lock before any rollout is trashed. */
+/** Validate supported schemas and acquire each write lock before any rollout is deleted. */
 export function preflightSessionRecords(home: string, threadID: string, relatedURLs: string[] = []): void {
   const statePath = latestDatabase(home, 'state_')
   const historyPath = latestDatabase(home, 'thread_history_')
   preflightDatabase(statePath, 'threads')
   preflightDatabase(historyPath, 'thread_items')
   // Resolve the same thread set the deletion will use, so an unreadable spawn-edge
-  // table surfaces here rather than after the rollouts are already in the trash.
+  // table surfaces here rather than after the rollouts are already gone.
   void sessionThreadIDs(statePath, threadID, relatedURLs)
 }
 
