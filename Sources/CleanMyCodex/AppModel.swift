@@ -76,14 +76,14 @@ final class AppModel: ObservableObject {
     let locations: CodexLocations
     private let scanner: CodexStorageScanner
     private let automationService = AutomationService()
-    private var scanWorker: Task<ScanSnapshot, Never>?
+    private var scanWorker: Task<(ScanSnapshot, String?), Never>?
     private var scanGeneration = 0
     private var entryIndex: [String: StorageEntry] = [:]
     private var sessionIndex: [String: SessionItem] = [:]
     private var sessionSearchIndex: [String: String] = [:]
     private var sessionCounts: [SessionScope: Int] = [:]
     private var workspaceIndex: [String: WorkspaceEntry] = [:]
-    private var workspaceWorker: Task<Void, Never>?
+    private var workspaceWorker: Task<WorkspaceSnapshot, Never>?
 
     var codexHome: URL { locations.home }
 
@@ -111,15 +111,14 @@ final class AppModel: ObservableObject {
         let home = locations.home
         let scanner = scanner
         let client = CodexAppServerClient(codexHome: home)
-        let worker = Task.detached(priority: .userInitiated) { [weak self] () -> ScanSnapshot in
+        let worker = Task.detached(priority: .userInitiated) { [weak self] () -> (ScanSnapshot, String?) in
             let plugins = client.installedPlugins()
             do {
-                return try scanner.scan(codexHome: home, installedPlugins: plugins) { progress in
+                return (try scanner.scan(codexHome: home, installedPlugins: plugins) { progress in
                     Task { @MainActor in self?.scanProgress = progress }
-                }
+                }, nil)
             } catch {
-                await Task { @MainActor in self?.errorMessage = error.localizedDescription }.value
-                return .empty(at: home)
+                return (.empty(at: home), error.localizedDescription)
             }
         }
         scanWorker = worker
@@ -127,9 +126,10 @@ final class AppModel: ObservableObject {
         let generation = scanGeneration
 
         Task {
-            let result = await worker.value
+            let (result, message) = await worker.value
             // A newer scan already took over; its own continuation owns the state.
             guard generation == scanGeneration else { return }
+            errorMessage = message
             apply(result)
             isScanning = false
             scanWorker = nil
@@ -330,11 +330,14 @@ final class AppModel: ObservableObject {
 
         let scanner = scanner
         let places = locations
-        let worker = Task.detached(priority: .userInitiated) { [weak self] in
-            let result = scanner.workspaceSnapshot(in: places, reporter: nil)
-            await Task { @MainActor in self?.applyWorkspace(result) }.value
+        let worker = Task.detached(priority: .userInitiated) { () -> WorkspaceSnapshot in
+            scanner.workspaceSnapshot(in: places, reporter: nil)
         }
         workspaceWorker = worker
+        Task {
+            let result = await worker.value
+            applyWorkspace(result)
+        }
     }
 
     func rescanWorkspace() {
