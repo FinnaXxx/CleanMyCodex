@@ -13,7 +13,7 @@ function outermost(paths: string[]): string[] {
 /**
  * The allow/deny list that every deletion goes through. Deny-by-default: a path must sit
  * inside one of the Codex data roots, must not be a root itself, and must not match a
- * protected entry. Mirrors the Swift app's ProtectedPaths.
+ * protected entry.
  */
 export class ProtectedPaths {
   private readonly locations: CodexLocations

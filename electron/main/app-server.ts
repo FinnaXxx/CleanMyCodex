@@ -55,12 +55,14 @@ interface PendingCall {
 export class AppServerSession {
   private readonly process: ChildProcessByStdio<Writable, Readable, null>
   private readonly timeout: number
+  private readonly clientVersion: string
   private nextID = 1
   private closed = false
   private readonly pending = new Map<number, PendingCall>()
 
-  constructor(executable: string, codexHome: string, timeout = 20_000) {
+  constructor(executable: string, codexHome: string, clientVersion: string, timeout = 20_000) {
     this.timeout = timeout
+    this.clientVersion = clientVersion
     const env = { ...process.env, CODEX_HOME: codexHome }
     this.process = spawn(executable, ['app-server'], {
       env,
@@ -93,7 +95,7 @@ export class AppServerSession {
 
   async handshake(): Promise<void> {
     await this.call('initialize', {
-      clientInfo: { name: 'cleanmycodex', title: 'CleanMyCodex', version: '0.1.0' },
+      clientInfo: { name: 'cleanmycodex', title: 'CleanMyCodex', version: this.clientVersion },
       capabilities: { experimentalApi: false }
     })
     this.notify('initialized', {})
@@ -164,10 +166,12 @@ export class AppServerSession {
 export class AppServerClient {
   readonly executable: string | null
   private readonly codexHome: string
+  private readonly clientVersion: string
   private readonly timeout: number
 
-  constructor(codexHome: string, executable: string | null = null, timeout = 20_000) {
+  constructor(codexHome: string, clientVersion: string, executable: string | null = null, timeout = 20_000) {
     this.codexHome = codexHome
+    this.clientVersion = clientVersion
     this.executable = executable ?? locateCodexExecutable()
     this.timeout = timeout
   }
@@ -178,7 +182,7 @@ export class AppServerClient {
 
   async openSession(signal?: AbortSignal): Promise<AppServerSession> {
     if (!this.executable) throw new Error('没有找到 codex 命令行，无法调用 app server')
-    const session = new AppServerSession(this.executable, this.codexHome, this.timeout)
+    const session = new AppServerSession(this.executable, this.codexHome, this.clientVersion, this.timeout)
     const abort = () => session.close()
     signal?.addEventListener('abort', abort, { once: true })
     try {

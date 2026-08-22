@@ -521,6 +521,30 @@ export interface AutomaticRunRecord {
   deferredNote: string | null
 }
 
+export function normalizeAutomaticRunRecord(value: unknown): AutomaticRunRecord | null {
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  let finishedAt = finiteNumber(record['finishedAt'])
+  const freedBytes = finiteNumber(record['freedBytes'])
+  const succeeded = finiteNumber(record['succeeded'])
+  const failed = finiteNumber(record['failed'])
+  if (finishedAt === null || freedBytes === null || succeeded === null || failed === null) return null
+  if (finishedAt > 0 && finishedAt < 1_000_000_000_000) finishedAt = finishedAt * 1000 + 978_307_200_000
+  return {
+    finishedAt,
+    freedBytes,
+    succeeded,
+    failed,
+    skippedReason: typeof record['skippedReason'] === 'string' ? record['skippedReason'] : null,
+    deferred: finiteNumber(record['deferred']) ?? 0,
+    deferredNote: typeof record['deferredNote'] === 'string' ? record['deferredNote'] : null
+  }
+}
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
 export interface AutomationState {
   settings: AutomationSettings
   installed: boolean

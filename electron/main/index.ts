@@ -30,7 +30,7 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url))
 
 const locations = CodexLocations.standard()
 let guards = new ProtectedPaths(locations)
-const appServer = new AppServerClient(locations.home)
+const appServer = new AppServerClient(locations.home, app.getVersion())
 let mainWindow: BrowserWindow | null = null
 let latestSnapshot: ScanSnapshot | null = null
 let latestWorkspace: WorkspaceSnapshot = { root: locations.workspace, isScanned: false, entries: [] }
