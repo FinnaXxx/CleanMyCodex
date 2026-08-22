@@ -720,7 +720,7 @@ label.entry-label { cursor: pointer; }
 .save-icon-button:not(:disabled):hover { background: color-mix(in srgb, var(--accent-soft) 72%, var(--accent)); color: var(--accent); }
 
 /* --- settings --- */
-.settings-content { max-width: 900px; width: 100%; margin: 0 auto; }
+.settings-content { width: 100%; }
 .settings-group { margin-top: 24px; }
 .settings-group > h3 { margin: 0 4px 8px; color: var(--text-tertiary); font-size: 12px; font-weight: 600; }
 .settings-card { overflow: visible; }
