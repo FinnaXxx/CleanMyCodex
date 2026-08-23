@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CleanupProgress, CleanupSelection, SessionLocation, WorkspaceFolder, WorkspaceSnapshot } from '../../shared/types'
-import { formatBytes, repositoryStateIsSafe, workspaceBytes, workspaceFolderFileCount, workspaceFolderIsUnsafe } from '../../shared/types'
+import { formatBytes, repositoryStateIsSafe, workspaceBytes, workspaceFolderIsUnsafe } from '../../shared/types'
 import { message } from '../../shared/messages'
 import { FolderIcon } from '../icons'
 import { formatShortDate } from '../format'
@@ -13,21 +13,21 @@ export default function WorkspaceView({ snapshot, cleaning, actionsDisabled, cle
   const [selected, setSelected] = useState<Set<string>>(new Set())
   useEffect(() => { setSelected(new Set()) }, [snapshot])
 
-  /** Codex files outputs under a date folder; the date is a column here, not a level. */
+  /** Codex files outputs under a date folder; the date is a column here, not a level.
+   *  A date folder earns a row only when files lie loose in it, and that row stands for
+   *  those files alone — the outputs are rows of their own, so every row is disjoint. */
   const rows = useMemo(() => snapshot.entries
     .flatMap((entry) => entry.children.length
       ? [...entry.children, ...(entry.fileCount ? [entry] : [])]
       : [entry])
     .sort((a, b) => b.modifiedAt - a.modifiedAt || b.bytes - a.bytes), [snapshot])
 
-  const all = useMemo(() => snapshot.entries.flatMap((entry) => [entry, ...entry.children]), [snapshot])
-  const targets = all.filter((entry) => selected.has(entry.id) && !all.some((parent) => selected.has(parent.id) && parent.children.some((child) => child.id === entry.id)))
+  const targets = rows.filter((entry) => selected.has(entry.id))
   const chosenBytes = targets.reduce((sum, item) => sum + item.bytes, 0)
   const allSelected = rows.length > 0 && rows.every((entry) => selected.has(entry.id))
 
   const toggle = (entry: WorkspaceFolder) => setSelected((previous) => {
-    const next = new Set(previous); const ids = [entry.id, ...entry.children.map((child) => child.id)]
-    const enable = !ids.every((id) => next.has(id)); for (const id of ids) enable ? next.add(id) : next.delete(id); return next
+    const next = new Set(previous); next.has(entry.id) ? next.delete(entry.id) : next.add(entry.id); return next
   })
 
   return <>
@@ -39,7 +39,7 @@ export default function WorkspaceView({ snapshot, cleaning, actionsDisabled, cle
       <div className="table-head workspace-head">
         <input type="checkbox" aria-label={t('全选', 'Select all')} checked={allSelected}
           ref={(input) => { if (input) input.indeterminate = rows.some((entry) => selected.has(entry.id)) && !allSelected }}
-          onChange={() => setSelected(() => allSelected ? new Set() : new Set(rows.flatMap((entry) => [entry.id, ...entry.children.map((child) => child.id)])))}/>
+          onChange={() => setSelected(() => allSelected ? new Set() : new Set(rows.map((entry) => entry.id)))}/>
         <span>{t('产出', 'Output')}</span><span className="col-status">{t('状态', 'Status')}</span><span className="col-date">{t('最后改动', 'Modified')}</span><span className="col-num">{t('占用', 'Size')}</span><span/>
       </div>
       {rows.map((entry) => <WorkspaceRow key={entry.id} entry={entry} checked={selected.has(entry.id)} onToggle={() => toggle(entry)} date={formatShortDate(entry.modifiedAt, locale)} />)}
@@ -58,8 +58,8 @@ function WorkspaceRow({ entry, checked, date, onToggle }: { entry: WorkspaceFold
     <div className="grow">
       <strong title={display.tooltip}>{display.name}</strong>
       <small>
-        {t(`${workspaceFolderFileCount(entry)} 个文件`, `${workspaceFolderFileCount(entry)} files`)}
-        {entry.children.length > 0 && t(` · 含下方 ${entry.children.length} 项产出`, ` · Includes ${entry.children.length} outputs below`)}
+        {t(`${entry.fileCount} 个文件`, `${entry.fileCount} files`)}
+        {entry.children.length > 0 && t(` · 仅日期目录下的散落文件，不含下方 ${entry.children.length} 项产出`, ` · Loose files in the date folder only, not the ${entry.children.length} outputs below`)}
         {workspaceFolderIsUnsafe(entry) && <span className="unsafe" title={t('有未提交、未推送或状态未知的 git 仓库', 'Contains uncommitted, unpushed, or unknown Git repositories')}> ⚠</span>}
         {' '}
         {entry.repositories.map((repo) => <span className={`repo ${repositoryStateIsSafe(repo.state) ? 'safe' : 'unsafe'}`} key={repo.id}>{repo.name} · {m(message(`repoState.${repo.state}`))}</span>)}

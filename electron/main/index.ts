@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, ipcMain, nativeTheme, Notification } from 'electron'
+import { app, BrowserWindow, Menu, shell, ipcMain, nativeTheme, Notification, type MenuItemConstructorOptions } from 'electron'
 import { join } from 'node:path'
 import { rm } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
@@ -168,7 +168,11 @@ ipcMain.handle('path:open', async (_event, path: string) => {
 })
 ipcMain.handle('automation:get', () => getAutomationState())
 ipcMain.handle('automation:save', (_event, settings: AutomationSettings) => applyAutomationSettings(settings))
-ipcMain.handle('preferences:language', (_event, language: Language) => saveUILanguage(language))
+ipcMain.handle('preferences:language', (_event, language: Language) => {
+  saveUILanguage(language)
+  // The native menu is the one piece of text the main process has to word itself.
+  buildApplicationMenu()
+})
 
 // The renderer owns the theme choice, including "follow the system", so it tells the
 // window which backdrop to paint behind the interface.
@@ -282,8 +286,63 @@ function cleanupDependencies(): CleanupDeps {
 /** The backdrop behind the interface, so a resize never flashes the opposite appearance. */
 const WindowBackdrop = { light: '#eceef4', dark: '#131417' }
 
+const ApplicationTitle = 'Clean My Codex'
+
 function windowBackdrop(): string {
   return nativeTheme.shouldUseDarkColors ? WindowBackdrop.dark : WindowBackdrop.light
+}
+
+/**
+ * The application menu, written out by hand for one reason: there is no View menu, and
+ * so no `toggleDevTools` role. That role is what binds ⌘⌥I and Ctrl+Shift+I, and the
+ * console is not part of this product. `blockDeveloperTools` covers the chords Chromium
+ * still recognises on its own.
+ */
+function buildApplicationMenu(): void {
+  const language = loadUILanguage()
+  const settings: MenuItemConstructorOptions = {
+    label: formatMessage(message('menu.settings'), language),
+    accelerator: 'CmdOrCtrl+,',
+    click: () => mainWindow?.webContents.send('menu:settings')
+  }
+  const template: MenuItemConstructorOptions[] = process.platform === 'darwin'
+    ? [
+        {
+          // The packaged bundle is CleanMyCodex; in development `app.name` is the
+          // package name, so the window title is the one the menu should echo.
+          label: ApplicationTitle,
+          submenu: [
+            { role: 'about' },
+            { type: 'separator' },
+            settings,
+            { type: 'separator' },
+            { role: 'services' },
+            { type: 'separator' },
+            { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' },
+            { type: 'separator' },
+            { role: 'quit' }
+          ]
+        },
+        { role: 'editMenu' },
+        { role: 'windowMenu' }
+      ]
+    : [
+        { label: formatMessage(message('menu.file'), language), submenu: [settings, { type: 'separator' }, { role: 'quit' }] },
+        { role: 'editMenu' },
+        { role: 'windowMenu' }
+      ]
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
+/** Physical keys, not characters: on macOS ⌥ rewrites `input.key` into a dead key. */
+const DEVELOPER_TOOLS_KEY_CODES = new Set(['KeyI', 'KeyJ', 'KeyC'])
+
+function blockDeveloperTools(window: BrowserWindow): void {
+  window.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return
+    const chord = (input.meta && input.alt) || (input.control && input.shift)
+    if (input.code === 'F12' || (chord && DEVELOPER_TOOLS_KEY_CODES.has(input.code))) event.preventDefault()
+  })
 }
 
 function createWindow(): void {
@@ -294,7 +353,7 @@ function createWindow(): void {
     minHeight: 620,
     show: false,
     autoHideMenuBar: true,
-    title: 'Clean My Codex',
+    title: ApplicationTitle,
     backgroundColor: windowBackdrop(),
     // The interface draws its own toolbar, so macOS only keeps the window controls and
     // the sidebar runs to the top of the window like a native app.
@@ -308,6 +367,7 @@ function createWindow(): void {
       nodeIntegration: false
     }
   })
+  blockDeveloperTools(mainWindow)
   mainWindow.on('ready-to-show', () => mainWindow?.show())
   nativeTheme.on('updated', () => mainWindow?.setBackgroundColor(windowBackdrop()))
   mainWindow.on('closed', () => { mainWindow = null })
@@ -382,6 +442,7 @@ async function runAutomaticCleanup(): Promise<void> {
 
 app.whenReady().then(async () => {
   if (process.argv.includes('--auto-clean')) { await runAutomaticCleanup(); app.quit(); return }
+  buildApplicationMenu()
   createWindow()
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 })
