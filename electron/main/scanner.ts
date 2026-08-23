@@ -185,20 +185,28 @@ export async function scanSnapshot(
 
   const browserEntries = locations.browserCacheDirectories
     .filter(entryExists)
-    .map((path) => entry(relativeTo(locations.appSupport, path), 'note.rebuildableCache', path, measure(path, 'stage.caches', 0.12), 'rebuildable', {
+    .map((path) => entry(relativeTo(locations.appSupport, path), 'note.profileAdjacentCache', path, measure(path, 'stage.caches', 0.12), 'shielded', {
       requiresCodexStopped: true
     }))
-  // Desktop caches are rebuildable today, but Chromium is free to change what a cache
-  // directory contains. Keep them visible for an explicit review, never homepage-selected.
-  categories.push(category('browserCache', 'review', 'rebuildable', browserEntries))
+  // These paths sit inside the same Chromium user-data root as the desktop sign-in
+  // profiles. A cache-shaped directory is not enough evidence that deleting it is safe.
+  categories.push(category('browserCache', 'protectedData', 'shielded', browserEntries))
   await yieldToEventLoop()
 
-  const appCacheEntries = [locations.codexCache, ...locations.appCaches]
+  const codexCacheEntries = [locations.codexCache]
     .filter(entryExists)
-    .map((path) => entry(cacheTitle(path, locations), 'note.rebuildableCache', path, measure(path, 'stage.caches', 0.16), 'rebuildable', {
+    .map((path) => entry(cacheTitle(path, locations), 'note.codexOperationalCache', path, measure(path, 'stage.caches', 0.15), 'caution', {
       requiresCodexStopped: true
     }))
-  categories.push(category('appCache', 'review', 'rebuildable', appCacheEntries))
+  categories.push(category('codexCache', 'review', 'caution', codexCacheEntries))
+  await yieldToEventLoop()
+
+  const appCacheEntries = locations.appCaches
+    .filter(entryExists)
+    .map((path) => entry(cacheTitle(path, locations), 'note.platformCache', path, measure(path, 'stage.caches', 0.16), 'caution', {
+      requiresCodexStopped: true
+    }))
+  categories.push(category('appCache', 'review', 'caution', appCacheEntries))
   await yieldToEventLoop()
 
   const logCutoff = Date.now() - 10 * 86_400_000

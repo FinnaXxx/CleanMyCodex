@@ -136,7 +136,8 @@ export class CodexLocations {
     return join(this.caches, 'CleanMyCodex')
   }
 
-  /** Chromium-style caches that the desktop app rebuilds on demand. */
+  /** Cache-shaped directories inside the desktop profile. Scanned for awareness only;
+   *  the path guard locks every App Support descendant against deletion. */
   get browserCacheDirectories(): string[] {
     return [
       'Default/Cache',

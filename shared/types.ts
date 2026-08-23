@@ -23,6 +23,7 @@ export type StorageKind =
   | 'pluginOrphans'
   | 'pluginRuntime'
   | 'browserCache'
+  | 'codexCache'
   | 'appCache'
   | 'appLogs'
   | 'computerUse'
@@ -43,6 +44,7 @@ export const StorageKindSection: Record<StorageKind, StorageSection> = {
   pluginOrphans: 'plugins',
   pluginRuntime: 'plugins',
   browserCache: 'caches',
+  codexCache: 'caches',
   appCache: 'caches',
   appLogs: 'logs',
   computerUse: 'plugins',

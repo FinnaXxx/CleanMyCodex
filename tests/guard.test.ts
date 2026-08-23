@@ -78,11 +78,15 @@ describe('cleanup path guard', () => {
     }
   })
 
-  it('keeps every scanned cache target out of protected profile data', () => {
+  it('locks every App Support cache while allowing exact platform-cache leaves', () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
     const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
     const guard = new ProtectedPaths(locations)
-    for (const path of [...locations.browserCacheDirectories, ...locations.appCaches]) {
+    for (const path of locations.browserCacheDirectories) {
+      mkdirSync(path, { recursive: true })
+      expect(rejection(() => guard.validate(path)), path).toBe('guard.protectedPath')
+    }
+    for (const path of locations.appCaches) {
       mkdirSync(path, { recursive: true })
       expect(() => guard.validate(path), path).not.toThrow()
     }
