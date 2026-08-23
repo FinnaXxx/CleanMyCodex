@@ -1,8 +1,6 @@
 <div align="center">
 
-<img src="Assets/AppIcon.png" width="112" alt="Clean My Codex" />
-
-# Clean My Codex
+<img src="docs/images/banner.png" alt="Clean My Codex — Scan. Understand. Reclaim." />
 
 **看清 Codex 在磁盘上留下了什么，只删掉确实可以删的那部分。**
 
@@ -13,7 +11,11 @@
 ![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
-<img src="docs/images/overview-zh.png" width="900" alt="Clean My Codex 总览界面，浅色与深色两种外观" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/overview-zh-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/overview-zh-light.png">
+  <img src="docs/images/overview-zh-light.png" width="900" alt="Clean My Codex 总览界面：当前占用与本次可释放、空间分布，以及扫描出的缓存、日志与数据库" />
+</picture>
 
 </div>
 

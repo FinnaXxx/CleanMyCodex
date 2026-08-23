@@ -1,11 +1,12 @@
 # README screenshots
 
-`capture.mjs` regenerates the two hero images the READMEs show:
+`capture.mjs` regenerates the four screenshots the READMEs show:
 
-- `docs/images/overview-en.png` — English interface
-- `docs/images/overview-zh.png` — Chinese interface
+    docs/images/overview-{en,zh}-{light,dark}.png
 
-Both are the same window split along the diagonal, light above it and dark below it.
+Each README picks between the two appearances with `<picture>` and
+`prefers-color-scheme`, so the screenshot matches whichever theme the reader is browsing
+GitHub in. `docs/images/banner.png` is not generated here.
 
 The renderer is bundled and run for real; only the preload API is replaced, by the demo
 scan in `mock.js`. So the screenshots follow the interface automatically, and the only

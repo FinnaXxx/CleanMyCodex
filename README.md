@@ -1,8 +1,6 @@
 <div align="center">
 
-<img src="Assets/AppIcon.png" width="112" alt="Clean My Codex" />
-
-# Clean My Codex
+<img src="docs/images/banner.png" alt="Clean My Codex — Scan. Understand. Reclaim." />
 
 **Find out what Codex has left on your disk, and remove only the parts that are safe to remove.**
 
@@ -13,7 +11,11 @@ English · [简体中文](README_CN.md)
 ![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
-<img src="docs/images/overview-en.png" width="900" alt="Clean My Codex overview, shown in both light and dark appearance" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/overview-en-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/overview-en-light.png">
+  <img src="docs/images/overview-en-light.png" width="900" alt="The Clean My Codex overview: current usage and reclaimable space, a breakdown of where the space went, and the caches, logs and databases found by the scan" />
+</picture>
 
 </div>
 
