@@ -39,7 +39,7 @@ Codex 会不断堆积：每一次会话留下的 rollout 文件、一直没被�
 
 ### 不会被删除的东西
 
-配置与凭据（`config.toml`、`auth.json`）、状态数据库与会话投影数据库、Codex 当前正在使用的插件版本及其运行组件、承载桌面端登录的 Chromium 用户资料数据，以及全部缓存 —— 既包括 Codex 自己的运行元数据缓存，也包括桌面应用的运行缓存。工作产出另外不进入定时清理。这些都会被统计以保证总量对得上，并在界面上标记为受保护。
+配置与凭据 —— `config.toml`、`auth.json`、`secrets/` 下 age 加密的密钥库、MCP OAuth 回退文件 `.credentials.json` 与 `.env` —— 以及 Codex 全部六个运行期 SQLite 数据库和它在 `db-backups/` 里保留的崩溃恢复副本、`proxy/` 下的托管代理 CA、Windows 沙箱身份文件、插件持久化在 `plugins/data` 的数据、Codex 当前正在使用的插件版本及其运行组件、承载桌面端登录的 Chromium 用户资料数据，以及全部缓存 —— 既包括 Codex 自己的运行元数据缓存，也包括桌面应用的运行缓存。工作产出另外不进入定时清理。这些都会被统计以保证总量对得上，并在界面上标记为受保护。
 
 ## 安装
 
@@ -60,25 +60,30 @@ Codex 会不断堆积：每一次会话留下的 rollout 文件、一直没被�
 
 ### 数据来源
 
+下面涉及 `~/.codex` 的每一条路径，都对照 [Codex 源码](https://github.com/openai/codex) 核对过 —— 桌面应用正是基于这套 harness 开发的 —— 而不是从某一台机器的目录列表反推。桌面端自己的存储没有开源：App Support 目录树、Chromium 用户资料、`~/.codex/sqlite` 和 `.codex-global-state.json` 只能依据实际观测，因此处理得更保守，只统计，文件本身从不删除。
+
 按数据的实际来源扫描：
 
 - **`codex app-server`**：调用 `plugin/list` 确认已安装的插件及版本；支持 `thread/delete` 的版本会优先由 Codex 自己删除会话，不支持时回退到本地定向清理。
 - **rollout JSONL**：直接流式扫描 `~/.codex/sessions` 和 `~/.codex/archived_sessions`。它们是会话事件的持久记录；Codex 也以 rollout 为来源构建会话历史投影。
-- **`state_*.sqlite`**：只读获取标题、工作目录、归档状态及子代理父子关系；删除会话时才定向删除该会话及所有后代的状态行。
+- **`state_*.sqlite`**：只读获取标题、工作目录、归档状态及子代理父子关系。标题优先取 Codex 生成的简洁 `name`，其次 `title`、再次 `preview`，后两者通常存的是完整的首条用户消息；父子关系来自 `thread_spawn_edges`。删除会话时才定向删除该会话及所有后代的状态行。
 - **`session_index.jsonl`**：作为生成标题和桌面会话列表的补充索引；删除会话时会定向移除相同会话集合的索引行。
 - **`thread_history_*.sqlite`**：Codex 从 rollout 派生出的会话历史投影。扫描器把它作为“会话投影数据库”统计；删除会话时会直接清理相应行，不等待 Codex 重建。
 - **`~/.codex/sqlite/*.db`**：ChatGPT/Codex 桌面端自己的存储，`local_thread_catalog` 是左侧边栏的会话列表，同目录还有会话摘要和历史快照。只在删除会话时按 thread ID 定向删行，从不删文件。
 - **`.codex-global-state.json`**：桌面端的持久化状态，按 thread ID 存置顶、项目归属、排队任务等。只剔除被删会话的键和列表项；`electron-persisted-atom-state`（草稿、面板布局等界面状态）整块保持不动。
 - **`generated_images/<thread-id>`**：会话生成的独立图片目录。
 - **`visualizations/YYYY/MM/DD/<thread-id>`**：Codex 生成的富视觉结果，例如 JPG/PNG 对比图或 HTML可视化预览。扫描时会递归识别日期层级并归到对应会话。
-- **`~/.codex/cache`**：Codex 使用的远程插件目录、工具定义、connector runtime 和 Apps server 信息，作为受保护数据统计，不提供删除。
+- **`visualization-viewers/<thread-id>`**：Codex 从上述片段渲染出的查看器，其源码自己称之为 viewer cache。按 thread 组织，因此随所属会话一起统计、一起删除，不会比会话活得更久。
+- **`~/.codex/cache`**：远程插件目录（`remote_plugin_catalog`）、Apps server 与工具定义（`codex_apps_server_info`、`codex_apps_tools`）、connector 目录（`codex_app_directory`）和终端宠物素材（`tui-pets`）。它们都可重建，但后续版本可能在旁边放置实时状态，因此整个目录作为受保护数据统计，不提供删除。
 - **`~/Library/Caches/Codex`、`~/Library/Caches/com.openai.codex`**：桌面应用运行缓存，容器及其所有叶子目录都作为受保护数据统计，不提供删除。
 - **承载桌面端登录的 Chromium 用户资料数据**：`Cookies`、`Network/`、`Local Storage`、`Session Storage`、`IndexedDB`、`Service Worker`、`Preferences`、`Web Data`、`Local State`、`Partitions/`、`codex-browser-app/` 等。根目录、`Default/` 和桌面端专用分区布局都锁定，只统计不清理；整个 App Support 和平台应用缓存容器都禁止删除。
 - **`~/.codex/sqlite`、`.codex-global-state.json` 及其 `.bak`**：桌面端自己的会话库和持久状态，只在删除会话时按 thread ID 删行或删键，文件本身锁定。
-- **`vendor_imports`、`shell_snapshots`、`attachments`、`ambient-suggestions`、`browser`、Wasm TTS 组件及 goals/queue/memories 数据库**：纳入占用统计但保持锁定。
-- **`.tmp/bundled-marketplaces`**：只保护当前 `openai-bundled` 源；超过 24 小时未更新的同级 `.staging-*` 目录作为更新残留列出。其他未知 `.tmp` 子目录不会因为存放时间长就自动推断为可删。
+- **用户自有内容与实时状态路径**：`rules`、`skills`、`hooks` 与 `hooks.json`、`memories`、`agents`、`themes`、`avatars`、`prompts`、`shell_snapshots`、`attachments`、`session_index.jsonl`、`installation_id`、`managed_config.toml`、`environments.toml`、app-server 守护进程与控制套接字、Wasm TTS 组件及 goals/queue/memories/logs 数据库 —— 纳入占用统计但保持锁定。
+- **`~/.codex/.tmp`**：名字虽然像临时目录，实际是实时状态 —— curated 插件 checkout、已安装的插件市场、内置的 `openai-bundled` 源以及 Codex 的 rollout 锁都放在这里。只有 Codex 自己创建的临时目录前缀才可清理，即 `plugins-clone-*` checkout，以及 Codex 启动时自清扫只删 clone、因而遗留下来的 `plugins-backup-*` 目录。其他未知 `.tmp` 子目录不会因为存放时间长就自动推断为可删。
+- **`~/.codex/tmp/arg0`**：和 `.tmp` 是两个不同的目录，为 `apply_patch` 和沙箱辅助程序的 shim 存放每个运行中 Codex 进程各自一个带锁目录。Codex 每次启动都会删掉所有能拿到锁的同级目录，因此还留着的按它自己的判定就是废弃的，删除的代价只是下次启动重建一次符号链接。
+- **各 staging 父目录**：`.tmp/marketplaces/.staging`、`plugins/.remote-plugin-install-staging` 和 `plugins/.marketplace-plugin-source-staging`。Codex 会把完成的目录树从这里 rename 出去、其余丢弃，所以残留的每个子项都属于某个中途死掉的安装进程。
 
-首页「建议清理」只包含两类有额外证据的内容：超过 24 小时未写入、路径模式明确且不属于当前源的安装／更新 staging 残留；以及 `plugin/list` 权威确认已有当前版本的旧插件目录。没有这两类内容时，推荐项为 0 是正常结果。
+首页「建议清理」只包含两类有额外证据的内容：超过 24 小时未写入、位于 Codex 自己视为暂存区的目录、且不属于当前源的安装／更新 staging 残留；以及 `plugin/list` 权威确认已有当前版本的旧插件目录。名为 `local` 的插件目录永远不算在内，无论目录服务怎么报 —— Codex 仅凭目录列表决定生效版本，而 `local` 压过任何带版本号的同级目录。没有这两类内容时，推荐项为 0 是正常结果。
 
 ### 会话、分段与子代理
 
