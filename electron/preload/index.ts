@@ -24,6 +24,8 @@ const api = {
   repairSessionLeftovers: (): Promise<{ threads: number; removedRows: number }> => ipcRenderer.invoke('sessions:repairLeftovers'),
   revealPath: (path: string): Promise<void> => ipcRenderer.invoke('path:reveal', path),
   openPath: (path: string): Promise<void> => ipcRenderer.invoke('path:open', path),
+  /** This app's own log folder, created on demand so the settings entry can open it. */
+  logDirectory: (): Promise<string> => ipcRenderer.invoke('app:logDirectory'),
   getAutomation: (): Promise<AutomationState> => ipcRenderer.invoke('automation:get'),
   saveAutomation: (settings: AutomationSettings): Promise<AutomationState> => ipcRenderer.invoke('automation:save', settings),
   saveLanguage: (language: Language): Promise<void> => ipcRenderer.invoke('preferences:language', language),

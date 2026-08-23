@@ -14,8 +14,20 @@ import { dirname, join } from 'node:path'
  */
 const MAX_BYTES = 1024 * 1024
 
+/** Where this app writes its own logs; the settings page offers to open it. */
+export function logDirectory(): string {
+  return app.getPath('logs')
+}
+
+/** The folder only appears once something has been logged, so make it before showing it. */
+export function ensureLogDirectory(): string {
+  const path = logDirectory()
+  try { mkdirSync(path, { recursive: true }) } catch { /* the settings page still shows the path */ }
+  return path
+}
+
 export function cleanupLogPath(): string {
-  return join(app.getPath('logs'), 'cleanup.log')
+  return join(logDirectory(), 'cleanup.log')
 }
 
 export function logCleanup(line: string): void {

@@ -1,10 +1,33 @@
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { usePreferences, type LanguagePreference, type ThemePreference } from '../preferences'
 
 export default function SettingsView({ onOpenScheduledCleanup }: {
   onOpenScheduledCleanup: () => void
 }) {
-  const { theme, language, setTheme, setLanguage, t } = usePreferences()
+  const { theme, language, setTheme, setLanguage, t, e } = usePreferences()
+  const [logPath, setLogPath] = useState<string | null>(null)
+  const [logError, setLogError] = useState<string | null>(null)
+
+  // The folder is made on demand, so its path is worth showing only once it is known.
+  useEffect(() => {
+    let cancelled = false
+    window.cleanmycodex.logDirectory()
+      .then((path) => { if (!cancelled) setLogPath(path) })
+      .catch(() => { if (!cancelled) setLogPath(null) })
+    return () => { cancelled = true }
+  }, [])
+
+  const openLogs = async (): Promise<void> => {
+    setLogError(null)
+    try {
+      const path = logPath ?? await window.cleanmycodex.logDirectory()
+      setLogPath(path)
+      await window.cleanmycodex.openPath(path)
+    } catch (err) {
+      setLogError(e(err instanceof Error ? err.message : String(err)))
+    }
+  }
+
   return <div className="detail-content settings-content">
     <SettingsGroup title={t('外观', 'Appearance')}>
       <SettingsRow title={t('主题', 'Theme')} detail={t('选择界面的明暗外观', 'Choose how the interface looks')}>
@@ -23,6 +46,17 @@ export default function SettingsView({ onOpenScheduledCleanup }: {
           { value: 'en', label: 'English' }
         ]} label={t('语言', 'Language')} />
       </SettingsRow>
+    </SettingsGroup>
+
+    <SettingsGroup title={t('诊断', 'Diagnostics')}>
+      <button className="settings-navigation-row" onClick={() => void openLogs()}>
+        <span><strong>{t('日志', 'Logs')}</strong>
+          <small className={logError ? 'settings-error' : undefined}>{logError ?? t('打开应用日志目录，其中记录了清理与定时任务的执行过程', 'Open the app log folder, which records what cleanups and scheduled runs did')}</small></span>
+        <span className="settings-navigation-value">
+          {logPath && <span className="settings-path" title={logPath}>{logPath}</span>}
+          <i className="settings-chevron" aria-hidden="true">›</i>
+        </span>
+      </button>
     </SettingsGroup>
 
     <SettingsGroup title={t('清理', 'Cleanup')}>

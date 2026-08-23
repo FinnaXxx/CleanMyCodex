@@ -14,10 +14,13 @@ import {
   categoryIsEmpty,
   categorySection,
   isSelectable,
+  listableSessions,
+  snapshotSessionBytes,
+  workspaceBytes,
   formatBytes
 } from '../../shared/types'
 import { message } from '../../shared/messages'
-import { FolderIcon } from '../icons'
+import { FolderIcon, NavIcon, type NavGlyphName } from '../icons'
 import { usePreferences } from '../preferences'
 import { storageDistribution, type StorageDistributionKind } from '../storage-distribution'
 
@@ -28,13 +31,16 @@ interface Props {
   actionsDisabled: boolean
   cleanProgress: CleanupProgress | null
   onCleanup: (selection: CleanupSelection) => void
+  onOpenSessions: () => void
+  onOpenWorkspace: () => void
 }
 
-export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisabled, cleanProgress, onCleanup }: Props) {
+export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisabled, cleanProgress, onCleanup, onOpenSessions, onOpenWorkspace }: Props) {
   const { t, m, locale } = usePreferences()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [expanded, setExpanded] = useState<Set<StorageKind>>(new Set())
 
+  const sessionCount = useMemo(() => listableSessions(snapshot).length, [snapshot])
   const allEntries = useMemo<StorageEntry[]>(() => snapshot.categories.flatMap((c) => c.entries), [snapshot])
   const selectedEntries = useMemo(() => allEntries.filter((e) => selected.has(e.id)), [allEntries, selected])
   const selectedBytes = selectedEntries.reduce((sum, e) => sum + e.reclaimableBytes, 0)
@@ -152,6 +158,34 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
       {appInfo?.codexRunning && <p className="notice warning">{appInfo.blockers.map(m).join(t('；', '; '))}{t('，需要独占文件的项目本次会跳过；退出 Codex 后需重新清理。', '. Items requiring exclusive file access will be skipped; quit Codex and run cleanup again.')}</p>}
       {snapshot.notes.map((note) => <p className="notice" key={note.key}>{m(note)}</p>)}
 
+      <section className="section section-elsewhere">
+        <div className="section-head">
+          <ElsewhereIcon />
+          <h2>{t('在各自页面清理', 'Cleaned on their own pages')}</h2>
+          <span className="section-total">{t('共', 'Total')} {formatBytes(snapshotSessionBytes(snapshot) + workspaceBytes(snapshot.workspace))}</span>
+        </div>
+        <div className="card">
+          <NavigationRow
+            glyph="sessions"
+            title={t('会话记录', 'Sessions')}
+            detail={sessionCount
+              ? t(`${sessionCount} 个会话，逐条挑选后删除`, `${sessionCount} conversations, removed one by one`)
+              : t('没有扫描到本地会话', 'No local conversations found')}
+            value={sessionCount ? formatBytes(snapshotSessionBytes(snapshot)) : '—'}
+            onOpen={onOpenSessions}
+          />
+          <NavigationRow
+            glyph="workspace"
+            title={t('工作产出', 'Workspace Output')}
+            detail={snapshot.workspace.isScanned
+              ? t('Codex 生成的文件和仓库，删除前需要逐项确认', 'Files and repositories Codex produced, confirmed one by one before deletion')
+              : t('尚未完成统计，重新扫描后可查看', 'Not measured yet; scan again to see it')}
+            value={snapshot.workspace.isScanned ? formatBytes(workspaceBytes(snapshot.workspace)) : '—'}
+            onOpen={onOpenWorkspace}
+          />
+        </div>
+      </section>
+
       {sections.map(({ section, categories }) => {
         const selectable = categories.flatMap((category) => category.entries).filter((item) => isSelectable(item.risk))
         const allSelected = selectable.length > 0 && selectable.every((item) => selected.has(item.id))
@@ -208,6 +242,42 @@ function SectionIcon({ section }: { section: StorageSection }) {
         <path d={SectionGlyph[section]} />
       </svg>
     </span>
+  )
+}
+
+/** The two pages the overview only points at, rather than a content type it can clean here. */
+function ElsewhereIcon() {
+  return (
+    <span className="section-icon" aria-hidden="true">
+      <svg viewBox="0 0 18 18" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round">
+        <path d="M10.4 3h4.6v4.6M15 3l-6.2 6.2M13.4 10.6v4.4H3.2V4.8h4.4" />
+      </svg>
+    </span>
+  )
+}
+
+/** Sessions and workspace output are cleaned per item, so the overview only points at them. */
+function NavigationRow({ glyph, title, detail, value, onOpen }: {
+  glyph: NavGlyphName
+  title: string
+  detail: string
+  value: string
+  onOpen: () => void
+}) {
+  return (
+    <div className="row-block">
+      <div className="row row-navigation">
+        <button className="row-main" onClick={onOpen}>
+          <span className="row-glyph" aria-hidden="true"><NavIcon name={glyph} /></span>
+          <span className="row-text">
+            <span className="row-title">{title}</span>
+            <span className="row-detail">{detail}</span>
+          </span>
+          <span className="row-meta"><span className="row-bytes">{value}</span></span>
+          <span className="chevron">›</span>
+        </button>
+      </div>
+    </div>
   )
 }
 
