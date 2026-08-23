@@ -122,7 +122,6 @@ describe('trusted cleanup planner', () => {
       running: true, detectionKnown: true, desktopRunning: false,
       cliCommands: ['codex'], canRestart: false, blockers: [message('blocker.cliRunning', { count: 1 })]
     })
-    expect(preview.warnings.map((item) => item.key)).toContain('warning.sessionDelete')
     expect(preview.blockers.map((item) => item.key)).toEqual(['blocker.cliRunning'])
     expect(preview.blockedTitles).toEqual(['active'])
   })

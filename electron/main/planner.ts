@@ -86,7 +86,6 @@ export function makeCleanupPreview(
     : []
   // Deletion is permanent for every selection, so the preview always says so first.
   const warnings: Message[] = [message('warning.permanent')]
-  if (selection.kind === 'sessions-delete') warnings.push(message('warning.sessionDelete'))
   if (selection.kind === 'workspace') warnings.push(message('warning.workspaceGit'))
   return {
     selection,
