@@ -20,6 +20,36 @@ function age(path: string, days: number): void {
 }
 
 describe('storage scanner semantics', () => {
+  it('reclaims every staging root Codex abandons, and nothing live beside them', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-scan-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const stale = (path: string): string => {
+      write(join(path, 'payload')); age(join(path, 'payload'), 3); age(path, 3)
+      return path
+    }
+    // Codex' own scratch roots, taken from the sources: the arg0 shim directories it
+    // sweeps on launch, the curated-plugin backup its sweep misses, and the staging
+    // parents it renames finished trees out of.
+    const arg0 = stale(join(locations.arg0Temporary, 'codex-arg0ABC'))
+    const backup = stale(join(locations.temporary, 'plugins-backup-XYZ'))
+    const staged = locations.stagingParents.map((parent) => stale(join(parent, 'staged-1')))
+    // Live state that shares those roots and must survive.
+    const curated = join(locations.temporary, 'plugins')
+    const installed = join(locations.marketplaceInstalls, 'openai-curated')
+    write(join(curated, 'marketplace.json'))
+    write(join(installed, 'marketplace.json'))
+    write(join(locations.temporary, 'plugins.sha'))
+    const fresh = join(locations.temporary, 'plugins-backup-FRESH')
+    write(join(fresh, 'payload'))
+
+    const snapshot = await scanSnapshot(locations, [])
+    const urls = snapshot.categories.find((category) => category.kind === 'temporary')?.entries.map((entry) => entry.url) ?? []
+    for (const path of [arg0, backup, ...staged]) expect(urls, path).toContain(path)
+    for (const path of [curated, installed, fresh, join(locations.temporary, 'plugins.sha')]) {
+      expect(urls, path).not.toContain(path)
+    }
+  })
+
   it('keeps recent logs, protects live marketplaces, and associates assets with their thread', async () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-scan-')); roots.push(root)
     const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })

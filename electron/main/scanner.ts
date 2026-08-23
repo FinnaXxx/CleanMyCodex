@@ -11,6 +11,16 @@ import { SCAN_STOPPED, message, type Message, type MessageKey } from '../../shar
 
 const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 
+/**
+ * Directory-name prefixes Codex uses for its own temp directories directly under `.tmp`:
+ * the curated-plugin clone and the backup it moves the previous checkout into. Codex'
+ * startup sweep only ever removes the clones, so the backups accumulate on their own.
+ */
+const TEMPORARY_STAGING_PREFIXES = ['plugins-clone-', 'plugins-backup-']
+
+/** How long a staging directory must sit untouched before it counts as abandoned. */
+const STAGING_IDLE_SECONDS = 86_400
+
 function entryExists(path: string): boolean {
   try {
     statSync(path)
@@ -134,41 +144,55 @@ export async function scanSnapshot(
   // --- Recommended: disposable or rebuildable ---
 
   const staleTemporary: StorageEntry[] = []
-  let temporaryNames: string[] = []
-  try { temporaryNames = readdirSync(locations.temporary) } catch { /* missing */ }
-  for (const name of temporaryNames) {
+  /** Measures one abandoned scratch directory, or nothing if it is live or protected. */
+  const stagedEntry = (path: string, title: string, note: MessageKey): StorageEntry[] => {
+    throwIfAborted(signal)
+    if (guards.isProtected(path)) return []
+    progress('stage.caches', path, 0.08)
+    const measured = measureTree(path, signal)
+    if (!measured.bytes) return []
+    const idleSeconds = STAGING_IDLE_SECONDS
+    if (Date.now() - measured.latestActivity < idleSeconds * 1000) return []
+    return [entry(title, note, path, measured.bytes, 'safe', {
+      minimumIdleSeconds: idleSeconds, requiresCodexStopped: true
+    })]
+  }
+  const childrenOf = (root: string): string[] => {
+    try { return readdirSync(root) } catch { return [] }
+  }
+
+  for (const name of childrenOf(locations.temporary)) {
     throwIfAborted(signal)
     const path = join(locations.temporary, name)
     if (path === locations.bundledMarketplaces) {
-      let bundledNames: string[] = []
-      try { bundledNames = readdirSync(path) } catch { /* missing */ }
-      for (const bundledName of bundledNames) {
-        const bundledPath = join(path, bundledName)
-        if (guards.isProtected(bundledPath) || !bundledName.includes('.staging-')) continue
-        const measured = measureTree(bundledPath, signal)
-        const idleSeconds = 86_400
-        if (measured.bytes && Date.now() - measured.latestActivity >= idleSeconds * 1000) {
-          staleTemporary.push(entry(bundledName, 'note.marketplaceStaging', bundledPath, measured.bytes, 'safe', {
-            minimumIdleSeconds: idleSeconds, requiresCodexStopped: true
-          }))
-        }
+      for (const bundledName of childrenOf(path)) {
+        if (!bundledName.includes('.staging-')) continue
+        staleTemporary.push(...stagedEntry(join(path, bundledName), bundledName, 'note.marketplaceStaging'))
       }
       continue
     }
-    if (guards.isProtected(path)) continue
-    const staging = name.includes('.staging-') || name.startsWith('plugins-clone-')
-    // Unknown children of .tmp may become live state in a later Codex release. Only
-    // installer/update staging patterns we understand are eligible for default cleanup.
-    if (!staging) continue
-    progress('stage.caches', path, 0.08)
-    const measured = measureTree(path, signal)
-    if (!measured.bytes) continue
-    const idleSeconds = 86_400
-    if (Date.now() - measured.latestActivity < idleSeconds * 1000) continue
-    staleTemporary.push(entry(name, 'note.installLeftover', path, measured.bytes, 'safe', {
-      minimumIdleSeconds: idleSeconds, requiresCodexStopped: true
-    }))
+    // Unknown children of .tmp may become live state in a later Codex release — it holds
+    // the curated plugin checkout, the installed marketplaces and Codex' rollout locks.
+    // Only the temp-directory prefixes Codex itself creates there are eligible.
+    if (!TEMPORARY_STAGING_PREFIXES.some((prefix) => name.startsWith(prefix)) && !name.includes('.staging-')) continue
+    staleTemporary.push(...stagedEntry(path, name, 'note.installLeftover'))
   }
+
+  // Codex renames a finished tree out of these staging parents and drops the rest, so
+  // every surviving child belongs to a process that died mid-install.
+  for (const parent of locations.stagingParents) {
+    for (const name of childrenOf(parent)) {
+      staleTemporary.push(...stagedEntry(join(parent, name), name, 'note.marketplaceStaging'))
+    }
+  }
+
+  // ~/.codex/tmp/arg0 holds one directory per running Codex process, each holding a lock
+  // file. Codex sweeps every unlocked sibling on launch; the ones left are from processes
+  // that never got to. Removing them only costs the next launch a symlink rebuild.
+  for (const name of childrenOf(locations.arg0Temporary)) {
+    staleTemporary.push(...stagedEntry(join(locations.arg0Temporary, name), name, 'note.helperScratch'))
+  }
+
   categories.push(category('temporary', 'recommended', 'safe', staleTemporary))
   await yieldToEventLoop()
 
@@ -249,7 +273,10 @@ export async function scanSnapshot(
     if (path === locations.codexCache) continue // represented by its dedicated category
     if ((!ProtectedPaths.contains(locations.home, path) && !marketplaceSources.has(path)) || !entryExists(path)) continue
     protectedConfigEntries.push(entry(
-      marketplaceSources.has(path) ? relativeToHome(path, locations.home) : basename(path),
+      // Nested protected entries (plugins/data, …) need their path to stay unambiguous.
+      marketplaceSources.has(path) || basename(path) !== relativeToHome(path, locations.home)
+        ? relativeToHome(path, locations.home)
+        : basename(path),
       marketplaceSources.has(path) ? 'note.localMarketplace' : 'note.configOrCredentials',
       path,
       pathAllocatedSize(path),

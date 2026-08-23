@@ -97,6 +97,32 @@ export class CodexLocations {
    *  but live: config.toml registers it as the `openai-bundled` marketplace source. */
   get bundledMarketplaces(): string { return join(this.temporary, 'bundled-marketplaces') }
   get bundledMarketplaceSource(): string { return join(this.bundledMarketplaces, 'openai-bundled') }
+
+  /**
+   * Codex' own scratch root for the arg0 helper shims (`apply_patch`, the sandbox
+   * binaries). Codex creates one locked directory per running process under it and, on
+   * every launch, deletes every sibling whose lock it can take — so an unlocked directory
+   * here is by Codex' own definition abandoned. This is `tmp`, a different directory from
+   * the `.tmp` staging root above, which holds live locks and marketplace state.
+   */
+  get arg0Temporary(): string { return join(this.home, 'tmp', 'arg0') }
+
+  /** Marketplaces Codex has installed. Live state, not scratch. */
+  get marketplaceInstalls(): string { return join(this.temporary, 'marketplaces') }
+
+  /**
+   * Staging parents whose children are always transient copies: Codex stages a
+   * marketplace or plugin here, renames the finished tree into place, and drops the
+   * staging directory. Anything left below one of these outlived the process that made it.
+   */
+  get stagingParents(): string[] {
+    return [
+      join(this.marketplaceInstalls, '.staging'),
+      join(this.plugins, '.remote-plugin-install-staging'),
+      join(this.plugins, '.marketplace-plugin-source-staging')
+    ]
+  }
+
   get generatedImages(): string { return join(this.home, 'generated_images') }
   get visualizations(): string { return join(this.home, 'visualizations') }
   get computerUse(): string { return join(this.home, 'computer-use') }

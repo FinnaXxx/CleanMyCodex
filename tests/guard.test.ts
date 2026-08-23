@@ -16,6 +16,45 @@ const roots: string[] = []
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
 
 describe('cleanup path guard', () => {
+  it('locks the credential, database and sandbox paths Codex keeps in its home', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const guard = new ProtectedPaths(locations)
+    // Names taken from the Codex sources rather than from one machine's ~/.codex.
+    const locked = [
+      'secrets/codex_auth.age', 'secrets/mcp_oauth.age', '.credentials.json', '.env',
+      'logs_2.sqlite', 'state_5.sqlite', 'goals_1.sqlite', 'queue_1.sqlite',
+      'memories_1.sqlite', 'thread_history_1.sqlite', 'history.jsonl',
+      'db-backups/20260101', 'proxy/ca.pem', '.sandbox-secrets/sandbox_users.json',
+      'cap_sid', 'hooks.json', 'managed_config.toml', 'environments.toml',
+      'installation_id', 'session_index.jsonl', 'agents/reviewer.md',
+      'plugins/data/linear-openai/state.json', 'plugins/known_marketplaces.json'
+    ]
+    for (const name of locked) {
+      const path = join(locations.home, name)
+      mkdirSync(join(path, '..'), { recursive: true })
+      writeFileSync(path, 'x')
+      expect(guard.isProtected(path), name).toBe(true)
+      expect(rejection(() => guard.validate(path)), name).toBe('guard.protectedPath')
+    }
+  })
+
+  it('allows the staging directories Codex abandons below its home', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const guard = new ProtectedPaths(locations)
+    const disposable = [
+      join(locations.arg0Temporary, 'codex-arg0ABC'),
+      join(locations.temporary, 'plugins-backup-XYZ'),
+      ...locations.stagingParents.map((parent) => join(parent, 'staged-1'))
+    ]
+    for (const path of disposable) {
+      mkdirSync(path, { recursive: true })
+      expect(guard.isProtected(path), path).toBe(false)
+      expect(() => guard.validate(path), path).not.toThrow()
+    }
+  })
+
   it('allows explicitly selected workspace children but never the workspace root', () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
     const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })

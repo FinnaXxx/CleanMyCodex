@@ -22,34 +22,82 @@ export class ProtectedPaths {
   private readonly activePluginDirectories: string[]
   readonly localMarketplaceSources: string[]
 
-  /** Relative names inside ~/.codex that hold credentials, configuration or user work. */
+  /**
+   * Relative names inside ~/.codex that hold credentials, configuration or user work.
+   *
+   * Cross-checked against the Codex sources (github.com/openai/codex): every name below
+   * either appears there as a path Codex reads live state from, or was observed on disk
+   * and is kept for builds this app cannot see into. Over-protection is cheap; the
+   * reverse is not, so an entry stays even when the current CLI no longer writes it.
+   */
   static readonly protectedHomeEntries = [
+    // Credentials. `secrets/` is the age-encrypted store (codex_auth.age, local.age,
+    // mcp_oauth.age) and `.credentials.json` is the MCP OAuth fallback file.
     'auth.json',
-    'cache',
-    'sqlite',
-    '.codex-global-state.json',
-    '.codex-global-state.json.bak',
+    'secrets',
+    '.credentials.json',
+    '.env',
+    // Configuration.
     'config.toml',
     'config.json',
+    'managed_config.toml',
+    'environments.toml',
+    'hooks.json',
     'version.json',
     'instructions.md',
     'AGENTS.md',
+    'AGENTS.override.md',
+    'installation_id',
+    // User-authored content.
     'rules',
     'hooks',
     'skills',
     'memories',
+    'memories_extensions',
+    'agents',
+    'themes',
+    'avatars',
+    'prompts',
     'vendor_imports',
-    'shell_snapshots',
-    'attachments',
     'ambient-suggestions',
     'browser',
-    'prompts',
+    // Runtime state and caches Codex rebuilds on its own terms.
+    'cache',
+    'sqlite',
+    'db-backups',
+    'session_index.jsonl',
+    'external_agent_session_imports.json',
+    'rollout-migrations',
+    'app-server-daemon',
+    'app-server-control',
+    'ipc',
+    'shell_snapshots',
+    'attachments',
+    'hook_outputs',
     'bin',
-    'log'
+    'log',
+    // Plugin data Codex persists on a plugin's behalf, and the marketplace registry.
+    'plugins/data',
+    'plugins/known_marketplaces.json',
+    // Network proxy CA material, and the Windows sandbox identity/secret files.
+    'proxy',
+    '.sandbox',
+    '.sandbox-bin',
+    '.sandbox-secrets',
+    'cap_sid',
+    '.codex-global-state.json',
+    '.codex-global-state.json.bak'
   ]
 
-  /** Prefixes of files inside ~/.codex that must never be deleted. */
-  static readonly protectedHomePrefixes = ['state_', 'thread_history_', 'goals_', 'queue_', 'memories_', 'history']
+  /**
+   * Prefixes of files inside ~/.codex that must never be deleted. These cover the
+   * versioned SQLite runtimes Codex opens at startup — `state_5.sqlite`, `logs_2.sqlite`,
+   * `goals_1.sqlite`, `memories_1.sqlite`, `queue_1.sqlite`, `thread_history_1.sqlite` —
+   * whose version suffix moves between releases, plus `history.jsonl`.
+   */
+  static readonly protectedHomePrefixes = [
+    'state_', 'logs_', 'thread_history_', 'goals_', 'queue_', 'memories_', 'history'
+  ]
 
   /**
    * Chromium profile data that carries the Codex login: the cookie and storage backends,

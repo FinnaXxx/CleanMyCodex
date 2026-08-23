@@ -7,6 +7,15 @@ import { directoryAllocatedSize } from './fs-size'
 
 const OFFICIAL_BUILTIN_MARKETPLACES = new Set(['openai-bundled', 'openai-primary-runtime'])
 
+/**
+ * Codex' sentinel for a locally installed plugin. `PluginStore::active_plugin_version`
+ * resolves the active version from the directory listing alone, and a directory named
+ * `local` wins over every semver sibling regardless of what any catalog reports. Treating
+ * one as a superseded version would delete the plugin Codex is actually running, so it is
+ * never removable no matter what the inventory says.
+ */
+const ALWAYS_ACTIVE_PLUGIN_VERSION = 'local'
+
 function versionDirectories(root: string, depth = 0): string[] {
   if (depth > 4 || !existsSync(root)) return []
   let children
@@ -30,6 +39,7 @@ function containsPath(parent: string, child: string): boolean {
 
 function statusFor(path: string, marketplace: string | null, plugin: string, version: string, inventory: InstalledPlugin[] | null): PluginStatus {
   if (marketplace && OFFICIAL_BUILTIN_MARKETPLACES.has(marketplace)) return 'builtin'
+  if (normalizedVersion(version) === ALWAYS_ACTIVE_PLUGIN_VERSION) return 'current'
   if (!inventory) return 'unconfirmed'
 
   // A path match is authoritative, but an explicitly uninstalled catalog row is not.

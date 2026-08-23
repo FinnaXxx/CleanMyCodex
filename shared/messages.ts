@@ -32,7 +32,7 @@ export type MessageKey =
   | 'category.protectedConfig.title' | 'category.protectedConfig.detail'
   | 'category.protectedUserData.title' | 'category.protectedUserData.detail'
   // Storage entry notes
-  | 'note.marketplaceStaging' | 'note.installLeftover' | 'note.idleThreeDays'
+  | 'note.marketplaceStaging' | 'note.installLeftover' | 'note.idleThreeDays' | 'note.helperScratch'
   | 'note.codexOperationalCache' | 'note.platformCache'
   | 'note.oldAppLog' | 'note.logDatabase' | 'note.sessionProjection'
   | 'note.localMarketplace' | 'note.configOrCredentials' | 'note.stateDatabase' | 'note.browserProfile'
@@ -120,6 +120,7 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'note.marketplaceStaging': ['插件市场更新留下的 staging 目录', 'Staging folder left by a marketplace update'],
   'note.installLeftover': ['安装或更新时留下的目录', 'Folder left behind by an install or update'],
   'note.idleThreeDays': ['超过 3 天没有改动', 'Not modified for over 3 days'],
+  'note.helperScratch': ['Codex 辅助程序遗留的临时目录', 'Temporary folder left by a Codex helper process'],
   'note.codexOperationalCache': ['Codex 使用的插件与工具元数据', 'Plugin and tool metadata used by Codex'],
   'note.platformCache': ['桌面应用使用的运行缓存', 'Runtime cache used by the desktop application'],
   'note.oldAppLog': ['早于 10 天的应用日志', 'App log older than 10 days'],

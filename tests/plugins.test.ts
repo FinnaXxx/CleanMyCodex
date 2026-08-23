@@ -16,6 +16,22 @@ function plugin(root: string, market: string, name: string, version: string): st
 }
 
 describe('plugin scanner', () => {
+  it('never treats a `local` version as superseded, whatever the catalog reports', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-plugins-')); roots.push(root)
+    // Codex resolves the active version from the directory listing, and `local` wins over
+    // every semver sibling — so a catalog naming 2.0.0 does not make `local` a remnant.
+    plugin(root, 'personal', 'browser', 'local')
+    const current = plugin(root, 'personal', 'browser', '2.0.0')
+    const items = scanPluginVersions(root, [
+      { marketplace: 'personal', name: 'browser', version: '2.0.0', directory: current, installed: true }
+    ])
+    expect(items.map((item) => [item.version, item.status])).toEqual([
+      ['2.0.0', 'current'], ['local', 'current']
+    ])
+    const categories = pluginStorageCategories(items)
+    expect(categories.flatMap((category) => category.entries)).toHaveLength(0)
+  })
+
   it('protects the installed version and exposes only stale/orphaned directories', () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-plugins-')); roots.push(root)
     const current = plugin(root, 'personal', 'browser', '2.0.0')
