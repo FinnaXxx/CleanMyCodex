@@ -230,18 +230,7 @@ input[type='checkbox']:disabled { cursor: default; }
 }
 /* macOS keeps its window controls over the top of the sidebar. */
 :root[data-platform='darwin'] .sidebar-head { padding-top: 46px; }
-.brand-mark {
-  display: grid;
-  place-items: center;
-  flex: none;
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
-  background: linear-gradient(145deg, #6f74f2, #4a51de 55%, #6f3fd0);
-  color: #fff;
-  box-shadow: 0 2px 6px -1px rgba(60, 66, 200, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.35);
-}
-.brand-mark svg { width: 19px; height: 19px; }
+.brand-mark { display: block; flex: none; width: 30px; height: 30px; }
 .brand-text { display: grid; gap: 1px; min-width: 0; }
 .brand-text strong { font-size: 13px; font-weight: 600; letter-spacing: -0.15px; }
 .brand-text small { color: var(--text-tertiary); font-size: 11px; }
