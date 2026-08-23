@@ -163,6 +163,32 @@ function uninstallWindowsTask(): void {
   if (process.platform === 'win32') runSchtasks(['/Delete', '/F', '/TN', windowsTaskName])
 }
 
+/**
+ * Brings the installed schedule back in line with this build, at startup.
+ *
+ * The agent names the executable it should launch, and it is only ever written when the
+ * settings are saved. An app that has moved, or a build whose launch arguments changed,
+ * leaves an agent pointing somewhere that no longer answers — and launchd fails quietly,
+ * so the schedule reads as installed while nothing runs. Re-installing when the plist no
+ * longer matches what this build would write costs one comparison per start.
+ *
+ * Returns what it did, so a start that repaired something says so in the log.
+ */
+export function repairAutomationSchedule(): string | null {
+  const settings = loadAutomationSettings()
+  if (!settings.enabled || process.platform !== 'darwin') return null
+  const desired = launchAgentPlist(settings.intervalDays * 86_400)
+  let current: string | null = null
+  try { current = readFileSync(launchAgentPath(), 'utf8') } catch { /* not installed */ }
+  if (current === desired && launchAgentIsLoaded()) return null
+  try {
+    installLaunchAgent(settings.intervalDays * 86_400)
+    return current === null ? 'reinstalled a missing launch agent' : 'launch agent no longer matched this build; reinstalled'
+  } catch (error) {
+    return `launch agent could not be repaired: ${error instanceof MessageError ? error.info.key : String(error)}`
+  }
+}
+
 export function getAutomationState(): AutomationState {
   const settings = loadAutomationSettings()
   const installed = process.platform === 'darwin'
