@@ -178,9 +178,9 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'scanNote.appServerUnavailable': ['未连接 codex app server，无法确认插件的当前版本，已全部锁定。', 'Not connected to the codex app server, so current plugin versions cannot be confirmed. All are locked.'],
   'scanNote.noSessionTitles': ['没有读到 Codex 的会话标题，列表改用会话首句或项目名显示。', 'No Codex session titles were found. The list falls back to the first message or the project name.'],
 
-  'warning.permanent': ['清理的内容会被永久删除，不会进入系统废纸篓，之后无法撤销。', 'Everything cleaned is deleted permanently. It does not go to the system Trash and cannot be undone.'],
-  'warning.sessionDelete': ['会话文件、生成资产和 Codex 会话索引记录会一并永久删除。', 'Session files, generated assets, and Codex session index records are all deleted permanently.'],
-  'warning.workspaceGit': ['工作产出是你自己的文件，删除后无法从废纸篓恢复；请确认未提交或未推送的内容已经保存。', 'Workspace output is your own work and cannot be restored from the Trash. Make sure anything uncommitted or unpushed has been saved.'],
+  'warning.permanent': ['清理的内容会被永久删除，无法恢复。', 'Everything cleaned is deleted permanently and cannot be recovered.'],
+  'warning.sessionDelete': ['会话文件、生成资产和 Codex 会话索引记录会一并清理。', 'Session files, generated assets, and Codex session index records are all removed together.'],
+  'warning.workspaceGit': ['请确认未提交或未推送的内容已经保存。', 'Make sure anything uncommitted or unpushed has been saved.'],
 
   'blocker.detectionFailed': ['无法确认 Codex 是否正在运行', 'Cannot determine whether Codex is running'],
   'blocker.desktopRunning': ['ChatGPT/Codex 桌面应用或会话服务正在运行', 'The ChatGPT/Codex desktop app or its session service is running'],
