@@ -77,15 +77,11 @@ function xml(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
 
-function installLaunchAgent(intervalSeconds: number): void {
-  if (process.platform !== 'darwin') throw new MessageError(message('error.launchAgentUnsupported'))
-  const path = launchAgentPath()
-  const log = automationLogPath()
-  mkdirSync(dirname(path), { recursive: true })
-  mkdirSync(dirname(log), { recursive: true })
+function launchAgentPlist(intervalSeconds: number): string {
   const programArguments = app.isPackaged ? [process.execPath, '--auto-clean'] : [process.execPath, app.getAppPath(), '--auto-clean']
   const argumentXML = programArguments.map((argument) => `<string>${xml(argument)}</string>`).join('')
-  const plist = `<?xml version="1.0" encoding="UTF-8"?>
+  const log = automationLogPath()
+  return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>${serviceLabel}</string>
@@ -95,6 +91,31 @@ function installLaunchAgent(intervalSeconds: number): void {
   <key>StandardOutPath</key><string>${xml(log)}</string>
   <key>StandardErrorPath</key><string>${xml(log)}</string>
 </dict></plist>\n`
+}
+
+function launchAgentIsLoaded(): boolean {
+  return runLaunchctl(['print', `gui/${process.getuid?.() ?? 0}/${serviceLabel}`])
+}
+
+/**
+ * Installs the agent, or leaves it alone when it is already running exactly this schedule.
+ *
+ * `bootstrap` restarts launchd's `StartInterval` countdown, and the job does not run at
+ * load, so re-installing on every save would push the next run a full interval away each
+ * time — a settings page visited often enough would never let a run fire at all. The
+ * plist text is the whole schedule, so comparing it against the file on disk is the same
+ * question as "would re-installing change anything".
+ */
+function installLaunchAgent(intervalSeconds: number): void {
+  if (process.platform !== 'darwin') throw new MessageError(message('error.launchAgentUnsupported'))
+  const path = launchAgentPath()
+  const plist = launchAgentPlist(intervalSeconds)
+  let unchanged = false
+  try { unchanged = readFileSync(path, 'utf8') === plist } catch { /* not installed yet */ }
+  if (unchanged && launchAgentIsLoaded()) return
+
+  mkdirSync(dirname(path), { recursive: true })
+  mkdirSync(dirname(automationLogPath()), { recursive: true })
   writeFileSync(path, plist, 'utf8')
   runLaunchctl(['bootout', `gui/${process.getuid?.() ?? 0}/${serviceLabel}`])
   if (!runLaunchctl(['bootstrap', `gui/${process.getuid?.() ?? 0}`, path])) {
@@ -147,9 +168,7 @@ export function getAutomationState(): AutomationState {
   const installed = process.platform === 'darwin'
     ? existsSync(launchAgentPath())
     : process.platform === 'win32' && runSchtasks(['/Query', '/TN', windowsTaskName])
-  const loaded = process.platform === 'darwin'
-    ? installed && runLaunchctl(['print', `gui/${process.getuid?.() ?? 0}/${serviceLabel}`])
-    : installed
+  const loaded = process.platform === 'darwin' ? installed && launchAgentIsLoaded() : installed
   const lastRun = readJSON<AutomaticRunRecord>(lastRunPath())
   return {
     settings,

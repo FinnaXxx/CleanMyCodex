@@ -32,7 +32,9 @@ export default function AutomationView() {
       {state.lastRun?.note && <small>{m(state.lastRun.note)}</small>}
     </section>
     <section className="card form-card"><h3>{t('定时清理范围', 'Cleanup Scope')}</h3>
-      <label><input type="checkbox" checked={settings.cleanCaches} onChange={(event) => update('cleanCaches', event.target.checked)}/> {t('缓存和过期临时文件', 'Caches and stale temporary files')}</label>
+      <small>{t('每一项都需要 Codex 已退出。定时运行不会替你退出 Codex，所以触发时 Codex 开着的话，这一轮会全部跳过，下次再试。',
+        'Every item here needs Codex to have quit. A scheduled run never quits it for you, so a run that fires while Codex is open skips everything and waits for the next one.')}</small>
+      <label><input type="checkbox" checked={settings.cleanCaches} onChange={(event) => update('cleanCaches', event.target.checked)}/> {t('过期临时目录（安装和更新残留）', 'Stale temporary folders (install and update leftovers)')}</label>
       <label><input type="checkbox" checked={settings.cleanOldPlugins} onChange={(event) => update('cleanOldPlugins', event.target.checked)}/> {t('老版本插件，只保留当前版本', 'Old plugins, keeping only the current version')}</label>
       <label><input type="checkbox" checked={settings.cleanArchivedSessions} onChange={(event) => update('cleanArchivedSessions', event.target.checked)}/> {t('已归档会话，保留', 'Archived sessions, keep for')} <input className="number" type="number" min="7" max="1825" value={settings.archivedRetentionDays} disabled={!settings.cleanArchivedSessions} onChange={(event) => update('archivedRetentionDays', Number(event.target.value))}/> {t('天', 'days')}</label>
       <label><input type="checkbox" checked={settings.cleanActiveSessions} onChange={(event) => update('cleanActiveSessions', event.target.checked)}/> {t('未归档会话，保留', 'Active sessions, keep for')} <input className="number" type="number" min="7" max="3650" value={settings.activeRetentionDays} disabled={!settings.cleanActiveSessions} onChange={(event) => update('activeRetentionDays', Number(event.target.value))}/> {t('天', 'days')}</label>
