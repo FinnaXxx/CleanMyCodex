@@ -130,7 +130,7 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'note.configOrCredentials': ['配置、凭据或用户规则', 'Configuration, credentials, or user rules'],
   'note.stateDatabase': ['Codex 状态数据库', 'Codex state database'],
   'note.browserProfile': ['浏览器配置与登录状态', 'Browser configuration and sign-in state'],
-  'note.computerUseComponent': ['Computer Use 辅助组件，删除后需要重新下载', 'Computer Use helper component; must be downloaded again if removed'],
+  'note.computerUseComponent': ['Computer Use 辅助组件', 'Computer Use helper component'],
   'note.builtinPlugin': ['Codex 官方内置插件', 'Official Codex built-in plugin'],
   'note.currentPlugin': ['当前使用的插件版本', 'Plugin version currently in use'],
   'note.unconfirmedPlugin': ['无法确认状态的插件版本', 'Plugin version whose status could not be confirmed'],
