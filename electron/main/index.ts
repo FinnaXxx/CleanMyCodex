@@ -269,6 +269,24 @@ function logRemovals(selection: CleanupSelection, report: CleanupReport): void {
  * what, pointed at which Codex home, with which CLI behind the app-server. Written once
  * at startup and again before each cleanup, so a log that has rotated still carries it.
  */
+/**
+ * Shows a notification and waits for the system to take it.
+ *
+ * The scheduled run quits the moment it is done, and `show()` only hands the notification
+ * off — quitting in the same tick drops it before it is ever delivered. The timeout is
+ * there because a notification the user has muted never reports back at all, and a
+ * cleanup that finished must not hang on saying so.
+ */
+function showAndSettle(notification: Notification, timeoutMs = 4_000): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const done = (): void => { clearTimeout(timer); resolve() }
+    const timer = setTimeout(done, timeoutMs)
+    notification.once('show', done)
+    notification.once('failed', done)
+    notification.show()
+  })
+}
+
 /** Why the plugin inventory came back empty, which decides every plugin's status. */
 function reportPluginListFailure(reason: string): void {
   logCleanup(`plugin/list failed: ${reason} — every on-disk plugin stays locked`)
@@ -554,7 +572,7 @@ async function runAutomaticCleanup(): Promise<void> {
       }))
     }
     if (settings.notifyWhenFinished && Notification.isSupported()) {
-      new Notification({ title: 'Clean My Codex', body: formatMessage(summary, language) }).show()
+      await showAndSettle(new Notification({ title: 'Clean My Codex', body: formatMessage(summary, language) }))
     }
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err)

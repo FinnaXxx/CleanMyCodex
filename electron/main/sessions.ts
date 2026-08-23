@@ -213,6 +213,11 @@ function groupSubagents(items: SessionItem[]): void {
     root.childBytes = descendants.reduce((sum, child) => sum + child.fileBytes + child.assetBytes, 0)
     root.childURLs = [...new Set([...childRolloutURLs, ...childAssetURLs])]
     root.blocksAutomaticCleanup ||= descendants.some((child) => child.blocksAutomaticCleanup)
+    // Deleting the root takes every subagent with it, so the conversation was last active
+    // when the newest of them was. Reading only the root's own file would let a retention
+    // rule — and "skip conversations active in the last 24 hours" — age out a root whose
+    // subagent is still working, and delete that subagent along with it.
+    root.modifiedAt = Math.max(root.modifiedAt, ...descendants.map((child) => child.modifiedAt))
   }
 }
 

@@ -198,6 +198,30 @@ describe('session scanning', () => {
     expect(parentItem?.childURLs).toEqual(expect.arrayContaining([child, childAsset]))
   })
 
+  it('dates a conversation by its newest subagent, so an active one is not aged out', async () => {
+    const { locations } = fixture()
+    const parentID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+    const childID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+    const parent = join(locations.sessions, `rollout-${parentID}.jsonl`)
+    const child = join(locations.sessions, `rollout-${childID}.jsonl`)
+    mkdirSync(locations.sessions, { recursive: true })
+    writeFileSync(parent, `${JSON.stringify({ type: 'session_meta', payload: { id: parentID } })}\n`)
+    writeFileSync(child, `${JSON.stringify({
+      type: 'session_meta',
+      payload: { id: childID, thread_source: 'subagent', parent_thread_id: parentID }
+    })}\n`)
+    // The root's own rollout has not been written to for a month; its subagent just ran.
+    const old = new Date(Date.now() - 30 * 86_400_000)
+    utimesSync(parent, old, old)
+
+    const sessions = await scanSessions(locations)
+    const parentItem = sessions.find((session) => session.threadID === parentID)
+    const childItem = sessions.find((session) => session.threadID === childID)
+    // Deleting the root takes the subagent with it, so retention must read the newer time.
+    expect(parentItem?.modifiedAt).toBe(childItem?.modifiedAt)
+    expect(Date.now() - (parentItem?.modifiedAt ?? 0)).toBeLessThan(86_400_000)
+  })
+
   it('groups nested subagents and their resumed segments into one deletion scope', async () => {
     const { locations } = fixture()
     const parentID = 'aaaaaaaa-1111-1111-1111-111111111111'

@@ -41,6 +41,7 @@ function snapshot(): ScanSnapshot {
 }
 
 describe('trusted cleanup planner', () => {
+
   it('resolves only known selectable IDs and ignores forged or protected entries', () => {
     const snap = snapshot()
     const tasks = buildTrustedTasks({ kind: 'storage', ids: ['safe', 'shielded', 'remove:/etc/passwd'] }, snap, snap.workspace)
