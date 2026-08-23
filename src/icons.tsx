@@ -1,5 +1,3 @@
-import appIcon from './assets/app-icon.png'
-
 /** Shared row icons, so the session, plugin and workspace lists read the same. */
 
 export function FolderIcon() {
@@ -50,7 +48,12 @@ export function NavIcon({ name }: { name: NavGlyphName }) {
   </svg>
 }
 
-/** The app's own icon, so the sidebar and the first-run screen show what the Dock shows. */
+/** The app mark: a spark on a tinted tile, used in the sidebar and the first-run screen. */
 export function BrandMark() {
-  return <img className="brand-mark" src={appIcon} alt="" aria-hidden="true" width={30} height={30} />
+  return <span className="brand-mark" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M13.2 3.4 14.8 8l4.6 1.6-4.6 1.6-1.6 4.6-1.6-4.6L7 9.6 11.6 8Z" fill="currentColor" fillOpacity="0.22"/>
+      <path d="M6.6 14.4 7.4 16.7l2.3.8-2.3.8-.8 2.3-.8-2.3-2.3-.8 2.3-.8Z" fill="currentColor" fillOpacity="0.22"/>
+    </svg>
+  </span>
 }
