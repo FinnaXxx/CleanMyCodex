@@ -272,10 +272,10 @@ function CleanupDialog({ preview, restart, forceQuit, onRestart, onForceQuit, on
   const { t, m } = usePreferences()
   return <div className="modal-backdrop"><section className="cleanup-dialog" role="dialog" aria-modal="true">
     <><h2>{t(`确认清理 ${preview.items.length} 项`, `Confirm cleanup of ${preview.items.length} items`)}</h2>
-      <p className="dialog-lead">{t(`预计释放 ${formatBytes(preview.expectedBytes)}，内容会被永久删除。`, `About ${formatBytes(preview.expectedBytes)} will be freed. The content is deleted permanently.`)}</p>
+      <p className="dialog-lead">{t(`预计释放 ${formatBytes(preview.expectedBytes)}`, `About ${formatBytes(preview.expectedBytes)} will be freed.`)}</p>
       <ul className="preview-list">{preview.items.map((item) => <li key={item.id}><span><strong>{item.title} <em className="method-badge">{t('永久删除', 'Delete Permanently')}</em></strong><small>{item.detail}</small></span><b>{formatBytes(item.expectedBytes)}</b></li>)}</ul>
       {preview.warnings.map((warning) => <p className="notice warning" key={warning.key}>{m(warning)}</p>)}
-      {!!preview.blockedTitles.length && <div className="notice warning"><strong>{t('需要 Codex 完全退出', 'Codex must quit completely')}</strong><br/>{preview.blockedTitles.slice(0, 4).join(t('、', ', '))}
+      {!!preview.blockedTitles.length && <div className="notice warning"><strong>{t('需要 Codex 完全退出', 'Codex must quit completely')}</strong><br/>
         {preview.canRestartCodex ? <><label><input type="checkbox" checked={restart} onChange={(event) => { onRestart(event.target.checked); if (!event.target.checked) onForceQuit(false) }}/> {t('先退出 Codex，清理完成后重新打开', 'Quit Codex first, then reopen it after cleanup')}</label>
           {restart && <label><input type="checkbox" checked={forceQuit} onChange={(event) => onForceQuit(event.target.checked)}/> {t('正常退出超时后强制结束（可能丢失未保存内容）', 'Force quit after timeout (unsaved work may be lost)')}</label>}</>
           : <small>{preview.blockers.map(m).join(t('；', '; '))}{t('，这些项目本次不会执行；退出 Codex 后需重新清理。', '. These items will be skipped. Quit Codex and run cleanup again.')}</small>}</div>}

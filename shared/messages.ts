@@ -55,7 +55,7 @@ export type MessageKey =
   // Scan notes
   | 'scanNote.appServerUnavailable' | 'scanNote.noSessionTitles'
   // Cleanup preview warnings
-  | 'warning.permanent' | 'warning.sessionDelete' | 'warning.workspaceGit'
+  | 'warning.permanent' | 'warning.workspaceGit'
   // Codex runtime blockers
   | 'blocker.detectionFailed' | 'blocker.desktopRunning' | 'blocker.cliRunning'
   // Guard rejections
@@ -184,7 +184,6 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'scanNote.noSessionTitles': ['没有读到 Codex 的会话标题，列表改用会话首句或项目名显示。', 'No Codex session titles were found. The list falls back to the first message or the project name.'],
 
   'warning.permanent': ['清理的内容会被永久删除，无法恢复。', 'Everything cleaned is deleted permanently and cannot be recovered.'],
-  'warning.sessionDelete': ['会话文件、生成资产和 Codex 会话索引记录会一并清理。', 'Session files, generated assets, and Codex session index records are all removed together.'],
   'warning.workspaceGit': ['请确认未提交或未推送的内容已经保存。', 'Make sure anything uncommitted or unpushed has been saved.'],
 
   'blocker.detectionFailed': ['无法确认 Codex 是否正在运行', 'Cannot determine whether Codex is running'],
