@@ -3,10 +3,10 @@ import { join, basename, relative } from 'node:path'
 import { CodexLocations } from './locations'
 import { directoryAllocatedSize, fileAllocatedSize } from './fs-size'
 import { scanSessions } from './sessions'
-import { pluginStorageCategory, scanPluginVersions } from './plugins'
+import { pluginStorageCategories, scanPluginVersions } from './plugins'
 import { ProtectedPaths } from './guard'
 import type { InstalledPlugin } from './app-server'
-import type { ScanProgress, ScanSnapshot, SessionItem, StorageCategory, StorageEntry } from '../../shared/types'
+import { pluginStatusIsRemovable, type ScanProgress, type ScanSnapshot, type SessionItem, type StorageCategory, type StorageEntry } from '../../shared/types'
 import { SCAN_STOPPED, message, type Message, type MessageKey } from '../../shared/messages'
 
 const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
@@ -212,14 +212,18 @@ export async function scanSnapshot(
   await yieldToEventLoop()
 
   const pluginVersions = scanPluginVersions(locations.plugins, installedPlugins, (path) => progress('stage.plugins', path, 0.32))
-  const pluginCategory = pluginStorageCategory(pluginVersions)
-  if (pluginCategory.entries.length) categories.push(pluginCategory)
+  categories.push(...pluginStorageCategories(pluginVersions).filter((category) => category.entries.length))
   const pluginRuntimeEntries: StorageEntry[] = pluginVersions
-    .filter((plugin) => plugin.status === 'current' || plugin.status === 'unconfirmed')
+    .filter((plugin) => !pluginStatusIsRemovable(plugin.status))
     .map((plugin) => entry(`${plugin.plugin} · ${plugin.version}`,
-      plugin.status === 'current' ? 'note.currentPlugin' : 'note.unconfirmedPlugin',
+      plugin.status === 'builtin' ? 'note.builtinPlugin'
+        : plugin.status === 'current' ? 'note.currentPlugin' : 'note.unconfirmedPlugin',
       plugin.directoryURL, plugin.bytes, 'shielded', {
-        tags: [{ label: message(plugin.status === 'current' ? 'tag.current' : 'tag.unconfirmed'), tone: 'neutral' }]
+        tags: [{
+          label: message(plugin.status === 'builtin' ? 'tag.builtin'
+            : plugin.status === 'current' ? 'tag.current' : 'tag.unconfirmed'),
+          tone: plugin.status === 'builtin' ? 'info' : 'neutral'
+        }]
       }))
   if (entryExists(locations.pluginRuntime)) {
     pluginRuntimeEntries.push(entry('.plugin-appserver', 'note.pluginRuntime', locations.pluginRuntime,

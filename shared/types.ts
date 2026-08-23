@@ -20,6 +20,7 @@ export type StorageKind =
   | 'temporary'
   | 'marketplaceCache'
   | 'pluginRemnants'
+  | 'pluginOrphans'
   | 'pluginRuntime'
   | 'browserCache'
   | 'appCache'
@@ -39,6 +40,7 @@ export const StorageKindSection: Record<StorageKind, StorageSection> = {
   temporary: 'caches',
   marketplaceCache: 'caches',
   pluginRemnants: 'plugins',
+  pluginOrphans: 'plugins',
   pluginRuntime: 'plugins',
   browserCache: 'caches',
   appCache: 'caches',
@@ -151,7 +153,7 @@ export const sessionDisplayName = (s: SessionItem): string => {
   return s.threadID.slice(0, 12)
 }
 
-export type PluginStatus = 'current' | 'outdated' | 'orphaned' | 'unconfirmed'
+export type PluginStatus = 'builtin' | 'current' | 'outdated' | 'orphaned' | 'unconfirmed'
 
 export const pluginStatusIsRemovable = (status: PluginStatus): boolean =>
   status === 'outdated' || status === 'orphaned'
@@ -247,7 +249,7 @@ export const snapshotSessionBytes = (s: ScanSnapshot): number =>
   s.categories.filter((category) => category.kind === 'sessionDatabase').reduce((sum, category) => sum + categoryBytes(category), 0)
 
 export const snapshotPluginBytes = (s: ScanSnapshot): number =>
-  s.categories.filter((category) => category.kind === 'pluginRemnants' || category.kind === 'pluginRuntime')
+  s.categories.filter((category) => category.kind === 'pluginRemnants' || category.kind === 'pluginOrphans' || category.kind === 'pluginRuntime')
     .reduce((sum, category) => sum + categoryBytes(category), 0)
 
 export interface CleanupTask {

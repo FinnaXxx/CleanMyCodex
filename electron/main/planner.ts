@@ -33,8 +33,16 @@ export function buildTrustedTasks(
   const ids = safeIDs(selection.ids)
   switch (selection.kind) {
     case 'storage': {
-      const index = new Map(snapshot.categories.flatMap((category) => category.entries).map((entry) => [entry.id, entry]))
-      const entries = ids.map((id) => index.get(id)).filter((entry): entry is StorageEntry => !!entry && isSelectable(entry.risk))
+      const pluginDirectories = new Set(snapshot.pluginVersions
+        .filter((plugin) => pluginStatusIsRemovable(plugin.status))
+        .map((plugin) => plugin.directoryURL))
+      const index = new Map(snapshot.categories.flatMap((category) => category.entries.map((entry) => [entry.id, {
+        entry,
+        isPlugin: category.kind === 'pluginRemnants' || category.kind === 'pluginOrphans'
+      }] as const)))
+      const entries = ids.map((id) => index.get(id)).filter((item): item is { entry: StorageEntry; isPlugin: boolean } =>
+        !!item && isSelectable(item.entry.risk) && (!item.isPlugin || pluginDirectories.has(item.entry.url)))
+        .map((item) => item.entry)
       return tasksFromEntries(entries)
     }
     case 'sessions-delete': {

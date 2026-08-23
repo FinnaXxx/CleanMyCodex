@@ -11,7 +11,7 @@ import { AppServerClient } from './app-server'
 import { buildAutomaticTasks, buildTrustedTasks, makeCleanupPreview } from './planner'
 import { codexEnvironment, codexIsRunning, quitCodexDesktop, relaunchCodex } from './platform-services'
 import { deleteSessionRecords, preflightSessionRecords, sessionProtocolThreadIDs } from './session-database'
-import { scanPluginVersions } from './plugins'
+import { pluginStorageCategories, scanPluginVersions } from './plugins'
 import {
   appendAutomationLog,
   applyAutomationSettings,
@@ -23,6 +23,7 @@ import {
 } from './automation'
 import {
   formatBytes,
+  pluginStatusIsRemovable,
   reportFreedBytes,
   type AutomationSettings,
   type CleanupProgress,
@@ -175,14 +176,15 @@ ipcMain.handle('window:theme', (_event, dark: boolean) => {
   mainWindow?.setBackgroundColor(dark ? WindowBackdrop.dark : WindowBackdrop.light)
 })
 
-ipcMain.handle('cleanup:prepare', (_event, selection: CleanupSelection) => {
+ipcMain.handle('cleanup:prepare', async (_event, selection: CleanupSelection) => {
+  if (selectionTouchesPlugins(selection)) await refreshPluginsBeforeCleanup()
   const tasks = trustedTasks(selection)
   return makeCleanupPreview(selection, tasks, codexEnvironment())
 })
 
 ipcMain.handle('cleanup:run', async (_event, request: CleanupRequest) => {
   if (!request || typeof request !== 'object' || typeof request.restartCodex !== 'boolean' || typeof request.forceQuitCodex !== 'boolean') throw new MessageError(message('error.invalidRequest'))
-  if (request.selection.kind === 'plugins') await refreshPluginsBeforeCleanup()
+  if (selectionTouchesPlugins(request.selection)) await refreshPluginsBeforeCleanup()
   const tasks = trustedTasks(request.selection)
   let reopen: string[] = []
   if (request.restartCodex && tasks.some((task) => task.requiresCodexStopped)) {
@@ -205,11 +207,26 @@ ipcMain.handle('cleanup:run', async (_event, request: CleanupRequest) => {
 async function refreshPluginsBeforeCleanup(): Promise<void> {
   if (!latestSnapshot) throw new MessageError(message('error.scanFirst'))
   const installedPlugins = await appServer.installedPlugins()
+  const pluginVersions = scanPluginVersions(locations.plugins, installedPlugins)
   latestSnapshot = {
     ...latestSnapshot,
-    pluginVersions: scanPluginVersions(locations.plugins, installedPlugins)
+    categories: [
+      ...latestSnapshot.categories.filter((category) => category.kind !== 'pluginRemnants' && category.kind !== 'pluginOrphans'),
+      ...pluginStorageCategories(pluginVersions).filter((category) => category.entries.length)
+    ],
+    pluginVersions
   }
   guards = guardsFor(latestSnapshot)
+}
+
+function selectionTouchesPlugins(selection: CleanupSelection): boolean {
+  if (!selection || typeof selection !== 'object') return false
+  if (selection.kind === 'plugins') return true
+  if (selection.kind !== 'storage' || !Array.isArray(selection.ids) || !latestSnapshot) return false
+  const pluginIDs = new Set(latestSnapshot.categories
+    .filter((category) => category.kind === 'pluginRemnants' || category.kind === 'pluginOrphans')
+    .flatMap((category) => category.entries.map((entry) => entry.id)))
+  return selection.ids.some((id) => typeof id === 'string' && pluginIDs.has(id))
 }
 
 function trustedTasks(selection: CleanupSelection) {
@@ -240,7 +257,7 @@ function trustedDisplayPaths(): Set<string> {
 
 function guardsFor(snapshot: ScanSnapshot): ProtectedPaths {
   return new ProtectedPaths(locations, snapshot.pluginVersions
-    .filter((plugin) => plugin.status === 'current' || plugin.status === 'unconfirmed')
+    .filter((plugin) => !pluginStatusIsRemovable(plugin.status))
     .map((plugin) => plugin.directoryURL))
 }
 

@@ -19,6 +19,7 @@ import {
 import { message } from '../../shared/messages'
 import { FolderIcon } from '../icons'
 import { usePreferences } from '../preferences'
+import { storageDistribution, type StorageDistributionKind } from '../storage-distribution'
 
 interface Props {
   snapshot: ScanSnapshot
@@ -47,27 +48,25 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
   })).filter((group) => group.categories.length > 0), [snapshot])
 
   const distribution = useMemo(() => {
-    const grouped = sections.map(({ section, categories }) => ({
-      label: m(message(`section.${section}`)),
-      bytes: categories.reduce((sum, category) => sum + categoryBytes(category), 0)
-    })).filter((item) => item.bytes > 0).sort((a, b) => b.bytes - a.bytes)
-    const classified = grouped.reduce((sum, item) => sum + item.bytes, 0)
-    const remainder = Math.max(0, snapshot.totalCodexBytes - classified)
-    if (remainder) grouped.push({ label: t('会话与其他', 'Sessions & Other'), bytes: remainder })
-    const visible: Array<{ label: string; bytes: number; details?: string[] }> = grouped.slice(0, 3)
-    const remaining = grouped.slice(3)
-    const rest = remaining.reduce((sum, item) => sum + item.bytes, 0)
-    if (rest) visible.push({
-      label: t('其他', 'Other'),
-      bytes: rest,
-      details: remaining.map((item) => `${item.label} ${formatBytes(item.bytes)}`)
-    })
-    // Protected marketplace sources can live outside the Codex home, so the classified
-    // total can exceed it; scale to whichever is larger to keep the bar inside its track
-    // and the percentages consistent with the widths they label.
-    const total = Math.max(snapshot.totalCodexBytes, classified + rest, 1)
-    return visible.map((item) => ({ ...item, fraction: item.bytes / total }))
-  }, [m, sections, snapshot.totalCodexBytes, t])
+    const result = storageDistribution(snapshot)
+    const label = (kind: StorageDistributionKind): string => {
+      if (kind === 'workspace') return t('工作产出', 'Workspace Output')
+      if (kind === 'sessions') return t('会话记录', 'Sessions')
+      if (kind === 'other') return t('其他 Codex 数据', 'Other Codex Data')
+      return m(message(`section.${kind}`))
+    }
+    return {
+      total: result.total,
+      items: result.items.map((item) => ({
+        ...item,
+        label: label(item.kind),
+        fraction: item.bytes / Math.max(result.total, 1),
+        details: item.kind === 'other'
+          ? [t('未被扫描器归入缓存、日志、插件、会话或工作产出的 Codex 文件', 'Codex files not classified as caches, logs, plugins, sessions, or workspace output')]
+          : undefined
+      }))
+    }
+  }, [m, snapshot, t])
 
   const distributionPercent = useMemo(() => new Intl.NumberFormat(locale, {
     style: 'percent',
@@ -101,7 +100,7 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
           <div className="summary-metrics">
             <div className="metric">
               <span className="metric-label">{t('当前占用', 'Current usage')}</span>
-              <span className="metric-value">{formatBytes(snapshot.totalCodexBytes)}</span>
+              <span className="metric-value">{formatBytes(distribution.total)}</span>
               <span className="metric-note">{t('上次扫描 ', 'Scanned ')}{new Date(snapshot.scannedAt).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</span>
             </div>
             <div className="metric metric-reclaimable">
@@ -120,16 +119,16 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
         </div>
         <div className="summary-chart">
           <div className="distribution-bar" role="list" aria-label={t('空间占用分布', 'Storage distribution')}>
-            {distribution.map((item, index) => {
+            {distribution.items.map((item) => {
               const summary = `${formatBytes(item.bytes)} · ${distributionPercent.format(item.fraction)}`
               const description = [item.label, summary, ...(item.details ?? [])].join(t('；', '; '))
               return <span
                 key={item.label}
-                className={`distribution-segment distribution-tone-${index + 1}`}
+                className={`distribution-segment distribution-tone-${item.kind}`}
                 role="listitem"
                 tabIndex={0}
                 aria-label={description}
-                style={{ width: `${item.fraction * 100}%` }}
+                style={{ flexGrow: item.bytes }}
               >
                 <span className="distribution-tooltip" aria-hidden="true">
                   <strong>{item.label}</strong>
@@ -140,8 +139,8 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
             })}
           </div>
           <ul className="distribution-legend">
-            {distribution.map((item, index) => <li key={item.label}>
-              <span className={`legend-dot distribution-tone-${index + 1}`} aria-hidden="true" />
+            {distribution.items.map((item) => <li key={item.label} title={item.details?.join(' · ')}>
+              <span className={`legend-dot distribution-tone-${item.kind}`} aria-hidden="true" />
               <span className="legend-label">{item.label}</span>
               <b>{formatBytes(item.bytes)}</b>
               <span className="legend-percent">{distributionPercent.format(item.fraction)}</span>

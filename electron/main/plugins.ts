@@ -5,6 +5,8 @@ import { message } from '../../shared/messages'
 import type { InstalledPlugin } from './app-server'
 import { directoryAllocatedSize } from './fs-size'
 
+const OFFICIAL_BUILTIN_MARKETPLACES = new Set(['openai-bundled', 'openai-primary-runtime'])
+
 function versionDirectories(root: string, depth = 0): string[] {
   if (depth > 4 || !existsSync(root)) return []
   let children
@@ -26,16 +28,35 @@ function containsPath(parent: string, child: string): boolean {
   return rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..')
 }
 
-function statusFor(path: string, plugin: string, version: string, installed: InstalledPlugin[] | null): PluginStatus {
-  if (!installed) return 'unconfirmed'
-  if (installed.some((item) => item.directory && (containsPath(item.directory, path) || containsPath(path, item.directory)))) {
+function statusFor(path: string, marketplace: string | null, plugin: string, version: string, inventory: InstalledPlugin[] | null): PluginStatus {
+  if (marketplace && OFFICIAL_BUILTIN_MARKETPLACES.has(marketplace)) return 'builtin'
+  if (!inventory) return 'unconfirmed'
+
+  // A path match is authoritative, but an explicitly uninstalled catalog row is not.
+  if (inventory.some((item) => item.installed !== false && item.directory
+    && (containsPath(item.directory, path) || containsPath(path, item.directory)))) {
     return 'current'
   }
-  const known = installed.filter((item) => item.name === plugin)
-  if (!known.length) return 'orphaned'
-  if (known.some((item) => normalizedVersion(item.version) === normalizedVersion(version))) return 'current'
-  if (!known.some((item) => item.version?.length)) return 'unconfirmed'
-  return 'outdated'
+
+  // Plugin names are only unique within a marketplace. Legacy rows without a
+  // marketplace may prove an exact version current, but must never justify deletion.
+  const known = inventory.filter((item) => item.name === plugin && item.marketplace === marketplace)
+  const legacy = inventory.filter((item) => item.name === plugin && item.marketplace === null && item.installed !== false)
+  if (legacy.some((item) => normalizedVersion(item.version) === normalizedVersion(version))) return 'current'
+  if (!known.length && legacy.length) return 'unconfirmed'
+  const active = known.filter((item) => item.installed !== false)
+  if (active.some((item) => normalizedVersion(item.version) === normalizedVersion(version))) return 'current'
+  if (active.length) {
+    if (!active.some((item) => item.version?.length)) return 'unconfirmed'
+    return 'outdated'
+  }
+
+  // Only call something a leftover when plugin/list supplied authoritative negative
+  // evidence for this marketplace. Built-in runtime marketplaces are intentionally
+  // absent from plugin/list, so their on-disk bundles must stay locked.
+  if (known.some((item) => item.installed === false)) return 'orphaned'
+  if (marketplace && inventory.some((item) => item.marketplace === marketplace)) return 'orphaned'
+  return 'unconfirmed'
 }
 
 export function scanPluginVersions(
@@ -51,31 +72,28 @@ export function scanPluginVersions(
     const parts = resolve(path).split(sep).slice(rootParts.length)
     const plugin = manifest.name || basename(resolve(path, '..'))
     const version = manifest.version || basename(path)
+    const marketplace = (parts[0] === 'cache' ? parts[1] : parts[0]) || null
     let modifiedAt = 0
     try { modifiedAt = statSync(path).mtimeMs } catch { /* missing */ }
     return {
-      marketplace: (parts[0] === 'cache' ? parts[1] : parts[0]) || null,
+      marketplace,
       plugin,
       version,
       directoryURL: path,
       bytes: directoryAllocatedSize(path),
       environmentBytes: directoryAllocatedSize(join(path, '.venv')),
       modifiedAt,
-      status: statusFor(path, plugin, version, installed)
+      status: statusFor(path, marketplace, plugin, version, installed)
     }
   }).sort((a, b) => a.plugin.localeCompare(b.plugin) || a.version.localeCompare(b.version))
 }
 
-export function pluginStorageCategory(plugins: PluginVersionItem[]): StorageCategory {
-  return {
-    kind: 'pluginRemnants',
-    group: 'recommended',
-    risk: 'safe',
-    entries: plugins.filter((plugin) => plugin.status === 'outdated' || plugin.status === 'orphaned').map((plugin): StorageEntry => ({
+function pluginEntries(plugins: PluginVersionItem[], status: 'outdated' | 'orphaned', risk: 'safe' | 'caution'): StorageEntry[] {
+  return plugins.filter((plugin) => plugin.status === status).map((plugin): StorageEntry => ({
       id: `remove:${plugin.directoryURL}`,
       title: `${plugin.plugin} · ${plugin.version}`,
       note: null,
-      tags: [plugin.status === 'orphaned'
+      tags: [status === 'orphaned'
         ? { label: message('tag.orphaned'), tone: 'caution' as const }
         : { label: message('tag.outdated'), tone: 'neutral' as const }],
       url: plugin.directoryURL,
@@ -83,7 +101,23 @@ export function pluginStorageCategory(plugins: PluginVersionItem[]): StorageCate
       reclaimableBytes: plugin.bytes,
       minimumIdleSeconds: null,
       requiresCodexStopped: false,
-      risk: 'safe'
+      risk
     })).sort((a, b) => b.bytes - a.bytes)
-  }
+}
+
+export function pluginStorageCategories(plugins: PluginVersionItem[]): StorageCategory[] {
+  return [
+    {
+      kind: 'pluginRemnants',
+      group: 'recommended',
+      risk: 'safe',
+      entries: pluginEntries(plugins, 'outdated', 'safe')
+    },
+    {
+      kind: 'pluginOrphans',
+      group: 'review',
+      risk: 'caution',
+      entries: pluginEntries(plugins, 'orphaned', 'caution')
+    }
+  ]
 }

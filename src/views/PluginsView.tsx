@@ -40,7 +40,7 @@ export default function PluginsView({ snapshot, cleaning, actionsDisabled, clean
       <span className="view-toolbar-hint">{t(`${groups.length} 个插件 · ${snapshot.pluginVersions.length} 个版本`, `${groups.length} plugins · ${snapshot.pluginVersions.length} versions`)}</span>
       <button className="btn" disabled={!removable.length} onClick={() => setSelected(new Set(removable.map((item) => item.directoryURL)))}>{t('选择全部可清理版本', 'Select All Cleanable Versions')}</button>
     </section>
-    {snapshot.pluginVersions.some((item) => item.status === 'unconfirmed') && <p className="notice">{t('未连接 codex app server，无法确认当前版本，已全部锁定。', 'Codex app server is unavailable, so current versions cannot be verified and are locked.')}</p>}
+    {snapshot.pluginVersions.some((item) => item.status === 'unconfirmed') && <p className="notice">{t('Codex 未提供部分插件市场的权威状态；相关版本已锁定，不会参与清理。', 'Codex did not provide authoritative status for some plugin marketplaces. Those versions are locked and will not be cleaned.')}</p>}
     {!groups.length && <p className="empty-panel">{t('没有找到本地插件', 'No local plugins found')}</p>}
     <div className="card-stack">
       {groups.map(([name, versions]) => <section className="card" key={name}>

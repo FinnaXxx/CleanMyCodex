@@ -19,6 +19,7 @@ import {
 import { decodeMessage, message } from '../shared/messages'
 import type { Message } from '../shared/messages'
 import OverviewView from './views/OverviewView'
+import { storageDistribution } from './storage-distribution'
 import SessionsView from './views/SessionsView'
 import PluginsView from './views/PluginsView'
 import WorkspaceView from './views/WorkspaceView'
@@ -192,7 +193,7 @@ function Sidebar({ page, snapshot, workspace, onNavigate }: {
   const { t } = usePreferences()
   const sessionCount = listableSessions(snapshot).length
   const items: Array<{ page: Page; glyph: NavGlyphName; label: string; value: string }> = [
-    { page: 'overview', glyph: 'overview', label: t('总览', 'Overview'), value: formatBytes(snapshot.totalCodexBytes) },
+    { page: 'overview', glyph: 'overview', label: t('总览', 'Overview'), value: formatBytes(storageDistribution(workspace ? { ...snapshot, workspace } : snapshot).total) },
     { page: 'sessions', glyph: 'sessions', label: t('会话记录', 'Sessions'), value: sessionCount ? formatBytes(snapshotSessionBytes(snapshot)) : '—' },
     { page: 'workspace', glyph: 'workspace', label: t('工作产出', 'Workspace'), value: workspace?.isScanned ? formatBytes(workspaceBytes(workspace)) : '—' },
     { page: 'plugins', glyph: 'plugins', label: t('插件版本', 'Plugins'), value: formatBytes(snapshotPluginBytes(snapshot)) }
