@@ -194,6 +194,9 @@ export interface WorkspaceFolder {
   id: string
   path: string
   name: string
+  /** What this row's own deletion removes, and nothing else: everything below a session
+   *  output, or only the loose files of a date folder that is listed beside its outputs.
+   *  Children carry their own bytes, so a total has to add them up. */
   bytes: number
   fileCount: number
   modifiedAt: number
@@ -201,6 +204,9 @@ export interface WorkspaceFolder {
   /** Threads whose SQLite cwd points at exactly this output directory or below it —
    *  never inherited from a child, so a date folder is not labelled with a child's thread. */
   sourceThreads: WorkspaceThreadReference[]
+  /** Files sitting directly in this folder rather than inside one of its outputs. Only
+   *  consulted for a folder that has children, whose row stands for these files alone. */
+  looseFiles: string[]
   children: WorkspaceFolder[]
 }
 
@@ -210,15 +216,24 @@ export interface WorkspaceSnapshot {
   entries: WorkspaceFolder[]
 }
 
-export const workspaceFolderFileCount = (entry: WorkspaceFolder): number =>
-  entry.fileCount + entry.children.reduce((sum, child) => sum + workspaceFolderFileCount(child), 0)
+/**
+ * The paths a row's checkbox actually removes. A date folder that also holds outputs
+ * gives up only the files lying loose in it, so ticking it never takes the outputs
+ * listed beside it; everything else is removed whole, directory and all.
+ */
+export const workspaceDeletionTargets = (entry: WorkspaceFolder): string[] =>
+  entry.children.length ? entry.looseFiles : [entry.path]
 
+/** Only this row's own repositories: a date row deletes loose files, never a repository
+ *  in an output below it. */
 export const workspaceFolderIsUnsafe = (entry: WorkspaceFolder): boolean =>
-  entry.repositories.some((repository) => !repositoryStateIsSafe(repository.state)) ||
-  entry.children.some(workspaceFolderIsUnsafe)
+  entry.repositories.some((repository) => !repositoryStateIsSafe(repository.state))
+
+const workspaceFolderTotalBytes = (entry: WorkspaceFolder): number =>
+  entry.bytes + entry.children.reduce((sum, child) => sum + workspaceFolderTotalBytes(child), 0)
 
 export const workspaceBytes = (snapshot: WorkspaceSnapshot): number =>
-  snapshot.entries.reduce((sum, entry) => sum + entry.bytes, 0)
+  snapshot.entries.reduce((sum, entry) => sum + workspaceFolderTotalBytes(entry), 0)
 
 export interface ScanProgress {
   stage: Message | null
@@ -336,17 +351,20 @@ export function tasksForSessionDeletion(sessions: SessionItem[]): CleanupTask[] 
 }
 
 export function tasksForWorkspace(entries: WorkspaceFolder[]): CleanupTask[] {
-  return entries.map((entry) => ({
-    id: `workspace:${entry.id}`,
-    title: entry.name,
-    detail: entry.path,
-    url: entry.path,
-    expectedBytes: entry.bytes,
-    threadID: null,
-    companionURLs: [],
-    minimumIdleSeconds: null,
-    requiresCodexStopped: false
-  }))
+  return entries
+    .map((entry) => ({ entry, targets: workspaceDeletionTargets(entry) }))
+    .filter((item) => item.targets.length > 0)
+    .map(({ entry, targets }) => ({
+      id: `workspace:${entry.id}`,
+      title: entry.name,
+      detail: entry.path,
+      url: targets[0],
+      expectedBytes: entry.bytes,
+      threadID: null,
+      companionURLs: targets.slice(1),
+      minimumIdleSeconds: null,
+      requiresCodexStopped: false
+    }))
 }
 
 export type CleanupStatus =

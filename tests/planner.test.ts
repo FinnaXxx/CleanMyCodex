@@ -17,7 +17,7 @@ function session(id: string, overrides: Partial<SessionItem> = {}): SessionItem 
 }
 
 function folder(path: string, children: WorkspaceFolder[] = []): WorkspaceFolder {
-  return { id: path, path, name: path.split('/').at(-1) ?? path, bytes: 100, fileCount: 1, modifiedAt: 0, repositories: [], sourceThreads: [], children }
+  return { id: path, path, name: path.split('/').at(-1) ?? path, bytes: 100, fileCount: 1, modifiedAt: 0, repositories: [], sourceThreads: [], looseFiles: [`${path}/loose.txt`], children }
 }
 
 function snapshot(): ScanSnapshot {
@@ -105,13 +105,25 @@ describe('trusted cleanup planner', () => {
     expect(snapshotSessionBytes(snap)).toBe(100 + 75 + 40)
   })
 
-  it('collapses nested workspace choices to their outermost selected directory', () => {
+  it('deletes only the loose files of a date folder that also holds outputs', () => {
     const snap = snapshot()
     const child = folder('/docs/Codex/day/task')
     const parent = folder('/docs/Codex/day', [child])
     const workspace = { root: '/docs/Codex', isScanned: true, entries: [parent] }
     const tasks = buildTrustedTasks({ kind: 'workspace', ids: [parent.id, child.id] }, snap, workspace)
-    expect(tasks.map((task) => task.url)).toEqual([parent.path])
+    // Picking the date row must not swallow the output listed beside it, so both
+    // choices survive: the loose file for one, the whole output directory for the other.
+    expect(tasks.map((task) => task.url)).toEqual(['/docs/Codex/day/loose.txt', child.path])
+    expect(tasks.flatMap((task) => task.companionURLs)).toEqual([])
+  })
+
+  it('collapses a workspace choice that sits inside another selected output', () => {
+    const snap = snapshot()
+    const nested = folder('/docs/Codex/day/task/inner')
+    const output = folder('/docs/Codex/day/task')
+    const workspace = { root: '/docs/Codex', isScanned: true, entries: [folder('/docs/Codex/day', [output, nested])] }
+    const tasks = buildTrustedTasks({ kind: 'workspace', ids: [output.id, nested.id] }, snap, workspace)
+    expect(tasks.map((task) => task.url)).toEqual([output.path])
   })
 
   it('explains direct session deletion and exclusive-access blockers in the preview', () => {
