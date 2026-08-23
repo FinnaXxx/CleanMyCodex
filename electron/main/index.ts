@@ -208,7 +208,7 @@ ipcMain.handle('sessions:repairLeftovers', () => {
 ipcMain.handle('cleanup:prepare', async (_event, selection: CleanupSelection) => {
   if (selectionTouchesPlugins(selection)) await refreshPluginsBeforeCleanup()
   const tasks = trustedTasks(selection)
-  return makeCleanupPreview(selection, tasks, codexEnvironment())
+  return makeCleanupPreview(selection, tasks, codexEnvironment(), latestSnapshot)
 })
 
 ipcMain.handle('cleanup:run', async (_event, request: CleanupRequest) => {

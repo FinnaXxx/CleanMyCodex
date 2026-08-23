@@ -83,7 +83,8 @@ export function buildTrustedTasks(
 export function makeCleanupPreview(
   selection: CleanupSelection,
   tasks: CleanupTask[],
-  environment: CodexEnvironment
+  environment: CodexEnvironment,
+  snapshot: ScanSnapshot | null = null
 ): CleanupPreview {
   const blocked = environment.running
     ? tasks.filter((task) => task.requiresCodexStopped)
@@ -91,6 +92,10 @@ export function makeCleanupPreview(
   // Deletion is permanent for every selection, so the preview always says so first.
   const warnings: Message[] = [message('warning.permanent')]
   if (selection.kind === 'workspace') warnings.push(message('warning.workspaceGit'))
+  // Pinning only holds off the scheduled run. Deleting one by hand is allowed, but the
+  // confirmation says so rather than letting a pin quietly disappear.
+  const pinned = pinnedSelection(selection, tasks, snapshot)
+  if (pinned) warnings.push(message('warning.pinnedSessions', { count: pinned }))
   return {
     selection,
     items: tasks.map((task) => ({
@@ -132,6 +137,12 @@ export function buildAutomaticTasks(
     ...tasksFromEntries(entries.filter((entry) => isSelectable(entry.risk))),
     ...tasksForSessionDeletion(sessions)
   ]
+}
+
+function pinnedSelection(selection: CleanupSelection, tasks: CleanupTask[], snapshot: ScanSnapshot | null): number {
+  if (selection.kind !== 'sessions-delete' || !snapshot) return 0
+  const selected = new Set(tasks.map((task) => task.id))
+  return snapshot.sessions.filter((session) => session.isPinned && selected.has(session.id)).length
 }
 
 function safeIDs(value: unknown): string[] {

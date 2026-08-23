@@ -644,6 +644,7 @@ label.entry-label { cursor: pointer; }
 .tag { padding: 1px 6px; border-radius: 5px; background: var(--line-soft); color: var(--text-secondary); font-size: 10px; }
 .tag-browser { background: var(--accent-soft); color: var(--accent); }
 .tag-computerUse { background: var(--violet-soft); color: var(--violet); }
+.tag-pinned { background: var(--caution-soft); color: var(--caution); }
 .pill.loc-active { background: var(--accent-soft); color: var(--accent); }
 .pill.loc-archived { background: var(--line-soft); color: var(--text-tertiary); }
 .col-num { text-align: right; color: var(--text-secondary); font-variant-numeric: tabular-nums; }

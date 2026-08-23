@@ -124,6 +124,8 @@ export interface SessionItem {
   parseWarnings: number
   /** Pinned, queued, or unfinished-goal conversations are never removed automatically. */
   blocksAutomaticCleanup: boolean
+  /** Pinned in the desktop. Shown in the list; manual deletion still goes ahead. */
+  isPinned: boolean
   /** Subagent rollouts are spawned by a parent thread; hidden from the session list and rolled into the parent. */
   isSubagent: boolean
   /** The parent thread a subagent was spawned from; null for user conversations. */

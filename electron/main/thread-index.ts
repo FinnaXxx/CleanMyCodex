@@ -17,6 +17,7 @@ export class CodexThreadIndex {
   private readonly byRollout = new Map<string, string>()
   private readonly workspaceRows: CodexWorkspaceThread[] = []
   private readonly cleanupBlockers = new Set<string>()
+  private readonly pinned = new Set<string>()
 
   get size(): number { return Math.max(this.byID.size, this.byRollout.size, this.workspaceRows.length) }
 
@@ -34,24 +35,29 @@ export class CodexThreadIndex {
 
   cleanupBlocked(threadID: string): boolean { return this.cleanupBlockers.has(threadID) }
 
+  isPinned(threadID: string): boolean { return this.pinned.has(threadID) }
+
   static load(codexHome: string): CodexThreadIndex {
     const generatedNames = readSessionNames(codexHome)
     for (const path of stateDatabases(codexHome).slice(0, 3)) {
       const direct = readIndex(path, true)
       if (direct && direct.size) {
         direct.applyGeneratedNames(generatedNames)
+        direct.applyPinned(readPinnedThreadIDs(codexHome))
         direct.applyCleanupBlockers(readAuxiliaryCleanupBlockers(codexHome))
         return direct
       }
       const copied = readCopiedIndex(path)
       if (copied && copied.size) {
         copied.applyGeneratedNames(generatedNames)
+        copied.applyPinned(readPinnedThreadIDs(codexHome))
         copied.applyCleanupBlockers(readAuxiliaryCleanupBlockers(codexHome))
         return copied
       }
     }
     const index = new CodexThreadIndex()
     index.applyGeneratedNames(generatedNames)
+    index.applyPinned(readPinnedThreadIDs(codexHome))
     index.applyCleanupBlockers(readAuxiliaryCleanupBlockers(codexHome))
     return index
   }
@@ -67,6 +73,12 @@ export class CodexThreadIndex {
 
   blockCleanup(threadID: string): void { this.cleanupBlockers.add(threadID) }
 
+  /** Pinning is both a reason to skip automatic cleanup and something the list shows. */
+  markPinned(threadID: string): void {
+    this.pinned.add(threadID)
+    this.cleanupBlockers.add(threadID)
+  }
+
   private applyGeneratedNames(names: Map<string, string>): void {
     for (const [id, title] of names) this.byID.set(id, title)
     for (const thread of this.workspaceRows) thread.title = names.get(thread.id) ?? thread.title
@@ -74,6 +86,10 @@ export class CodexThreadIndex {
 
   private applyCleanupBlockers(ids: Set<string>): void {
     for (const id of ids) this.cleanupBlockers.add(id)
+  }
+
+  private applyPinned(ids: Set<string>): void {
+    for (const id of ids) this.markPinned(id)
   }
 }
 
@@ -104,7 +120,7 @@ function collectThreadIDs(value: unknown, into: Set<string>): void {
 }
 
 function readAuxiliaryCleanupBlockers(home: string): Set<string> {
-  const result = readPinnedThreadIDs(home)
+  const result = new Set<string>()
   const queries: Array<[string, string]> = [
     ['goals_', "SELECT thread_id FROM thread_goals WHERE status <> 'complete'"],
     ['queue_', 'SELECT DISTINCT thread_id FROM queued_items']
@@ -193,7 +209,7 @@ function readIndex(path: string, readonly: boolean): CodexThreadIndex | null {
         cleanPreview(table.preview ? row[table.preview] : null) ??
         cleanPreview(table.firstUserMessage ? row[table.firstUserMessage] : null)
       if (title) index.add(id, stringValue(table.rollout ? row[table.rollout] : null), title)
-      if (id && booleanValue(rowValue(table.pinned, row))) index.blockCleanup(id)
+      if (id && booleanValue(rowValue(table.pinned, row))) index.markPinned(id)
       const cwd = stringValue(table.cwd ? row[table.cwd] : null)
       if (id && cwd) {
         const threadSource = stringValue(table.threadSource ? row[table.threadSource] : null)

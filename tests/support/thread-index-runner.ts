@@ -73,6 +73,9 @@ app.whenReady().then(async () => {
     if (!desktop.blocksAutomaticCleanup) throw new Error('置顶会话没有阻止自动清理')
     const pinnedDesktopOnly = sessions.find((session) => session.threadID === pinnedOnlyInState)
     if (!pinnedDesktopOnly?.blocksAutomaticCleanup) throw new Error('桌面端状态文件里的置顶没有阻止自动清理')
+    if (!pinnedDesktopOnly.isPinned || !desktop.isPinned) throw new Error('置顶状态没有传给界面')
+    // An unfinished goal blocks the scheduled run without making the conversation pinned.
+    if (named.isPinned) throw new Error('未完成 goal 被误标成置顶')
     const workspaceThreads = CodexThreadIndex.load(locations.home).workspaceThreads(locations.workspace)
     if (workspaceThreads[0]?.title !== '检查Electron重构功能交互对齐' || !workspaceThreads[0]?.archived) throw new Error('工作产出关联索引未生效')
     console.log('THREAD_INDEX_OK')
