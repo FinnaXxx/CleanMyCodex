@@ -1,14 +1,16 @@
 import { app } from 'electron'
 import Database from 'better-sqlite3'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   deleteOrphanSessionRecords,
   deleteSessionRecords,
+  findOrphanDesktopRecords,
   findOrphanSessionRecords,
   sessionProtocolThreadIDs
 } from '../../electron/main/session-database'
+import { deleteDesktopThreadRows, pruneDesktopState } from '../../electron/main/desktop-store'
 
 const roots: string[] = []
 
@@ -188,12 +190,120 @@ function unfamiliarPathsAreLeftAlone(): void {
   assert(findOrphanSessionRecords(root).length === 0, '无法解释的 rollout 路径被误判为残留')
 }
 
+
+/**
+ * The desktop keeps its own conversation list in ~/.codex/sqlite. Deleting a session has
+ * to clear it, without touching rows that merely have an `id` column.
+ */
+function desktopStoreSweep(): void {
+  const root = newRoot()
+  const doomed = '01a02dc9-083a-7150-aaf6-90183e827e35'
+  const kept = '01a02dc9-1111-7000-8000-000000000001'
+  mkdirSync(join(root, 'sqlite'), { recursive: true })
+  const desktop = new Database(join(root, 'sqlite', 'codex-dev.db'))
+  desktop.exec(`
+    CREATE TABLE local_thread_catalog (host TEXT, thread_id TEXT, title TEXT, created_at REAL, updated_at REAL);
+    CREATE TABLE thread_timeline_ledger (thread_id TEXT, position INTEGER);
+    CREATE TABLE automations (id TEXT, name TEXT);
+    INSERT INTO local_thread_catalog VALUES ('local', '${doomed}', 'Respond to greeting', 1787474544.0, 1787474551.0);
+    INSERT INTO local_thread_catalog VALUES ('local', '${kept}', 'Kept', 1787474544.0, 1787474551.0);
+    INSERT INTO thread_timeline_ledger VALUES ('${doomed}', 1), ('${kept}', 1);
+    INSERT INTO automations VALUES ('${doomed}', 'an automation that merely shares an id');
+  `)
+  desktop.close()
+  const summaries = new Database(join(root, 'sqlite', 'codex-thread-summaries-dev.db'))
+  summaries.exec(`
+    CREATE TABLE thread_summaries (id TEXT PRIMARY KEY, summary TEXT);
+    INSERT INTO thread_summaries VALUES ('${doomed}', 'summary'), ('${kept}', 'summary');
+  `)
+  summaries.close()
+
+  const report = deleteDesktopThreadRows(root, [doomed])
+  assert(report.removedRows === 3, `桌面记录删除行数错误：${report.removedRows} (${report.locations.join(' ')})`)
+  const verify = new Database(join(root, 'sqlite', 'codex-dev.db'), { readonly: true })
+  const catalog = verify.prepare('SELECT thread_id FROM local_thread_catalog').pluck().all()
+  const automations = verify.prepare('SELECT id FROM automations').pluck().all()
+  verify.close()
+  assert(catalog.length === 1 && catalog[0] === kept, `桌面会话列表没有清理：${catalog.join(',')}`)
+  assert(automations.length === 1, '与会话无关的表被误删')
+  const verifySummaries = new Database(join(root, 'sqlite', 'codex-thread-summaries-dev.db'), { readonly: true })
+  const remaining = verifySummaries.prepare('SELECT id FROM thread_summaries').pluck().all()
+  verifySummaries.close()
+  assert(remaining.length === 1 && remaining[0] === kept, `会话摘要没有清理：${remaining.join(',')}`)
+}
+
+/** The desktop's persisted state, where threads appear as map keys, list items and fields. */
+function desktopStatePrune(): void {
+  const root = newRoot()
+  const doomed = '01a02dc9-083a-7150-aaf6-90183e827e35'
+  const kept = '01a02dc9-1111-7000-8000-000000000001'
+  const state = {
+    'electron-main-window-bounds': { width: 1180, height: 800 },
+    'pinned-thread-ids': [doomed, kept],
+    'thread-project-assignments': {
+      [doomed]: { projectKind: 'local', projectId: 'local-a' },
+      [kept]: { projectKind: 'local', projectId: 'local-b' }
+    },
+    'queued-follow-ups': [{ threadId: doomed, text: 'go on' }, { threadId: kept, text: 'stay' }],
+    'electron-persisted-atom-state': { 'composer-draft': { [doomed]: 'untouched interface state' } }
+  }
+  writeFileSync(join(root, '.codex-global-state.json'), JSON.stringify(state))
+  writeFileSync(join(root, '.codex-global-state.json.bak'), JSON.stringify(state))
+  const backups = join(root, 'backups')
+
+  const report = pruneDesktopState(root, [doomed], backups)
+  assert(report.removed === 6, `桌面状态清理条数错误：${report.removed} (${report.files.join(' ')})`)
+  const written = JSON.parse(readFileSync(join(root, '.codex-global-state.json'), 'utf8')) as Record<string, any>
+  assert(written['pinned-thread-ids'].join(',') === kept, '置顶会话没有清理')
+  assert(!(doomed in written['thread-project-assignments']) && kept in written['thread-project-assignments'], '会话项目归属没有清理')
+  assert(written['queued-follow-ups'].length === 1 && written['queued-follow-ups'][0].threadId === kept, '排队任务没有清理')
+  assert(written['electron-main-window-bounds'].width === 1180, '无关状态被改写')
+  assert(doomed in written['electron-persisted-atom-state']['composer-draft'], '界面状态不应改动')
+  const backedUp = JSON.parse(readFileSync(join(root, '.codex-global-state.json.bak'), 'utf8')) as Record<string, any>
+  assert(backedUp['pinned-thread-ids'].join(',') === kept, '备份状态没有一起清理')
+  assert(readdirSync(backups).length === 2, `没有留下改写前的副本：${readdirSync(backups).join(',')}`)
+}
+
+/** A desktop list entry Codex no longer knows about is what survives thread/delete. */
+function desktopLeftovers(): void {
+  const root = newRoot()
+  const liveID = '01a02dc9-2222-7000-8000-000000000002'
+  const ghostID = '01a02dc9-083a-7150-aaf6-90183e827e35'
+  const remoteID = '01a02dc9-3333-7000-8000-000000000003'
+  writeRollout(rolloutPath(root, liveID))
+  mkdirSync(join(root, 'sqlite'), { recursive: true })
+  const desktop = new Database(join(root, 'sqlite', 'codex-dev.db'))
+  desktop.exec(`
+    CREATE TABLE local_thread_catalog (host TEXT, thread_id TEXT, title TEXT, updated_at REAL);
+    INSERT INTO local_thread_catalog VALUES
+      ('local', '${liveID}', 'Live', 1787000000.0),
+      ('local', '${ghostID}', 'Respond to greeting', ${Math.floor(Date.now() / 1000)}.0),
+      ('remote-1', '${remoteID}', 'On another host', 1787000000.0);
+  `)
+  desktop.close()
+
+  const orphans = findOrphanDesktopRecords(root)
+  assert(orphans.length === 1 && orphans[0].threadID === ghostID,
+    `桌面残留识别错误：${orphans.map((orphan) => `${orphan.threadID}:${orphan.title}`).join(',')}`)
+
+  const repaired = deleteOrphanSessionRecords(root, join(root, 'backups'))
+  assert(repaired.threadIDs.includes(ghostID), `桌面残留没有进入清理集合：${repaired.threadIDs.join(',')}`)
+  const verify = new Database(join(root, 'sqlite', 'codex-dev.db'), { readonly: true })
+  const remaining = (verify.prepare('SELECT thread_id FROM local_thread_catalog').pluck().all() as string[]).sort()
+  verify.close()
+  assert(remaining.join(',') === [liveID, remoteID].sort().join(','), `桌面残留清理错误：${remaining.join(',')}`)
+  assert(findOrphanDesktopRecords(root).length === 0, '桌面残留清理后仍有残留')
+}
+
 app.whenReady().then(() => {
   try {
     threadClosure()
     desktopThreadRow()
     leftoverRepair()
     unfamiliarPathsAreLeftAlone()
+    desktopStoreSweep()
+    desktopStatePrune()
+    desktopLeftovers()
     console.log('SQLITE_INTEGRATION_OK')
     app.exit(0)
   } catch (error) {

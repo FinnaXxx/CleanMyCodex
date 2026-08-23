@@ -4,6 +4,14 @@ import { basename, isAbsolute, join, normalize, resolve } from 'node:path'
 import Database from 'better-sqlite3'
 import { fileAllocatedSize } from './fs-size'
 import { MessageError, message } from '../../shared/messages'
+import {
+  deleteDesktopThreadRows,
+  desktopThreadRows,
+  pruneDesktopState,
+  type DesktopThreadRow,
+  type DesktopSweepReport,
+  type StatePruneReport
+} from './desktop-store'
 
 export interface SessionDatabaseReport {
   removedRows: number
@@ -291,12 +299,22 @@ export function preflightSessionRecords(home: string, threadID: string, relatedU
 }
 
 /** Remove a thread and its spawned descendants from both Codex session databases. */
-export function deleteSessionRecords(home: string, threadID: string, relatedURLs: string[] = []): SessionDatabaseReport {
+export function deleteSessionRecords(
+  home: string,
+  threadID: string,
+  relatedURLs: string[] = [],
+  backupDirectory: string | null = null
+): SessionDatabaseReport {
   const statePath = latestDatabase(home, 'state_')
-  return removeThreadRecords(home, sessionThreadIDs(statePath, home, threadID, relatedURLs), relatedURLs)
+  return removeThreadRecords(home, sessionThreadIDs(statePath, home, threadID, relatedURLs), relatedURLs, backupDirectory)
 }
 
-function removeThreadRecords(home: string, threadIDs: string[], rolloutPaths: string[]): SessionDatabaseReport {
+function removeThreadRecords(
+  home: string,
+  threadIDs: string[],
+  rolloutPaths: string[],
+  backupDirectory: string | null
+): SessionDatabaseReport {
   const statePath = latestDatabase(home, 'state_')
   const historyPath = latestDatabase(home, 'thread_history_')
   const before = footprint(statePath) + footprint(historyPath)
@@ -313,8 +331,24 @@ function removeThreadRecords(home: string, threadIDs: string[], rolloutPaths: st
     return changed
   })
   removedRows += deleteSessionIndexRows(home, threadIDs)
+  // The desktop keeps its own conversation list, which the app server's thread/delete
+  // does not touch. Without this the thread stays in the sidebar and fails to open.
+  const desktop = deleteDesktopThreadRows(home, threadIDs)
+  const state = pruneDesktopState(home, threadIDs, backupDirectory)
+  removedRows += desktop.removedRows + state.removed
+  lastDesktopSweep = { desktop, state }
   const after = footprint(statePath) + footprint(historyPath)
   return { removedRows, freedBytes: Math.max(0, before - after) }
+}
+
+let lastDesktopSweep: { desktop: DesktopSweepReport; state: StatePruneReport } | null = null
+
+/** What the most recent deletion removed from the desktop's stores, for the cleanup log. */
+export function describeDesktopSweep(): string {
+  if (!lastDesktopSweep) return 'desktop untouched'
+  const { desktop, state } = lastDesktopSweep
+  const places = [...desktop.locations, ...state.files]
+  return places.length ? `desktop ${places.join(' ')}` : 'desktop clean'
 }
 
 function rolloutExists(path: string): boolean {
@@ -332,6 +366,75 @@ function containsRollout(directory: string, depth = 4): boolean {
     if (item.isDirectory() && depth > 0 && containsRollout(join(directory, item.name), depth - 1)) return true
   }
   return false
+}
+
+/** Every thread id that still has a rollout file, under either session directory. */
+function rolloutThreadIDs(home: string): Set<string> {
+  const result = new Set<string>()
+  const visit = (directory: string, depth: number): void => {
+    let entries
+    try { entries = readdirSync(directory, { withFileTypes: true }) } catch { return }
+    for (const item of entries) {
+      if (item.isDirectory()) { if (depth > 0) visit(join(directory, item.name), depth - 1); continue }
+      if (!item.isFile() || !ROLLOUT_NAME_RE.test(item.name)) continue
+      for (const match of item.name.matchAll(UUID_RE)) result.add(match[0])
+    }
+  }
+  visit(join(home, 'sessions'), 6)
+  visit(join(home, 'archived_sessions'), 6)
+  return result
+}
+
+function tableThreadIDs(db: Database.Database, table: string, column: string, into: Set<string>): void {
+  if (!hasTable(db, table)) return
+  for (const id of db.prepare(`SELECT DISTINCT ${quote(column)} FROM ${quote(table)} LIMIT 200000`).pluck().all() as unknown[]) {
+    if (typeof id === 'string' && id.length) into.add(id)
+  }
+}
+
+/**
+ * Every thread Codex itself still knows about: a rollout on disk, a row in the state
+ * database, or projected history. A desktop list entry naming none of these is a
+ * conversation that no longer exists anywhere but in that list.
+ */
+export function knownThreadIDs(home: string): Set<string> {
+  const result = rolloutThreadIDs(home)
+  const state = openReadonly(latestDatabase(home, 'state_'))
+  if (state) {
+    try { tableThreadIDs(state, 'threads', 'id', result) } catch { /* unknown schema */ } finally { state.close() }
+  }
+  const history = openReadonly(latestDatabase(home, 'thread_history_'))
+  if (history) {
+    try {
+      for (const table of ['thread_items', 'thread_turns', 'thread_history_projection_state']) {
+        tableThreadIDs(history, table, 'thread_id', result)
+      }
+    } catch { /* unknown schema */ } finally { history.close() }
+  }
+  return result
+}
+
+/**
+ * Entries in the desktop's own conversation list that Codex no longer knows about. This
+ * is what survives a successful `thread/delete`: the protocol clears the core stores,
+ * the desktop list keeps its row, and opening it fails with "no rollout found".
+ *
+ * Unlike a state row, which can legitimately exist before its rollout is written, a
+ * desktop entry has to be unknown to all three core stores at once — no rollout, no
+ * state row, no projected history — and removing them only ever runs with Codex stopped,
+ * so nothing in flight is caught by it and no grace period is needed.
+ *
+ * Remote conversations are never candidates: their data lives on their host, so having
+ * nothing locally is their normal state. And if not a single listed thread is one Codex
+ * knows, the two sides are not keyed the way this code assumes, and it reports nothing
+ * rather than proposing to delete the list.
+ */
+export function findOrphanDesktopRecords(home: string): DesktopThreadRow[] {
+  const rows = desktopThreadRows(home).filter((row) => !row.host || row.host.toLowerCase() === 'local')
+  if (!rows.length) return []
+  const known = knownThreadIDs(home)
+  if (known.size && !rows.some((row) => known.has(row.threadID))) return []
+  return rows.filter((row) => !known.has(row.threadID))
 }
 
 /**
@@ -360,10 +463,25 @@ export function findOrphanSessionRecords(home: string, now = Date.now()): Orphan
   } catch { return [] } finally { db.close() }
 }
 
+/** Every leftover this app can find: an unresolvable state row or a stale desktop entry. */
+export function countOrphanRecords(home: string): number {
+  return findOrphanSessionRecords(home).length + findOrphanDesktopRecords(home).length
+}
+
 /** Remove those leftovers, together with anything they spawned and their projected rows. */
-export function deleteOrphanSessionRecords(home: string): SessionDatabaseReport & { threadIDs: string[] } {
+export function deleteOrphanSessionRecords(
+  home: string,
+  backupDirectory: string | null = null
+): SessionDatabaseReport & { threadIDs: string[] } {
   const orphans = findOrphanSessionRecords(home)
-  if (!orphans.length) return { threadIDs: [], removedRows: 0, freedBytes: 0 }
-  const threadIDs = expandDescendants(latestDatabase(home, 'state_'), orphans.map((orphan) => orphan.threadID))
-  return { threadIDs, ...removeThreadRecords(home, threadIDs, orphans.map((orphan) => orphan.rolloutPath)) }
+  const desktopOrphans = findOrphanDesktopRecords(home)
+  if (!orphans.length && !desktopOrphans.length) return { threadIDs: [], removedRows: 0, freedBytes: 0 }
+  const threadIDs = expandDescendants(latestDatabase(home, 'state_'), [
+    ...orphans.map((orphan) => orphan.threadID),
+    ...desktopOrphans.map((orphan) => orphan.threadID)
+  ])
+  return {
+    threadIDs,
+    ...removeThreadRecords(home, threadIDs, orphans.map((orphan) => orphan.rolloutPath), backupDirectory)
+  }
 }
