@@ -815,6 +815,25 @@ label.entry-label { cursor: pointer; }
   line-height: 1.9;
 }
 .empty-inline { padding: 40px 20px; margin: 0; text-align: center; color: var(--text-tertiary); }
+.nothing-found {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 64px 32px 56px;
+  text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+.nothing-found-glyph { display: grid; place-items: center; width: 68px; height: 68px; margin-bottom: 6px; border-radius: 50%; background: var(--surface-sunken); color: var(--text-tertiary); }
+.nothing-found-glyph svg { width: 34px; height: 34px; }
+.nothing-found h2 { margin: 0; font-size: 17px; }
+.nothing-found p { max-width: 460px; margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.7; }
+.nothing-found-path code { padding: 3px 9px; border-radius: 7px; background: var(--surface-sunken); color: var(--text-secondary); font-size: 12px; }
+.nothing-found-hint { color: var(--text-tertiary) !important; font-size: 12px !important; }
+.nothing-found .btn { margin-top: 12px; }
 
 /* --- first-run scan --- */
 .initial-scan {

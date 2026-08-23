@@ -296,6 +296,7 @@ export async function scanSnapshot(
 
   return {
     codexHome: locations.home,
+    codexHomeExists: entryExists(locations.home),
     scannedAt: Date.now(),
     totalCodexBytes,
     externalBytes,

@@ -22,7 +22,7 @@ function folder(path: string, children: WorkspaceFolder[] = []): WorkspaceFolder
 
 function snapshot(): ScanSnapshot {
   return {
-    codexHome: '/codex', scannedAt: 1, totalCodexBytes: 1000, externalBytes: 0,
+    codexHome: '/codex', codexHomeExists: true, scannedAt: 1, totalCodexBytes: 1000, externalBytes: 0,
     categories: [
       { kind: 'temporary', group: 'recommended', risk: 'safe', entries: [storage('safe')] },
       { kind: 'appCache', group: 'recommended', risk: 'rebuildable', entries: [storage('app-cache', 'rebuildable')] },

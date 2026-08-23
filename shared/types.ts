@@ -243,6 +243,8 @@ export interface ScanProgress {
 
 export interface ScanSnapshot {
   codexHome: string
+  /** False when Codex has never run on this machine, or keeps its home somewhere else. */
+  codexHomeExists: boolean
   scannedAt: number // epoch ms
   totalCodexBytes: number
   externalBytes: number
@@ -252,6 +254,11 @@ export interface ScanSnapshot {
   pluginVersions: PluginVersionItem[]
   notes: Message[]
 }
+
+/** Nothing of Codex' was found anywhere the scan looks: no files, no sessions, no output. */
+export const snapshotFoundNothing = (s: ScanSnapshot): boolean =>
+  s.totalCodexBytes === 0 && s.categories.length === 0 && s.sessions.length === 0 &&
+  s.pluginVersions.length === 0 && s.workspace.entries.length === 0
 
 /** Sessions shown as top-level rows: subagents whose parent is present are rolled into the parent, so exclude them to avoid double-counting rows and bytes. */
 export const listableSessions = (s: ScanSnapshot): SessionItem[] => {

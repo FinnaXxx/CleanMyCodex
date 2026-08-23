@@ -149,7 +149,9 @@ export default function SessionsView({ snapshot, cleaning, actionsDisabled, clea
       <ul className="session-list">
         {visible.map((session) => <SessionRow key={session.id} session={session} checked={selected.has(session.id)} onToggle={() => toggle(session.id)} locale={locale} />)}
       </ul>
-      {!visible.length && <p className="empty-inline">{t('没有符合筛选条件的会话', 'No sessions match these filters')}</p>}
+      {!visible.length && <p className="empty-inline">{listable.length
+        ? t('没有符合筛选条件的会话', 'No sessions match these filters')
+        : t('没有扫描到本地会话', 'No local conversations found')}</p>}
     </div>
     </div>
 
