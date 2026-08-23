@@ -107,11 +107,13 @@ function App() {
     const offScan = window.cleanmycodex.onScanProgress(setProgress)
     const offClean = window.cleanmycodex.onCleanupProgress(setCleanProgress)
     const offStage = window.cleanmycodex.onCleanupStage(setCleanupStage)
+    const offSettings = window.cleanmycodex.onOpenSettings(() => setPage('settings'))
     void runScan()
     return () => {
       offScan()
       offClean()
       offStage()
+      offSettings()
     }
   }, [runScan])
 
