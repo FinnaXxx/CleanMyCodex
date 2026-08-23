@@ -31,8 +31,6 @@ export default function AutomationView() {
       {state.lastRun && <small>{t('上次运行：', 'Last run: ')}{formatMoment(state.lastRun.finishedAt, locale)} · {t('释放', 'Freed')} {formatBytes(state.lastRun.freedBytes)} · {t('成功', 'Succeeded')} {state.lastRun.succeeded} · {t('跳过', 'Skipped')} {state.lastRun.deferred} · {t('失败', 'Failed')} {state.lastRun.failed}</small>}
       {state.lastRun?.note && <small>{m(state.lastRun.note)}</small>}
       <label><input type="checkbox" checked={settings.launchAtLogin} onChange={(event) => update('launchAtLogin', event.target.checked)}/> {t('登录时打开 Clean My Codex', 'Open Clean My Codex at login')}</label>
-      <small>{t('只是开机自动打开这个应用，定时清理不需要它——定时任务由系统调度，应用关着也会运行。',
-        'This only opens the app at login. Scheduled cleanup does not need it: the system runs it whether or not the app is open.')}</small>
     </section>
     <section className="card form-card"><h3>{t('定时清理范围', 'Cleanup Scope')}</h3>
       <small>{t('每一项都需要 Codex 已退出。定时运行不会替你退出 Codex，所以触发时 Codex 开着的话，这一轮会全部跳过，下次再试。',
