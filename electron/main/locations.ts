@@ -175,8 +175,9 @@ export class CodexLocations {
   }
 
   /** Roots recognized by path validation. Anything outside is rejected; individual
-   *  roots may be fully locked by `ProtectedPaths`. */
+   *  roots may be fully locked by `ProtectedPaths`. The log root is deliberately absent:
+   *  the application rotates it, so nothing below it is ever a deletion target. */
   get writableRoots(): string[] {
-    return [this.home, this.appSupport, this.appLogs, this.workspace, ...this.appCacheContainers]
+    return [this.home, this.appSupport, this.workspace, ...this.appCacheContainers]
   }
 }

@@ -20,31 +20,6 @@ function age(path: string, days: number): void {
 }
 
 describe('storage scanner semantics', () => {
-  it('ages desktop logs by the day they belong to, not by the year directory', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-scan-')); roots.push(root)
-    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
-    // The desktop application writes one log per session per process below YYYY/MM/DD.
-    const day = (parts: string[], days: number): string => {
-      const directory = join(locations.appLogs, ...parts)
-      for (const name of ['codex-desktop-s1-100-t0.log', 'codex-desktop-s2-200-t0.log']) {
-        write(join(directory, name)); age(join(directory, name), days)
-      }
-      age(directory, days)
-      return directory
-    }
-    const stale = day(['2026', '07', '01'], 40)
-    const current = day(['2026', '08', '23'], 1)
-
-    const snapshot = await scanSnapshot(locations, [])
-    const urls = snapshot.categories.find((category) => category.kind === 'appLogs')?.entries.map((entry) => entry.url) ?? []
-    expect(urls).toContain(stale)
-    expect(urls).not.toContain(current)
-    // Neither the year nor the month stands in for the days below it.
-    expect(urls).not.toContain(join(locations.appLogs, '2026'))
-    expect(urls).not.toContain(join(locations.appLogs, '2026', '07'))
-    expect(urls).not.toContain(locations.appLogs)
-  })
-
   it('reclaims every staging root Codex abandons, and nothing live beside them', async () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-scan-')); roots.push(root)
     const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
@@ -83,13 +58,8 @@ describe('storage scanner semantics', () => {
     write(rollout)
     writeFileSync(rollout, `${JSON.stringify({ type: 'session_meta', payload: { id: thread, title: '活跃会话' } })}\n`)
 
-    const oldLog = join(locations.appLogs, 'old.log')
-    const recentLog = join(locations.appLogs, 'recent.log')
-    write(oldLog); write(recentLog); age(oldLog, 12); age(recentLog, 2)
-    const mixedLog = join(locations.appLogs, '2026', 'old.log')
-    const recentNestedLog = join(locations.appLogs, '2026', 'recent.log')
-    write(mixedLog); write(recentNestedLog)
-    age(mixedLog, 12); age(join(locations.appLogs, '2026'), 12)
+    const oldLog = join(locations.appLogs, '2026', '07', '01', 'codex-desktop-s1-100-t0.log')
+    write(oldLog); age(oldLog, 40)
     const stale = join(locations.temporary, 'abandoned')
     write(join(stale, 'payload')); age(join(stale, 'payload'), 5); age(stale, 5)
     const directStaging = join(locations.temporary, 'plugins-clone-old')
@@ -123,11 +93,13 @@ describe('storage scanner semantics', () => {
     const snapshot = await scanSnapshot(locations, [], (item) => progress.push(item))
     expect(progress.at(-1)).toMatchObject({ stage: { key: 'stage.done' }, fraction: 1 })
     expect(progress.some((item) => item.stage?.key === 'stage.sessions')).toBe(true)
+    // The desktop application rotates its own logs: they are counted as one protected
+    // entry for the log root, and no log is ever offered for deletion however old it is.
     const logs = snapshot.categories.find((category) => category.kind === 'appLogs')
-    expect(logs?.entries.map((entry) => entry.url)).toEqual([oldLog])
-    expect(logs).toMatchObject({ group: 'review', risk: 'safe' })
-    expect(logs?.entries[0]).toMatchObject({ requiresCodexStopped: true, minimumIdleSeconds: 864_000 })
-    expect(logs?.entries[0].url).not.toBe(locations.appLogs)
+    expect(logs).toMatchObject({ group: 'protectedData', risk: 'shielded' })
+    expect(logs?.entries.map((entry) => entry.url)).toEqual([locations.appLogs])
+    expect(logs?.entries[0].bytes).toBeGreaterThan(0)
+    expect(snapshot.categories.flatMap((category) => category.entries).some((entry) => entry.url === oldLog)).toBe(false)
 
     const temporary = snapshot.categories.find((category) => category.kind === 'temporary')
     expect(temporary?.entries.map((entry) => entry.url)).not.toContain(stale)

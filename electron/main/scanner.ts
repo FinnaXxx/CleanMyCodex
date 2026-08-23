@@ -1,4 +1,4 @@
-import { lstatSync, readdirSync, statSync, type Dirent } from 'node:fs'
+import { lstatSync, readdirSync, statSync } from 'node:fs'
 import { join, basename, relative } from 'node:path'
 import { CodexLocations } from './locations'
 import { directoryAllocatedSize, fileAllocatedSize } from './fs-size'
@@ -20,39 +20,6 @@ const TEMPORARY_STAGING_PREFIXES = ['plugins-clone-', 'plugins-backup-']
 
 /** How long a staging directory must sit untouched before it counts as abandoned. */
 const STAGING_IDLE_SECONDS = 86_400
-
-/** How long an application log is kept before it is offered for review. */
-const LOG_RETENTION_SECONDS = 10 * 86_400
-
-/**
- * The units an application log directory is aged by: every directory that directly holds
- * at least one file, plus any loose file at the root. The desktop application writes one
- * log per session per process below a `YYYY/MM/DD` directory, so a whole past day ages out
- * together while the current day keeps every file it still writes to. Aging the root's own
- * children instead would weigh the entire tree against the newest line in it, and the year
- * directory would never come of age.
- */
-function logGroups(root: string, signal?: AbortSignal): string[] {
-  const groups: string[] = []
-  const visit = (directory: string, depth: number): void => {
-    throwIfAborted(signal)
-    if (depth > 6) return
-    let children: Dirent[] = []
-    try { children = readdirSync(directory, { withFileTypes: true }) } catch { return }
-    let holdsFiles = false
-    for (const child of children) {
-      if (child.isDirectory()) visit(join(directory, child.name), depth + 1)
-      else if (child.isFile()) holdsFiles = true
-    }
-    if (!holdsFiles) return
-    // Loose files at the root are their own units: the root itself is never a target.
-    if (directory === root) {
-      for (const child of children) if (child.isFile()) groups.push(join(directory, child.name))
-    } else groups.push(directory)
-  }
-  visit(root, 0)
-  return groups
-}
 
 function entryExists(path: string): boolean {
   try {
@@ -245,19 +212,14 @@ export async function scanSnapshot(
   categories.push(category('appCache', 'protectedData', 'shielded', appCacheEntries))
   await yieldToEventLoop()
 
-  const logCutoff = Date.now() - LOG_RETENTION_SECONDS * 1000
-  const oldLogs = logGroups(locations.appLogs, signal).flatMap((path): StorageEntry[] => {
-    try {
-      progress('stage.caches', path, 0.18)
-      const measured = measureTree(path, signal)
-      if (!measured.bytes || measured.latestActivity >= logCutoff) return []
-      return [entry(relativeTo(locations.appLogs, path), 'note.oldAppLog', path, measured.bytes, 'safe', {
-        minimumIdleSeconds: LOG_RETENTION_SECONDS,
-        requiresCodexStopped: true
-      })]
-    } catch { return [] }
-  })
-  categories.push(category('appLogs', 'review', 'safe', oldLogs))
+  // The desktop application rotates its own logs, so they are counted towards the totals
+  // and never offered: cleaning them would reclaim only what it is about to reclaim
+  // itself, and would take the recent sessions its diagnostics read with it.
+  const applicationLogs = entryExists(locations.appLogs)
+    ? [entry(basename(locations.appLogs), 'note.applicationLog', locations.appLogs,
+        measure(locations.appLogs, 'stage.caches', 0.18), 'shielded')]
+    : []
+  categories.push(category('appLogs', 'protectedData', 'shielded', applicationLogs))
   await yieldToEventLoop()
 
   const logs = logDatabases(locations.home)

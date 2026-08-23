@@ -181,11 +181,6 @@ export class ProtectedPaths {
     if (ProtectedPaths.contains(this.locations.appSupport, target)) {
       return false
     }
-    // On Windows the local app data root doubles as the cache container and the parent of
-    // the log directory. Logs are a root in their own right, so nesting does not lock them.
-    if (ProtectedPaths.contains(this.locations.appLogs, target)) {
-      return true
-    }
     if (this.locations.appCacheContainers.some((root) => ProtectedPaths.contains(root, target))) {
       return false
     }

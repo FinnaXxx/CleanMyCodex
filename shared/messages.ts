@@ -34,7 +34,7 @@ export type MessageKey =
   // Storage entry notes
   | 'note.marketplaceStaging' | 'note.installLeftover' | 'note.idleThreeDays' | 'note.helperScratch'
   | 'note.codexOperationalCache' | 'note.platformCache'
-  | 'note.oldAppLog' | 'note.logDatabase' | 'note.sessionProjection'
+  | 'note.applicationLog' | 'note.logDatabase' | 'note.sessionProjection'
   | 'note.localMarketplace' | 'note.configOrCredentials' | 'note.stateDatabase' | 'note.browserProfile'
   | 'note.computerUseComponent' | 'note.builtinPlugin' | 'note.currentPlugin' | 'note.unconfirmedPlugin' | 'note.pluginRuntime'
   // Entry tags
@@ -108,8 +108,8 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'category.codexCache.detail': ['插件目录、工具定义和服务信息', 'Plugin catalog, tool definitions, and service info'],
   'category.appCache.title': ['应用缓存', 'App Cache'],
   'category.appCache.detail': ['桌面应用运行缓存', 'Desktop application runtime cache'],
-  'category.appLogs.title': ['旧应用日志', 'Old App Logs'],
-  'category.appLogs.detail': ['保留最近 10 天，其余可以清理', 'Keeps the last 10 days; older logs can be removed'],
+  'category.appLogs.title': ['应用日志', 'Application Logs'],
+  'category.appLogs.detail': ['桌面应用自己轮转，只统计不清理', 'Rotated by the desktop application; counted, never cleaned'],
   'category.computerUse.title': ['Computer Use 组件', 'Computer Use Component'],
   'category.computerUse.detail': ['Computer Use 运行所需的本地组件', 'Local component Computer Use needs in order to run'],
   'category.protectedConfig.title': ['受保护的配置', 'Protected Configuration'],
@@ -123,7 +123,7 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'note.helperScratch': ['Codex 辅助程序遗留的临时目录', 'Temporary folder left by a Codex helper process'],
   'note.codexOperationalCache': ['Codex 使用的插件与工具元数据', 'Plugin and tool metadata used by Codex'],
   'note.platformCache': ['桌面应用使用的运行缓存', 'Runtime cache used by the desktop application'],
-  'note.oldAppLog': ['早于 10 天的应用日志', 'App log older than 10 days'],
+  'note.applicationLog': ['桌面应用日志，由应用自行轮转', 'Desktop application log, rotated by the application itself'],
   'note.logDatabase': ['Codex 诊断日志数据库（含 WAL/SHM）', 'Codex diagnostic log database (including WAL/SHM)'],
   'note.sessionProjection': ['会话内容投影数据库（含 WAL/SHM）', 'Session content projection database (including WAL/SHM)'],
   'note.localMarketplace': ['config.toml 注册的本地插件市场', 'Local marketplace registered in config.toml'],

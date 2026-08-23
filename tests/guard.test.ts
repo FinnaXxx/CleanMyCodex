@@ -39,6 +39,21 @@ describe('cleanup path guard', () => {
     }
   })
 
+  it('refuses every application log, which the desktop application rotates itself', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const day = join(locations.appLogs, '2026', '07', '01')
+    mkdirSync(day, { recursive: true })
+    writeFileSync(join(day, 'codex-desktop-s1-100-t0.log'), 'x')
+    const guard = new ProtectedPaths(locations)
+    for (const path of [locations.appLogs, day, join(day, 'codex-desktop-s1-100-t0.log')]) {
+      // macOS keeps the log root outside every data root, while Windows and Linux nest it
+      // inside one. It is refused either way; only the reason given differs.
+      expect(['guard.outsideDataRoots', 'guard.protectedPath'], path)
+        .toContain(rejection(() => guard.validate(path)))
+    }
+  })
+
   it('allows the staging directories Codex abandons below its home', () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
     const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
