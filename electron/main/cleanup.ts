@@ -50,11 +50,9 @@ function latestActivity(path: string): number {
 }
 
 /**
- * Performs the cleanup. Deletion is permanent — nothing goes to the system trash, because
- * space parked in the trash is not space returned to the volume, and reporting it as
- * freed would be a lie. The protected-path guard is therefore the safety net: every
- * target, including every companion, is validated before anything is removed, and a
- * task that names even one protected path fails as a whole without deleting.
+ * Performs the cleanup. Deletion is permanent, so the protected-path guard is the safety
+ * net: every target, including every companion, is validated before anything is removed,
+ * and a task naming even one protected path fails as a whole without deleting.
  */
 export async function runCleanup(
   tasks: CleanupTask[],

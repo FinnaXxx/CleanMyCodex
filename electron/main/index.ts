@@ -240,8 +240,7 @@ function guardsFor(snapshot: ScanSnapshot): ProtectedPaths {
 
 function cleanupDependencies(): CleanupDeps {
   return {
-    // Permanent, not the system trash: trashed bytes are not returned to the volume,
-    // so "freed 5 GB" has to mean the disk actually gained 5 GB.
+    // Permanent, so that the reported "freed" bytes are bytes the volume actually gained.
     remove: (path: string) => rm(path, { recursive: true, force: true }),
     isCodexRunning: codexIsRunning,
     sessionDatabase: {
