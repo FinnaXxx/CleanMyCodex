@@ -12,7 +12,7 @@ import {
   formatBytes
 } from '../../shared/types'
 import { message } from '../../shared/messages'
-import { BackIcon, FolderIcon } from '../icons'
+import { FolderIcon } from '../icons'
 import { formatShortDate } from '../format'
 import { usePreferences } from '../preferences'
 
@@ -21,14 +21,13 @@ interface Props {
   cleaning: boolean
   actionsDisabled: boolean
   cleanProgress: CleanupProgress | null
-  onBack: () => void
   onCleanup: (selection: CleanupSelection) => void
 }
 
 type Scope = 'all' | 'active' | 'archived'
 type Sort = 'total' | 'date' | 'name'
 
-export default function SessionsView({ snapshot, cleaning, actionsDisabled, cleanProgress, onBack, onCleanup }: Props) {
+export default function SessionsView({ snapshot, cleaning, actionsDisabled, cleanProgress, onCleanup }: Props) {
   const { t, locale } = usePreferences()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [scope, setScope] = useState<Scope>('all')
@@ -72,10 +71,6 @@ export default function SessionsView({ snapshot, cleaning, actionsDisabled, clea
 
   return <>
     <div className="detail-content">
-    <section className="page-heading">
-      <div className="page-title"><button className="icon-button detail-back-button" title={t('返回', 'Back')} aria-label={t('返回', 'Back')} onClick={onBack}><BackIcon /></button><div><h2>{t('会话记录', 'Sessions')}</h2></div></div>
-    </section>
-
     <section className="filters">
       <select value={scope} onChange={(event) => setScope(event.target.value as Scope)}>
         <option value="all">{t('全部', 'All')} {listable.length}</option>
