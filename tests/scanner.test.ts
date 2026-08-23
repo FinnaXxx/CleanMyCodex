@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
-import type { ScanProgress } from '../shared/types'
+import { snapshotFoundNothing, type ScanProgress } from '../shared/types'
 import { CodexLocations, appCacheDirectories } from '../electron/main/locations'
 import { outermostStorageRoots, scanSnapshot } from '../electron/main/scanner'
 
@@ -141,6 +141,24 @@ describe('storage scanner semantics', () => {
     const snapshot = await scanSnapshot(locations, [])
     expect(snapshot.externalBytes).toBeGreaterThan(0)
     expect(snapshot.totalCodexBytes).toBeGreaterThan(snapshot.externalBytes)
+  })
+
+  it('reports an unused machine as empty rather than as a scan that found nothing to clean', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-scan-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+
+    const missing = await scanSnapshot(locations, [])
+    expect(missing.codexHomeExists).toBe(false)
+    expect(snapshotFoundNothing(missing)).toBe(true)
+
+    mkdirSync(locations.home, { recursive: true })
+    const empty = await scanSnapshot(locations, [])
+    expect(empty.codexHomeExists).toBe(true)
+    expect(snapshotFoundNothing(empty)).toBe(true)
+
+    write(join(locations.temporary, 'plugins', 'marketplace.json'))
+    const used = await scanSnapshot(locations, [])
+    expect(snapshotFoundNothing(used)).toBe(false)
   })
 
   it('does not double-count nested platform data roots', () => {

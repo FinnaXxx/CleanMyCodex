@@ -111,7 +111,7 @@ Codex 会不断堆积：每一次会话留下的 rollout 文件、一直没被�
 
 ### 日志
 
-清理会写入清理日志（缓存和残留清理逐条记录删掉的路径与字节数，删除失败或跳过的也记）：macOS `~/Library/Logs/CleanMyCodex/cleanup.log`，Windows `%APPDATA%\CleanMyCodex\logs\cleanup.log`，Linux `~/.config/CleanMyCodex/logs/cleanup.log`。每次删除记录解析出的 thread ID、`thread/delete` 是否可用、本地复查删掉了多少行，以及桌面端的哪张表、哪个状态文件被清理了多少条，超过 1 MB 保留一代历史。定时清理另有 `autoclean.log`。
+清理会写入清理日志（缓存和残留清理逐条记录删掉的路径与字节数，删除失败或跳过的也记）：macOS `~/Library/Logs/CleanMyCodex/cleanup.log`，Windows `%APPDATA%\CleanMyCodex\logs\cleanup.log`，Linux `~/.config/CleanMyCodex/logs/cleanup.log`。每次删除记录解析出的 thread ID、`thread/delete` 是否可用、本地复查删掉了多少行，以及桌面端的哪张表、哪个状态文件被清理了多少条，超过 1 MB 保留一代历史。定时清理另有 `autoclean.log`。设置页的「诊断 → 日志」可以直接打开这个目录。
 
 ## 开发
 

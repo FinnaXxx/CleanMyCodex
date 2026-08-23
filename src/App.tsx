@@ -174,7 +174,8 @@ function App() {
         {error && <p className="pane-error">{t('出错：', 'Error: ')}{e(error)}</p>}
 
         {page === 'overview' && <OverviewView snapshot={snapshot} appInfo={appInfo} cleaning={cleaning}
-          actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup} />}
+          actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup}
+          onOpenSessions={() => setPage('sessions')} onOpenWorkspace={() => setPage('workspace')} onRescan={runScan} />}
         {page === 'sessions' && <SessionsView snapshot={snapshot} cleaning={cleaning} actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup} />}
         {page === 'plugins' && <PluginsView snapshot={snapshot} cleaning={cleaning} actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup} />}
         {page === 'workspace' && workspace && <WorkspaceView snapshot={workspace} cleaning={cleaning} actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup} />}

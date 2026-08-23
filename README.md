@@ -112,7 +112,7 @@ Automatic session cleanup skips pinned conversations, conversations with an unfi
 
 ### Logs
 
-Cleanup is written to a log — cache and leftover removals record the path and byte count of each deletion, including the ones that failed or were skipped: macOS `~/Library/Logs/CleanMyCodex/cleanup.log`, Windows `%APPDATA%\CleanMyCodex\logs\cleanup.log`, Linux `~/.config/CleanMyCodex/logs/cleanup.log`. Each deletion records the thread IDs that were resolved, whether `thread/delete` was available, how many rows the local re-check removed, and which desktop table and state file were cleaned of how many entries. Past 1 MB, one generation of history is kept. Scheduled cleanup writes its own `autoclean.log`.
+Cleanup is written to a log — cache and leftover removals record the path and byte count of each deletion, including the ones that failed or were skipped: macOS `~/Library/Logs/CleanMyCodex/cleanup.log`, Windows `%APPDATA%\CleanMyCodex\logs\cleanup.log`, Linux `~/.config/CleanMyCodex/logs/cleanup.log`. Each deletion records the thread IDs that were resolved, whether `thread/delete` was available, how many rows the local re-check removed, and which desktop table and state file were cleaned of how many entries. Past 1 MB, one generation of history is kept. Scheduled cleanup writes its own `autoclean.log`. Settings → Diagnostics → Logs opens that folder.
 
 ## Development
 

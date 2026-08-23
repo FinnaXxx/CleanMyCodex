@@ -18,7 +18,7 @@ import {
   preflightSessionRecords,
   sessionProtocolThreadIDs
 } from './session-database'
-import { cleanupLogPath, logCleanup } from './diagnostics'
+import { cleanupLogPath, ensureLogDirectory, logCleanup, logDirectory } from './diagnostics'
 import { pluginStorageCategories, scanPluginVersions } from './plugins'
 import {
   appendAutomationLog,
@@ -175,6 +175,8 @@ ipcMain.handle('path:open', async (_event, path: string) => {
   const error = await shell.openPath(path)
   if (error) throw new Error(error)
 })
+/** The folder behind the settings page's log entry, created on demand so it opens. */
+ipcMain.handle('app:logDirectory', () => ensureLogDirectory())
 ipcMain.handle('automation:get', () => getAutomationState())
 ipcMain.handle('automation:save', (_event, settings: AutomationSettings) => applyAutomationSettings(settings))
 ipcMain.handle('preferences:language', (_event, language: Language) => {
@@ -288,7 +290,7 @@ function assertTrustedDisplayPath(path: unknown): asserts path is string {
 function trustedDisplayPaths(): Set<string> {
   // The cleanup log is part of what the interface offers to show, so revealing it is
   // as legitimate as revealing a scanned path.
-  const result = new Set<string>([locations.home, locations.workspace, cleanupLogPath()])
+  const result = new Set<string>([locations.home, locations.workspace, cleanupLogPath(), logDirectory()])
   if (latestSnapshot) {
     for (const category of latestSnapshot.categories) for (const entry of category.entries) result.add(entry.url)
     for (const session of latestSnapshot.sessions) {

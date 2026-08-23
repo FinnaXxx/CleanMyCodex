@@ -14,10 +14,14 @@ import {
   categoryIsEmpty,
   categorySection,
   isSelectable,
+  listableSessions,
+  snapshotFoundNothing,
+  snapshotSessionBytes,
+  workspaceBytes,
   formatBytes
 } from '../../shared/types'
 import { message } from '../../shared/messages'
-import { FolderIcon } from '../icons'
+import { FolderIcon, NavIcon, type NavGlyphName } from '../icons'
 import { usePreferences } from '../preferences'
 import { storageDistribution, type StorageDistributionKind } from '../storage-distribution'
 
@@ -28,13 +32,17 @@ interface Props {
   actionsDisabled: boolean
   cleanProgress: CleanupProgress | null
   onCleanup: (selection: CleanupSelection) => void
+  onOpenSessions: () => void
+  onOpenWorkspace: () => void
+  onRescan: () => void
 }
 
-export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisabled, cleanProgress, onCleanup }: Props) {
+export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisabled, cleanProgress, onCleanup, onOpenSessions, onOpenWorkspace, onRescan }: Props) {
   const { t, m, locale } = usePreferences()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [expanded, setExpanded] = useState<Set<StorageKind>>(new Set())
 
+  const sessionCount = useMemo(() => listableSessions(snapshot).length, [snapshot])
   const allEntries = useMemo<StorageEntry[]>(() => snapshot.categories.flatMap((c) => c.entries), [snapshot])
   const selectedEntries = useMemo(() => allEntries.filter((e) => selected.has(e.id)), [allEntries, selected])
   const selectedBytes = selectedEntries.reduce((sum, e) => sum + e.reclaimableBytes, 0)
@@ -92,6 +100,10 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
     next.has(kind) ? next.delete(kind) : next.add(kind)
     return next
   })
+
+  if (snapshotFoundNothing(snapshot)) return <div className="detail-content">
+    <NothingFound snapshot={snapshot} onRescan={onRescan} />
+  </div>
 
   return (
     <div className="detail-content">
@@ -152,6 +164,28 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
       {appInfo?.codexRunning && <p className="notice warning">{appInfo.blockers.map(m).join(t('；', '; '))}{t('，需要独占文件的项目本次会跳过；退出 Codex 后需重新清理。', '. Items requiring exclusive file access will be skipped; quit Codex and run cleanup again.')}</p>}
       {snapshot.notes.map((note) => <p className="notice" key={note.key}>{m(note)}</p>)}
 
+      <PageSection
+        glyph="sessions"
+        title={t('会话记录', 'Sessions')}
+        bytes={snapshotSessionBytes(snapshot)}
+        rowDetail={sessionCount
+          ? t(`${sessionCount} 个会话，在会话记录页逐条挑选后删除`, `${sessionCount} conversations, picked one by one on the Sessions page`)
+          : t('没有扫描到本地会话', 'No local conversations found')}
+        value={sessionCount ? formatBytes(snapshotSessionBytes(snapshot)) : '—'}
+        onOpen={onOpenSessions}
+      />
+
+      <PageSection
+        glyph="workspace"
+        title={t('工作产出', 'Workspace Output')}
+        bytes={workspaceBytes(snapshot.workspace)}
+        rowDetail={snapshot.workspace.isScanned
+          ? t('Codex 生成的文件和仓库，在工作产出页逐项确认后删除', 'Files and repositories Codex produced, confirmed one by one on the Workspace page')
+          : t('尚未完成统计，重新扫描后可查看', 'Not measured yet; scan again to see it')}
+        value={snapshot.workspace.isScanned ? formatBytes(workspaceBytes(snapshot.workspace)) : '—'}
+        onOpen={onOpenWorkspace}
+      />
+
       {sections.map(({ section, categories }) => {
         const selectable = categories.flatMap((category) => category.entries).filter((item) => isSelectable(item.risk))
         const allSelected = selectable.length > 0 && selectable.every((item) => selected.has(item.id))
@@ -208,6 +242,72 @@ function SectionIcon({ section }: { section: StorageSection }) {
         <path d={SectionGlyph[section]} />
       </svg>
     </span>
+  )
+}
+
+/**
+ * Nothing to show and nothing to clean: Codex has never run here, or it keeps its home
+ * somewhere this scan does not look. Say which, and name the path that was searched —
+ * an empty overview full of zeroes reads like a broken scan.
+ */
+function NothingFound({ snapshot, onRescan }: { snapshot: ScanSnapshot; onRescan: () => void }) {
+  const { t } = usePreferences()
+  return (
+    <section className="nothing-found">
+      <span className="nothing-found-glyph" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+          <path d="M6 6l12 12M18 6 6 18" />
+        </svg>
+      </span>
+      <h2>{snapshot.codexHomeExists
+        ? t('这里还没有 Codex 数据', 'No Codex data here yet')
+        : t('没有找到 Codex', 'Codex was not found')}</h2>
+      <p>{snapshot.codexHomeExists
+        ? t('Codex 目录存在，但里面还没有缓存、会话或插件。用过 Codex 之后再回来扫描。', 'The Codex directory exists but holds no caches, sessions, or plugins yet. Come back and scan after using Codex.')
+        : t('这台电脑上没有 Codex 的数据目录，所以没有可以统计或清理的内容。', 'This computer has no Codex data directory, so there is nothing to measure or clean.')}</p>
+      <p className="nothing-found-path"><code>{snapshot.codexHome}</code></p>
+      <p className="nothing-found-hint">{t('如果 Codex 的数据放在别处，设置环境变量 CODEX_HOME 指向它，然后重新扫描。', 'If Codex keeps its data elsewhere, point the CODEX_HOME environment variable at it and scan again.')}</p>
+      <button className="btn primary btn-large" onClick={onRescan}>{t('重新扫描', 'Scan Again')}</button>
+    </section>
+  )
+}
+
+/**
+ * Sessions and workspace output stand beside the storage sections rather than inside
+ * them: they are cleaned per item on their own page, so the row here only leads there.
+ */
+function PageSection({ glyph, title, bytes, rowDetail, value, onOpen }: {
+  glyph: NavGlyphName
+  title: string
+  bytes: number
+  rowDetail: string
+  value: string
+  onOpen: () => void
+}) {
+  const { t } = usePreferences()
+  return (
+    <section className={`section section-${glyph}`}>
+      <div className="section-head">
+        <span className="section-icon" aria-hidden="true"><NavIcon name={glyph} /></span>
+        <h2>{title}</h2>
+        <span className="section-total">{t('共', 'Total')} {formatBytes(bytes)}</span>
+      </div>
+      <div className="card">
+        <div className="row-block">
+          <div className="row">
+            <span className="checkbox-space" />
+            <button className="row-main" onClick={onOpen}>
+              <span className="row-text">
+                <span className="row-title">{title}</span>
+                <span className="row-detail">{rowDetail}</span>
+              </span>
+              <span className="row-meta"><span className="row-bytes">{value}</span></span>
+              <span className="chevron">›</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
   )
 }
 
