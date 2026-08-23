@@ -27,6 +27,7 @@ import {
   getAutomationState,
   loadAutomationSettings,
   loadUILanguage,
+  repairAutomationSchedule,
   saveAutomaticRun,
   saveUILanguage
 } from './automation'
@@ -560,6 +561,8 @@ async function runAutomaticCleanup(): Promise<void> {
 app.whenReady().then(async () => {
   if (process.argv.includes('--auto-clean')) { await runAutomaticCleanup(); app.quit(); return }
   logEnvironment('start')
+  const repaired = repairAutomationSchedule()
+  if (repaired) logCleanup(`schedule: ${repaired}`)
   buildApplicationMenu()
   createWindow()
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
