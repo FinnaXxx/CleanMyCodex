@@ -16,7 +16,8 @@ import {
   pluginStatusIsRemovable,
   tasksForSessionDeletion,
   tasksForWorkspace,
-  tasksFromEntries
+  tasksFromEntries,
+  workspaceDeletionTargets
 } from '../../shared/types'
 import { ProtectedPaths } from './guard'
 import type { CodexEnvironment } from './platform-services'
@@ -68,7 +69,10 @@ export function buildTrustedTasks(
     case 'workspace': {
       const all = flattenWorkspace(workspace.entries)
       const selected = ids.map((id) => all.find((entry) => entry.id === id)).filter((entry): entry is WorkspaceFolder => !!entry)
-      const outermost = selected.filter((entry) => !selected.some((parent) => parent !== entry && ProtectedPaths.contains(parent.path, entry.path)))
+      // Containment is judged on what each choice actually deletes: a date folder gives
+      // up only its loose files, so choosing it no longer swallows the outputs below it.
+      const outermost = selected.filter((entry) => !selected.some((other) => other !== entry &&
+        workspaceDeletionTargets(other).some((target) => ProtectedPaths.contains(target, entry.path))))
       return tasksForWorkspace(outermost)
     }
     default:
