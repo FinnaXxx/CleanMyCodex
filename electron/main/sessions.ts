@@ -166,7 +166,11 @@ function assetBytesForThread(
 ): { bytes: number; urls: string[] } {
   const urls: string[] = []
   let bytes = 0
-  const candidates = [join(locations.generatedImages, threadID), ...(visualizations.get(threadID.toLowerCase()) ?? [])]
+  const candidates = [
+    join(locations.generatedImages, threadID),
+    join(locations.visualizationViewers, threadID),
+    ...(visualizations.get(threadID.toLowerCase()) ?? [])
+  ]
   for (const dir of new Set(candidates)) {
     if (existsSync(dir)) { urls.push(dir); bytes += directoryAllocatedSize(dir) }
   }

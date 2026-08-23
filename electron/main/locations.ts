@@ -125,6 +125,9 @@ export class CodexLocations {
 
   get generatedImages(): string { return join(this.home, 'generated_images') }
   get visualizations(): string { return join(this.home, 'visualizations') }
+  /** Rendered viewers Codex materializes from the fragments under `visualizations`, keyed
+   *  by thread. Derived output — Codex' own code calls these the viewer caches. */
+  get visualizationViewers(): string { return join(this.home, 'visualization-viewers') }
   get computerUse(): string { return join(this.home, 'computer-use') }
 
   // --- Outside ~/.codex ---

@@ -33,6 +33,10 @@ describe('session scanning', () => {
     const visualization = join(locations.visualizations, '2026', '08', '22', id)
     mkdirSync(visualization, { recursive: true })
     writeFileSync(join(visualization, 'comparison.html'), Buffer.alloc(4096))
+    // Codex materializes a rendered viewer per thread beside the fragments themselves.
+    const viewers = join(locations.visualizationViewers, id)
+    mkdirSync(join(viewers, id), { recursive: true })
+    writeFileSync(join(viewers, id, 'comparison.html'), Buffer.alloc(4096))
 
     const sessions = await scanSessions(locations)
     expect(sessions).toHaveLength(1)
@@ -45,7 +49,7 @@ describe('session scanning', () => {
       isUnstable: false
     })
     expect(sessions[0].assetBytes).toBeGreaterThan(0)
-    expect(sessions[0].assetURLs).toEqual(expect.arrayContaining([join(locations.generatedImages, id), visualization]))
+    expect(sessions[0].assetURLs).toEqual(expect.arrayContaining([join(locations.generatedImages, id), visualization, viewers]))
     expect(sessions[0].tags).toEqual(expect.arrayContaining(['browser', 'computerUse']))
     expect(sessions[0].parseWarnings).toBe(1)
     expect(existsSync(join(locations.scanCache, 'session-scan.json'))).toBe(true)
