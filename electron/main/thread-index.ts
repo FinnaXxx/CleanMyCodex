@@ -18,6 +18,8 @@ export class CodexThreadIndex {
   private readonly workspaceRows: CodexWorkspaceThread[] = []
   private readonly cleanupBlockers = new Set<string>()
   private readonly pinned = new Set<string>()
+  /** Threads whose pin state the state database answered for, and is trusted on. */
+  private readonly pinAuthority = new Set<string>()
 
   get size(): number { return Math.max(this.byID.size, this.byRollout.size, this.workspaceRows.length) }
 
@@ -79,6 +81,15 @@ export class CodexThreadIndex {
     this.cleanupBlockers.add(threadID)
   }
 
+  /**
+   * Records that the state database carries this thread's pin state, whichever way it
+   * reads. Unpinning writes `is_pinned = 0` there, so for a thread it knows about the
+   * column is the answer and nothing may add a pin back on top of it.
+   */
+  recordPinAuthority(threadID: string): void {
+    this.pinAuthority.add(threadID)
+  }
+
   private applyGeneratedNames(names: Map<string, string>): void {
     for (const [id, title] of names) this.byID.set(id, title)
     for (const thread of this.workspaceRows) thread.title = names.get(thread.id) ?? thread.title
@@ -88,28 +99,40 @@ export class CodexThreadIndex {
     for (const id of ids) this.cleanupBlockers.add(id)
   }
 
-  private applyPinned(ids: Set<string>): void {
-    for (const id of ids) this.markPinned(id)
+  private applyPinned(pins: DesktopPins): void {
+    for (const id of pins.current) this.markPinned(id)
+    // The handover ledger is not a pin list: it records which pins were handed to the app
+    // server, and an entry stays after the pin is dropped. So it may only speak for a
+    // thread the state database has no row for — otherwise a conversation that was ever
+    // pinned would read as pinned forever, however often it is unpinned.
+    for (const id of pins.migrated) if (!this.pinAuthority.has(id)) this.markPinned(id)
   }
 }
 
+/** Pins as the desktop records them, split by how much authority each source carries. */
+interface DesktopPins {
+  /** The desktop's live pin list, which it maintains as pins are set and dropped. */
+  current: Set<string>
+  /** Threads whose pin was handed over to the app server. A ledger, not a live list. */
+  migrated: Set<string>
+}
+
 /**
- * Pins live in the desktop's own state file, not only in the state database's `pinned`
- * column — `~/.codex/.codex-global-state.json` keeps `pinned-thread-ids`, and a
- * per-host list for threads migrated to the app server. Reading only the column means a
- * pinned conversation can look unprotected to automatic cleanup.
+ * Pins as `~/.codex/.codex-global-state.json` records them. The state database's
+ * `is_pinned` column is the live answer for any thread it has a row for — unpinning
+ * writes `is_pinned = 0` — but a conversation the database does not know about is still
+ * covered here, so both are read and weighed by `applyPinned`.
  */
-function readPinnedThreadIDs(home: string): Set<string> {
-  const result = new Set<string>()
+function readPinnedThreadIDs(home: string): DesktopPins {
+  const pins: DesktopPins = { current: new Set(), migrated: new Set() }
   const path = join(home, '.codex-global-state.json')
   try {
-    if (statSync(path).size > 64 * 1024 * 1024) return result
+    if (statSync(path).size > 64 * 1024 * 1024) return pins
     const state = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
-    for (const key of ['pinned-thread-ids', 'app-server-migrated-pinned-thread-ids-by-host']) {
-      collectThreadIDs(state[key], result)
-    }
+    collectThreadIDs(state['pinned-thread-ids'], pins.current)
+    collectThreadIDs(state['app-server-migrated-pinned-thread-ids-by-host'], pins.migrated)
   } catch { /* the desktop state file is optional and its shape may change */ }
-  return result
+  return pins
 }
 
 /** Thread ids wherever they sit in that value: a list, or per-host lists of them. */
@@ -209,7 +232,10 @@ function readIndex(path: string, readonly: boolean): CodexThreadIndex | null {
         cleanPreview(table.preview ? row[table.preview] : null) ??
         cleanPreview(table.firstUserMessage ? row[table.firstUserMessage] : null)
       if (title) index.add(id, stringValue(table.rollout ? row[table.rollout] : null), title)
-      if (id && booleanValue(rowValue(table.pinned, row))) index.markPinned(id)
+      if (id && table.pinned) {
+        index.recordPinAuthority(id)
+        if (booleanValue(rowValue(table.pinned, row))) index.markPinned(id)
+      }
       const cwd = stringValue(table.cwd ? row[table.cwd] : null)
       if (id && cwd) {
         const threadSource = stringValue(table.threadSource ? row[table.threadSource] : null)

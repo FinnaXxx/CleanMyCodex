@@ -75,6 +75,7 @@ Codex 会不断堆积：每一次会话留下的 rollout 文件、一直没被�
 - **`visualizations/YYYY/MM/DD/<thread-id>`**：Codex 生成的富视觉结果，例如 JPG/PNG 对比图或 HTML可视化预览。扫描时会递归识别日期层级并归到对应会话。
 - **`visualization-viewers/<thread-id>`**：Codex 从上述片段渲染出的查看器，其源码自己称之为 viewer cache。按 thread 组织，因此随所属会话一起统计、一起删除，不会比会话活得更久。
 - **`~/.codex/cache`**：远程插件目录（`remote_plugin_catalog`）、Apps server 与工具定义（`codex_apps_server_info`、`codex_apps_tools`）、connector 目录（`codex_app_directory`）和终端宠物素材（`tui-pets`）。它们都可重建，但后续版本可能在旁边放置实时状态，因此整个目录作为受保护数据统计，不提供删除。
+- **`~/Library/Logs/com.openai.codex/YYYY/MM/DD`**：桌面应用自己的日志，每个会话每个进程一个文件。过去的某一天在整天都超过 10 天未改动后作为一项整体过期；当天仍在写入的文件一个都不动。年、月两级本身永远不是删除目标，所以已经过期的某天不会被旁边更新的一天拖住。
 - **`~/Library/Caches/Codex`、`~/Library/Caches/com.openai.codex`**：桌面应用运行缓存，容器及其所有叶子目录都作为受保护数据统计，不提供删除。
 - **承载桌面端登录的 Chromium 用户资料数据**：`Cookies`、`Network/`、`Local Storage`、`Session Storage`、`IndexedDB`、`Service Worker`、`Preferences`、`Web Data`、`Local State`、`Partitions/`、`codex-browser-app/` 等。根目录、`Default/` 和桌面端专用分区布局都锁定，只统计不清理；整个 App Support 和平台应用缓存容器都禁止删除。
 - **`~/.codex/sqlite`、`.codex-global-state.json` 及其 `.bak`**：桌面端自己的会话库和持久状态，只在删除会话时按 thread ID 删行或删键，文件本身锁定。

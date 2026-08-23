@@ -58,9 +58,19 @@ app.whenReady().then(async () => {
     pinnedDB.prepare('INSERT INTO threads VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
       pinnedOnlyInState, '桌面端置顶', pinnedRollout, null, 'user', 0, 0, null, 0)
     pinnedDB.close()
+    // A conversation that was pinned once, handed over to the app server, and later
+    // unpinned. The database column is the live answer and says it is not pinned; the
+    // handover ledger still lists it and must not put the pin back.
+    const unpinnedAfterHandover = '88888888-8888-8888-8888-888888888888'
+    const unpinnedRollout = join(locations.sessions, `rollout-${unpinnedAfterHandover}.jsonl`)
+    writeFileSync(unpinnedRollout, `${JSON.stringify({ type: 'session_meta', payload: { id: unpinnedAfterHandover } })}\n`)
+    const handoverDB = new Database(join(locations.home, 'state_7.sqlite'))
+    handoverDB.prepare('INSERT INTO threads VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+      unpinnedAfterHandover, '取消置顶', unpinnedRollout, null, 'user', 0, 0, null, 0)
+    handoverDB.close()
     writeFileSync(join(locations.home, '.codex-global-state.json'), JSON.stringify({
       'pinned-thread-ids': [pinnedOnlyInState],
-      'app-server-migrated-pinned-thread-ids-by-host': { local: [] },
+      'app-server-migrated-pinned-thread-ids-by-host': { local: [unpinnedAfterHandover] },
       'electron-main-window-bounds': { width: 1180 }
     }))
 
@@ -76,6 +86,9 @@ app.whenReady().then(async () => {
     if (!pinnedDesktopOnly.isPinned || !desktop.isPinned) throw new Error('置顶状态没有传给界面')
     // An unfinished goal blocks the scheduled run without making the conversation pinned.
     if (named.isPinned) throw new Error('未完成 goal 被误标成置顶')
+    const unpinned = sessions.find((session) => session.threadID === unpinnedAfterHandover)
+    if (unpinned?.isPinned) throw new Error('取消置顶后仍被识别为置顶')
+    if (unpinned?.blocksAutomaticCleanup) throw new Error('取消置顶的会话仍在阻止自动清理')
     const workspaceThreads = CodexThreadIndex.load(locations.home).workspaceThreads(locations.workspace)
     if (workspaceThreads[0]?.title !== '检查Electron重构功能交互对齐' || !workspaceThreads[0]?.archived) throw new Error('工作产出关联索引未生效')
     console.log('THREAD_INDEX_OK')
