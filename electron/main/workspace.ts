@@ -22,17 +22,40 @@ function gitState(path: string): WorkspaceRepositoryState {
  *  many and marks the rest `unchecked` rather than stalling on a huge workspace. */
 const GIT_INSPECTION_BUDGET = 32
 
-interface WalkResult { bytes: number; files: number; repositories: string[] }
+/**
+ * Names the desktop environment writes behind the user's back — never work product, and
+ * never a reason to list a folder. One `.DS_Store` beside two session outputs used to
+ * promote its date folder into a row of its own, so the scan ignores these everywhere.
+ *
+ * Matching is by whole name, lowercased, so no pattern can swallow a file a session
+ * actually produced. `._name` is the single prefix rule and it is AppleDouble's own
+ * reserved form, written next to real files on non-Apple filesystems.
+ */
+const SYSTEM_JUNK_NAMES = new Set([
+  '.ds_store', '.localized', '.apdisk', '.directory',
+  'thumbs.db', 'thumbs.db:encryptable', 'ehthumbs.db', 'ehthumbs_vista.db', 'desktop.ini',
+  '.spotlight-v100', '.documentrevisions-v100', '.fseventsd', '.temporaryitems', '.trashes', '$recycle.bin'
+])
+
+export function isSystemJunk(name: string): boolean {
+  return SYSTEM_JUNK_NAMES.has(name.toLowerCase()) || name.startsWith('._')
+}
+
+/** `looseFiles` holds only the files directly inside the walked directory, never the
+ *  nested ones a recursive walk adds to `bytes` and `files`. */
+interface WalkResult { bytes: number; files: number; repositories: string[]; looseFiles: string[] }
 
 function walk(path: string, recursive: boolean): WalkResult {
   let children
-  try { children = readdirSync(path, { withFileTypes: true }) } catch { return { bytes: 0, files: 0, repositories: [] } }
-  const result: WalkResult = { bytes: 0, files: 0, repositories: [] }
+  try { children = readdirSync(path, { withFileTypes: true }) } catch { return { bytes: 0, files: 0, repositories: [], looseFiles: [] } }
+  const result: WalkResult = { bytes: 0, files: 0, repositories: [], looseFiles: [] }
   for (const child of children) {
+    if (isSystemJunk(child.name)) continue
     const childPath = join(path, child.name)
     if (!child.isDirectory()) {
       result.bytes += fileAllocatedSize(childPath)
       result.files += 1
+      result.looseFiles.push(childPath)
       continue
     }
     if (child.name === '.git') result.repositories.push(path)
@@ -61,7 +84,7 @@ function folder(path: string, budget: { value: number }, onProgress?: (path: str
   })).sort((a, b) => a.name.localeCompare(b.name))
   let modifiedAt = 0
   try { modifiedAt = statSync(path).mtimeMs } catch { /* missing */ }
-  return { id: path, path, name: basename(path), bytes: measured.bytes, fileCount: measured.files, modifiedAt, repositories, sourceThreads: [], children: [] }
+  return { id: path, path, name: basename(path), bytes: measured.bytes, fileCount: measured.files, modifiedAt, repositories, sourceThreads: [], looseFiles: measured.looseFiles, children: [] }
 }
 
 export function scanWorkspace(root: string, onProgress?: (path: string) => void, threads: CodexWorkspaceThread[] = []): WorkspaceSnapshot {
@@ -70,12 +93,14 @@ export function scanWorkspace(root: string, onProgress?: (path: string) => void,
   const entries = childDirectories(root).map((datePath): WorkspaceFolder | null => {
     onProgress?.(datePath)
     const children = childDirectories(datePath).map((path) => folder(path, budget, onProgress)).filter((item): item is WorkspaceFolder => item !== null).sort((a, b) => b.bytes - a.bytes)
+    // A date folder measures only what it holds itself. It is listed beside its outputs
+    // rather than above them, so counting theirs would show the same bytes twice and
+    // would make ticking the date row look like it takes the outputs with it.
     const own = walk(datePath, false)
-    const bytes = own.bytes + children.reduce((sum, child) => sum + child.bytes, 0)
-    if (!bytes && !children.length) return null
+    if (!own.files && !children.length) return null
     let modifiedAt = 0
     try { modifiedAt = statSync(datePath).mtimeMs } catch { /* missing */ }
-    return { id: datePath, path: datePath, name: basename(datePath), bytes, fileCount: own.files, modifiedAt, repositories: [], sourceThreads: [], children }
+    return { id: datePath, path: datePath, name: basename(datePath), bytes: own.bytes, fileCount: own.files, modifiedAt, repositories: [], sourceThreads: [], looseFiles: own.looseFiles, children }
   }).filter((item): item is WorkspaceFolder => item !== null).sort((a, b) => b.name.localeCompare(a.name))
   attachSourceThreads(root, entries, threads)
   return { root, isScanned: true, entries }
