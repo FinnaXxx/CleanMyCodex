@@ -1,0 +1,19 @@
+<!doctype html>
+<!--
+  The README screenshots run the real renderer against `mock.js`, so the images can
+  never drift from the interface. `fonts/fonts.css` is optional: on macOS the app's own
+  font stack resolves natively, elsewhere `node fetch-fonts.mjs` puts a stand-in there.
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Clean My Codex</title>
+    <link rel="stylesheet" href="./fonts/fonts.css" />
+    <link rel="stylesheet" href="./build/main.css" />
+    <script src="./mock.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="./build/main.js"></script>
+  </body>
+</html>

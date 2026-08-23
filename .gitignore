@@ -5,3 +5,5 @@ dist-electron/
 .DS_Store
 .vscode/*
 !.vscode/extensions.json
+scripts/screenshots/build/
+scripts/screenshots/fonts/
