@@ -1,27 +1,27 @@
 import { useEffect, useState } from 'react'
 import type { AutomationSettings, AutomationState } from '../../shared/types'
 import { formatBytes } from '../../shared/types'
-import { BackIcon, SaveIcon } from '../icons'
+import { SaveIcon } from '../icons'
 import { usePreferences } from '../preferences'
 
 const formatMoment = (ms: number, locale: string): string =>
   new Date(ms).toLocaleString(locale, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 
-export default function AutomationView({ onBack }: { onBack: () => void }) {
+export default function AutomationView() {
   const { t, m, locale } = usePreferences()
   const [state, setState] = useState<AutomationState | null>(null)
   const [settings, setSettings] = useState<AutomationSettings | null>(null)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   useEffect(() => { void window.cleanmycodex.getAutomation().then((next) => { setState(next); setSettings(next.settings) }) }, [])
-  if (!settings || !state) return <div className="detail-content"><section className="page-heading"><div className="page-title"><button className="icon-button detail-back-button" title={t('返回设置', 'Back to Settings')} aria-label={t('返回设置', 'Back to Settings')} onClick={onBack}><BackIcon /></button><div><h2>{t('定时清理', 'Scheduled Cleanup')}</h2></div></div></section><p className="empty-panel">{t('正在读取定时清理设置…', 'Loading scheduled cleanup settings…')}</p></div>
+  if (!settings || !state) return <div className="detail-content"><p className="empty-panel">{t('正在读取定时清理设置…', 'Loading scheduled cleanup settings…')}</p></div>
 
   /** Saving reinstalls the system task, so it stays inert until something actually changed. */
   const changed = JSON.stringify(settings) !== JSON.stringify(state.settings)
   const update = <K extends keyof AutomationSettings>(key: K, value: AutomationSettings[K]) => { setMessage(null); setSettings((current) => current ? { ...current, [key]: value } : current) }
   const save = async () => { setSaving(true); setMessage(null); try { const next = await window.cleanmycodex.saveAutomation(settings); setState(next); setSettings(next.settings); setMessage(t('设置已保存', 'Settings saved')) } catch (error) { setMessage(error instanceof Error ? error.message : String(error)) } finally { setSaving(false) } }
   return <div className="detail-content">
-    <section className="page-heading"><div className="page-title"><button className="icon-button detail-back-button" title={t('返回设置', 'Back to Settings')} aria-label={t('返回设置', 'Back to Settings')} onClick={onBack}><BackIcon /></button><div className="automation-heading"><h2>{t('定时清理', 'Scheduled Cleanup')}</h2>{(message || changed) && <span>{message ?? t('有未保存的修改', 'Unsaved changes')}</span>}</div></div><button className="icon-button save-icon-button" title={saving ? t('保存中…', 'Saving…') : t('保存', 'Save')} aria-label={saving ? t('保存中…', 'Saving…') : t('保存', 'Save')} disabled={!changed || saving || (settings.enabled && !state.supported)} onClick={save}><SaveIcon /></button></section>
+    <section className="view-toolbar"><span className="view-toolbar-hint">{(message || changed) ? (message ?? t('有未保存的修改', 'Unsaved changes')) : t('修改后需要保存才会生效', 'Changes take effect once saved')}</span><button className="btn" disabled={!changed || saving || (settings.enabled && !state.supported)} onClick={save}><SaveIcon /><span>{saving ? t('保存中…', 'Saving…') : t('保存', 'Save')}</span></button></section>
     {!state.supported && <p className="notice warning">{t('定时后台清理目前支持 macOS 和 Windows。', 'Scheduled background cleanup is currently supported on macOS and Windows.')}</p>}
     {state.supported && state.settings.enabled && !state.loaded && <p className="notice warning">{t('定时任务没有在系统里运行，保存一次设置可以重新安装。', 'The scheduled task is not running. Save the settings to reinstall it.')}</p>}
     <section className="card form-card">

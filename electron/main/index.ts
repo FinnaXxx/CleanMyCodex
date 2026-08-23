@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, ipcMain, Notification } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, nativeTheme, Notification } from 'electron'
 import { join } from 'node:path'
 import { rm } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
@@ -169,6 +169,12 @@ ipcMain.handle('automation:get', () => getAutomationState())
 ipcMain.handle('automation:save', (_event, settings: AutomationSettings) => applyAutomationSettings(settings))
 ipcMain.handle('preferences:language', (_event, language: Language) => saveUILanguage(language))
 
+// The renderer owns the theme choice, including "follow the system", so it tells the
+// window which backdrop to paint behind the interface.
+ipcMain.handle('window:theme', (_event, dark: boolean) => {
+  mainWindow?.setBackgroundColor(dark ? WindowBackdrop.dark : WindowBackdrop.light)
+})
+
 ipcMain.handle('cleanup:prepare', (_event, selection: CleanupSelection) => {
   const tasks = trustedTasks(selection)
   return makeCleanupPreview(selection, tasks, codexEnvironment())
@@ -256,15 +262,28 @@ function cleanupDependencies(): CleanupDeps {
   }
 }
 
+/** The backdrop behind the interface, so a resize never flashes the opposite appearance. */
+const WindowBackdrop = { light: '#eceef4', dark: '#131417' }
+
+function windowBackdrop(): string {
+  return nativeTheme.shouldUseDarkColors ? WindowBackdrop.dark : WindowBackdrop.light
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 1140,
-    height: 760,
-    minWidth: 1040,
-    minHeight: 640,
+    width: 1180,
+    height: 800,
+    minWidth: 960,
+    minHeight: 620,
     show: false,
     autoHideMenuBar: true,
     title: 'Clean My Codex',
+    backgroundColor: windowBackdrop(),
+    // The interface draws its own toolbar, so macOS only keeps the window controls and
+    // the sidebar runs to the top of the window like a native app.
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 19, y: 21 } }
+      : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
@@ -273,6 +292,7 @@ function createWindow(): void {
     }
   })
   mainWindow.on('ready-to-show', () => mainWindow?.show())
+  nativeTheme.on('updated', () => mainWindow?.setBackgroundColor(windowBackdrop()))
   mainWindow.on('closed', () => { mainWindow = null })
   mainWindow.webContents.setWindowOpenHandler(({ url }) => { void openExternalWebURL(url); return { action: 'deny' } })
   mainWindow.webContents.on('will-navigate', (event, url) => {

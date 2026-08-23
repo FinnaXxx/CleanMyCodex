@@ -1,20 +1,11 @@
 import type { ReactNode } from 'react'
-import { BackIcon } from '../icons'
 import { usePreferences, type LanguagePreference, type ThemePreference } from '../preferences'
 
-export default function SettingsView({ onBack, onOpenScheduledCleanup }: {
-  onBack: () => void
+export default function SettingsView({ onOpenScheduledCleanup }: {
   onOpenScheduledCleanup: () => void
 }) {
   const { theme, language, setTheme, setLanguage, t } = usePreferences()
   return <div className="detail-content settings-content">
-    <section className="page-heading">
-      <div className="page-title">
-        <button className="icon-button detail-back-button" title={t('返回', 'Back')} aria-label={t('返回', 'Back')} onClick={onBack}><BackIcon /></button>
-        <div><h2>{t('设置', 'Settings')}</h2></div>
-      </div>
-    </section>
-
     <SettingsGroup title={t('外观', 'Appearance')}>
       <SettingsRow title={t('主题', 'Theme')} detail={t('选择界面的明暗外观', 'Choose how the interface looks')}>
         <SegmentedControl value={theme} onChange={(value) => setTheme(value as ThemePreference)} options={[
