@@ -11,9 +11,12 @@ import { MessageError, SCAN_STOPPED, message } from '../../shared/messages'
  * use the rollout files and local indexes/databases directly. */
 
 export interface InstalledPlugin {
+  marketplace: string | null
   name: string
   version: string | null
   directory: string | null
+  /** null is used for older plugin/list response shapes that did not expose it. */
+  installed: boolean | null
 }
 
 /** Locate the `codex` CLI, honouring `CODEX_BINARY` and the usual install paths. */
@@ -250,29 +253,34 @@ export class AppServerClient {
  * Older shapes (a bare array, or a top-level `plugins` list) are still accepted.
  */
 export function parsePlugins(response: unknown): InstalledPlugin[] {
-  const rows: Record<string, unknown>[] = []
+  const rows: Array<{ marketplace: string | null; plugin: Record<string, unknown> }> = []
   if (Array.isArray(response)) {
-    rows.push(...(response as Record<string, unknown>[]))
+    rows.push(...(response as Record<string, unknown>[]).map((plugin) => ({ marketplace: null, plugin })))
   } else if (response && typeof response === 'object') {
     const object = response as Record<string, unknown>
     for (const key of ['plugins', 'items', 'installed', 'entries']) {
       const list = object[key]
-      if (Array.isArray(list)) rows.push(...(list as Record<string, unknown>[]))
+      if (Array.isArray(list)) {
+        rows.push(...(list as Record<string, unknown>[]).map((plugin) => ({ marketplace: null, plugin })))
+      }
     }
     for (const key of ['marketplaces', 'sources', 'registries']) {
       const marketplaces = object[key]
       if (!Array.isArray(marketplaces)) continue
       for (const marketplace of marketplaces as Record<string, unknown>[]) {
+        const marketplaceName = firstString(marketplace, ['name', 'id', 'marketplace']) ?? null
         for (const inner of ['plugins', 'items', 'entries']) {
           const list = marketplace[inner]
-          if (Array.isArray(list)) rows.push(...(list as Record<string, unknown>[]))
+          if (Array.isArray(list)) {
+            rows.push(...(list as Record<string, unknown>[]).map((plugin) => ({ marketplace: marketplaceName, plugin })))
+          }
         }
       }
     }
   }
 
   return rows
-    .map((row): InstalledPlugin | null => {
+    .map(({ marketplace, plugin: row }): InstalledPlugin | null => {
       const name = firstString(row, ['name', 'pluginName', 'plugin']) ?? idName(row['id'])
       if (!name || !name.length) return null
       const version = firstString(row, ['localVersion', 'version', 'installedVersion', 'currentVersion', 'resolvedVersion'])
@@ -281,7 +289,8 @@ export function parsePlugins(response: unknown): InstalledPlugin[] {
         directory = firstString(row['source'] as Record<string, unknown>, ['path', 'directory', 'root', 'location'])
       }
       if (directory?.startsWith('~/')) directory = join(homedir(), directory.slice(2))
-      return { name, version: version ?? null, directory: directory ?? null }
+      const installed = typeof row['installed'] === 'boolean' ? row['installed'] as boolean : null
+      return { marketplace, name, version: version ?? null, directory: directory ?? null, installed }
     })
     .filter((p): p is InstalledPlugin => p !== null)
 }

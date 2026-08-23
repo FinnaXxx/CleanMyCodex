@@ -24,6 +24,7 @@ export type MessageKey =
   | 'category.temporary.title' | 'category.temporary.detail'
   | 'category.marketplaceCache.title' | 'category.marketplaceCache.detail'
   | 'category.pluginRemnants.title' | 'category.pluginRemnants.detail'
+  | 'category.pluginOrphans.title' | 'category.pluginOrphans.detail'
   | 'category.pluginRuntime.title' | 'category.pluginRuntime.detail'
   | 'category.browserCache.title' | 'category.browserCache.detail'
   | 'category.appCache.title' | 'category.appCache.detail'
@@ -35,13 +36,13 @@ export type MessageKey =
   | 'note.marketplaceStaging' | 'note.marketplaceCopy' | 'note.installLeftover' | 'note.idleThreeDays'
   | 'note.rebuildableCache' | 'note.oldAppLog' | 'note.logDatabase' | 'note.sessionProjection'
   | 'note.localMarketplace' | 'note.configOrCredentials' | 'note.stateDatabase' | 'note.browserProfile'
-  | 'note.computerUseComponent' | 'note.currentPlugin' | 'note.unconfirmedPlugin' | 'note.pluginRuntime'
+  | 'note.computerUseComponent' | 'note.builtinPlugin' | 'note.currentPlugin' | 'note.unconfirmedPlugin' | 'note.pluginRuntime'
   // Entry tags
-  | 'tag.current' | 'tag.unconfirmed' | 'tag.runtime' | 'tag.outdated' | 'tag.orphaned'
+  | 'tag.builtin' | 'tag.current' | 'tag.unconfirmed' | 'tag.runtime' | 'tag.outdated' | 'tag.orphaned'
   // Enumerations
   | 'group.recommended' | 'group.review' | 'group.protectedData'
   | 'location.active' | 'location.archived'
-  | 'pluginStatus.current' | 'pluginStatus.outdated' | 'pluginStatus.orphaned' | 'pluginStatus.unconfirmed'
+  | 'pluginStatus.builtin' | 'pluginStatus.current' | 'pluginStatus.outdated' | 'pluginStatus.orphaned' | 'pluginStatus.unconfirmed'
   | 'repoState.clean' | 'repoState.dirty' | 'repoState.unpushed' | 'repoState.unknown' | 'repoState.unchecked'
   | 'status.succeeded' | 'status.skipped' | 'status.failed'
   // Scan progress stages
@@ -97,8 +98,10 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'category.temporary.detail': ['安装和更新过程留下的临时目录', 'Temporary folders left by installs and updates'],
   'category.marketplaceCache.title': ['插件市场缓存', 'Marketplace Cache'],
   'category.marketplaceCache.detail': ['可重新下载，离线时会影响插件安装', 'Downloadable again; removing it affects offline plugin installs'],
-  'category.pluginRemnants.title': ['老版本插件与卸载残留', 'Old Plugins & Leftovers'],
-  'category.pluginRemnants.detail': ['旧版本与卸载残留', 'Old versions and uninstall leftovers'],
+  'category.pluginRemnants.title': ['老版本插件', 'Old Plugin Versions'],
+  'category.pluginRemnants.detail': ['已有明确当前版本，可清理的旧版本', 'Older versions with a confirmed current version'],
+  'category.pluginOrphans.title': ['疑似卸载残留', 'Possible Plugin Leftovers'],
+  'category.pluginOrphans.detail': ['需要人工确认，不会默认或定时清理', 'Requires manual review; never selected or cleaned automatically'],
   'category.pluginRuntime.title': ['当前插件与运行组件', 'Current Plugins & Runtime'],
   'category.pluginRuntime.detail': ['已统计但不会自动删除', 'Counted, but never removed automatically'],
   'category.browserCache.title': ['浏览器与渲染缓存', 'Browser & Rendering Cache'],
@@ -127,10 +130,12 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'note.stateDatabase': ['Codex 状态数据库', 'Codex state database'],
   'note.browserProfile': ['浏览器配置与登录状态', 'Browser configuration and sign-in state'],
   'note.computerUseComponent': ['Computer Use 辅助组件，删除后需要重新下载', 'Computer Use helper component; must be downloaded again if removed'],
+  'note.builtinPlugin': ['Codex 官方内置插件', 'Official Codex built-in plugin'],
   'note.currentPlugin': ['当前使用的插件版本', 'Plugin version currently in use'],
   'note.unconfirmedPlugin': ['无法确认状态的插件版本', 'Plugin version whose status could not be confirmed'],
   'note.pluginRuntime': ['Codex 插件运行组件', 'Codex plugin runtime component'],
 
+  'tag.builtin': ['官方内置', 'Official built-in'],
   'tag.current': ['当前版本', 'Current'],
   'tag.unconfirmed': ['未确认', 'Unverified'],
   'tag.runtime': ['运行组件', 'Runtime'],
@@ -144,6 +149,7 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'location.active': ['未归档', 'Active'],
   'location.archived': ['已归档', 'Archived'],
 
+  'pluginStatus.builtin': ['官方内置', 'Official built-in'],
   'pluginStatus.current': ['当前版本', 'Current'],
   'pluginStatus.outdated': ['旧版本', 'Outdated'],
   'pluginStatus.orphaned': ['卸载残留', 'Leftover'],

@@ -27,7 +27,8 @@ function snapshot(): ScanSnapshot {
       { kind: 'temporary', group: 'recommended', risk: 'safe', entries: [storage('safe')] },
       { kind: 'marketplaceCache', group: 'review', risk: 'rebuildable', entries: [storage('market', 'rebuildable')] },
       { kind: 'protectedConfig', group: 'protectedData', risk: 'shielded', entries: [storage('shielded', 'shielded')] },
-      { kind: 'pluginRemnants', group: 'recommended', risk: 'safe', entries: [storage('old-plugin')] }
+      { kind: 'pluginRemnants', group: 'recommended', risk: 'safe', entries: [storage('old-plugin')] },
+      { kind: 'pluginOrphans', group: 'review', risk: 'caution', entries: [storage('orphan-plugin', 'caution')] }
     ],
     sessions: [session('active'), session('unstable', { isUnstable: true }), session('compressed', { isCompressed: true })],
     pluginVersions: [
@@ -50,6 +51,15 @@ describe('trusted cleanup planner', () => {
     const snap = snapshot()
     const tasks = buildTrustedTasks({ kind: 'plugins', ids: ['/codex/plugins/current', '/codex/plugins/old', '/etc'] }, snap, snap.workspace)
     expect(tasks.map((task) => task.url)).toEqual(['/codex/plugins/old'])
+  })
+
+  it('revalidates overview plugin entries against the latest plugin versions', () => {
+    const snap = snapshot()
+    const stale = snap.categories.find((category) => category.kind === 'pluginOrphans')!.entries[0]
+    stale.url = '/codex/plugins/current'
+    expect(buildTrustedTasks({ kind: 'storage', ids: [stale.id] }, snap, snap.workspace)).toEqual([])
+    snap.pluginVersions[0].status = 'orphaned'
+    expect(buildTrustedTasks({ kind: 'storage', ids: [stale.id] }, snap, snap.workspace)).toHaveLength(1)
   })
 
   it('always plans session deletion as a recoverable Trash operation', () => {
@@ -130,6 +140,7 @@ describe('automatic cleanup planner', () => {
     const tasks = buildAutomaticTasks(snap, settings, 100 * 86_400_000)
     expect(tasks.map((task) => task.id)).toContain('safe')
     expect(tasks.map((task) => task.id)).toContain('old-plugin')
+    expect(tasks.map((task) => task.id)).not.toContain('orphan-plugin')
     expect(tasks.map((task) => task.id)).not.toContain('market')
     expect(tasks.map((task) => task.threadID)).toContain('active')
     expect(tasks.map((task) => task.threadID)).not.toContain('unstable')
