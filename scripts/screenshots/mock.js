@@ -22,22 +22,11 @@
   })
 
   const categories = [
-    { kind: 'appCache', group: 'recommended', risk: 'rebuildable', entries: [
-      entry('cache-main', 'Cache', 1.62 * GiB, { note: 'note.rebuildableCache', risk: 'rebuildable', stopped: true, url: '~/Library/Application Support/Codex/Cache' }),
-      entry('cache-graphite', 'GraphiteDawnCache', 412 * MiB, { note: 'note.rebuildableCache', risk: 'rebuildable', stopped: true, url: '~/Library/Application Support/Codex/GraphiteDawnCache' }),
-      entry('cache-codex', 'cache', 268 * MiB, { note: 'note.rebuildableCache', risk: 'rebuildable', stopped: true, url: `${HOME}/cache` })
-    ] },
-    { kind: 'browserCache', group: 'recommended', risk: 'rebuildable', entries: [
-      entry('browser-cache', 'browser/Default/Cache', 786 * MiB, { note: 'note.rebuildableCache', risk: 'rebuildable', stopped: true })
-    ] },
     { kind: 'temporary', group: 'recommended', risk: 'safe', entries: [
-      entry('staging-1', '.staging-8f2c1d', 143 * MiB, { note: 'note.marketplaceStaging', idle: 3600, url: `${HOME}/.tmp/bundled-marketplaces/.staging-8f2c1d` }),
-      entry('staging-2', '.staging-4a90be', 61 * MiB, { note: 'note.marketplaceStaging', idle: 3600, url: `${HOME}/.tmp/bundled-marketplaces/.staging-4a90be` })
+      entry('staging-1', '.staging-8f2c1d', 143 * MiB, { note: 'note.marketplaceStaging', idle: 86400, url: `${HOME}/.tmp/bundled-marketplaces/.staging-8f2c1d` }),
+      entry('staging-2', '.staging-4a90be', 61 * MiB, { note: 'note.installLeftover', idle: 86400, url: `${HOME}/.tmp/.staging-4a90be` })
     ] },
-    { kind: 'marketplaceCache', group: 'review', risk: 'caution', entries: [
-      entry('marketplace', 'bundled-marketplaces', 96 * MiB, { note: 'note.marketplaceCopy', risk: 'caution', url: `${HOME}/.tmp/bundled-marketplaces` })
-    ] },
-    { kind: 'appLogs', group: 'recommended', risk: 'safe', entries: [
+    { kind: 'appLogs', group: 'review', risk: 'safe', entries: [
       entry('log-1', 'codex-2026-07-02.log', 46 * MiB, { note: 'note.oldAppLog' }),
       entry('log-2', 'codex-2026-06-28.log', 38 * MiB, { note: 'note.oldAppLog' }),
       entry('log-3', 'codex-2026-06-21.log', 21 * MiB, { note: 'note.oldAppLog' })
@@ -49,16 +38,23 @@
       entry('thread-history', 'thread_history_v3.sqlite', 1.24 * GiB, { note: 'note.sessionProjection', risk: 'shielded' })
     ] },
     { kind: 'pluginRemnants', group: 'recommended', risk: 'safe', entries: [
-      entry('plugin-old-1', 'code-review@0.4.2', 214 * MiB, { tags: [['tag.outdated', 'info']], url: `${HOME}/plugins/code-review/0.4.2` }),
-      entry('plugin-old-2', 'browser-tools@1.2.0', 168 * MiB, { tags: [['tag.outdated', 'info']], url: `${HOME}/plugins/browser-tools/1.2.0` }),
-      entry('plugin-old-3', 'deep-research@0.9.1', 96 * MiB, { tags: [['tag.outdated', 'info']], url: `${HOME}/plugins/deep-research/0.9.1` })
+      entry('plugin-old-1', 'code-review · 0.4.2', 214 * MiB, { tags: [['tag.outdated', 'neutral']], stopped: true, url: `${HOME}/plugins/code-review/0.4.2` }),
+      entry('plugin-old-2', 'browser-tools · 1.2.0', 168 * MiB, { tags: [['tag.outdated', 'neutral']], stopped: true, url: `${HOME}/plugins/browser-tools/1.2.0` }),
+      entry('plugin-old-3', 'deep-research · 0.9.1', 96 * MiB, { tags: [['tag.outdated', 'neutral']], stopped: true, url: `${HOME}/plugins/deep-research/0.9.1` })
     ] },
     { kind: 'pluginOrphans', group: 'review', risk: 'caution', entries: [
-      entry('plugin-orphan', 'sql-explorer@0.3.0', 74 * MiB, { note: 'note.installLeftover', tags: [['tag.orphaned', 'caution']], risk: 'caution', url: `${HOME}/plugins/sql-explorer/0.3.0` })
+      entry('plugin-orphan', 'sql-explorer · 0.3.0', 74 * MiB, { tags: [['tag.orphaned', 'caution']], risk: 'caution', stopped: true, url: `${HOME}/plugins/sql-explorer/0.3.0` })
     ] },
     { kind: 'pluginRuntime', group: 'protectedData', risk: 'shielded', entries: [
-      entry('plugin-current', 'code-review@0.5.1', 236 * MiB, { note: 'note.currentPlugin', tags: [['tag.current', 'neutral']], risk: 'shielded', url: `${HOME}/plugins/code-review/0.5.1` }),
-      entry('plugin-runtime', 'python-3.12-env', 384 * MiB, { note: 'note.pluginRuntime', tags: [['tag.runtime', 'neutral']], risk: 'shielded', url: `${HOME}/plugins/.venvs/python-3.12` })
+      entry('plugin-current', 'code-review · 0.5.1', 236 * MiB, { note: 'note.currentPlugin', tags: [['tag.current', 'neutral']], risk: 'shielded', url: `${HOME}/plugins/code-review/0.5.1` }),
+      entry('plugin-appserver', '.plugin-appserver', 384 * MiB, { note: 'note.pluginRuntime', tags: [['tag.runtime', 'info']], risk: 'shielded', url: `${HOME}/.plugin-appserver` })
+    ] },
+    { kind: 'codexCache', group: 'protectedData', risk: 'shielded', entries: [
+      entry('codex-cache', 'cache', 268 * MiB, { note: 'note.codexOperationalCache', risk: 'shielded', url: `${HOME}/cache` })
+    ] },
+    { kind: 'appCache', group: 'protectedData', risk: 'shielded', entries: [
+      entry('app-cache-1', 'Codex', 1.62 * GiB, { note: 'note.platformCache', risk: 'shielded', url: '~/Library/Caches/Codex' }),
+      entry('app-cache-2', 'com.openai.codex', 412 * MiB, { note: 'note.platformCache', risk: 'shielded', url: '~/Library/Caches/com.openai.codex' })
     ] },
     { kind: 'protectedConfig', group: 'protectedData', risk: 'shielded', entries: [
       entry('state-db', 'state_v2.sqlite', 184 * MiB, { note: 'note.stateDatabase', risk: 'shielded' }),

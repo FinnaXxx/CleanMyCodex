@@ -19,34 +19,48 @@ English · [简体中文](README_CN.md)
 
 </div>
 
+## Before you start
+
+> [!IMPORTANT]
+> **This is a testing-stage release — back up first.** Cleanup deletes permanently,
+> and correct behaviour cannot be guaranteed for every Codex version on every machine.
+> Take a backup before your first cleanup.
+
+Pull requests are welcome. Issues describing what your own Codex directory looks like are
+just as useful — most of what the scanner has to get right is layout it has not seen yet.
+
 ## What it does
 
-Codex accumulates: caches it can rebuild in seconds, a rollout file for every
-conversation you have ever had, plugin versions it never got around to deleting, and
-whatever your sessions wrote to disk. Clean My Codex measures all of it in one pass,
-shows where the space actually went, and deletes what you tick — nothing else.
+Codex accumulates: a rollout file for every conversation you have ever had, plugin
+versions it never got around to deleting, staging folders abandoned by an interrupted
+update, and whatever your sessions wrote to disk. Clean My Codex measures all of it in
+one pass, shows where the space actually went, and deletes what you tick — nothing else.
 
 - **One scan, four areas.** The Codex data directory, sessions, plugins and workspace
   output, each with its own page and its own rules.
 - **Honest numbers.** A SQLite database contributes what it really occupies; its
   reusable free pages are never presented as space you can reclaim.
-- **Conservative by default.** Everything that is only counted, never deleted, is
-  labelled that way in the interface, and the recommended selection stays inside what is
-  genuinely safe.
+- **Conservative by default.** Nothing is recommended without positive evidence that it
+  is disposable, so a scan that recommends nothing is a normal result rather than a
+  failure. Everything that is only counted is labelled that way in the interface.
 - **Whole conversations.** A session that spans several rollout segments and several
   layers of subagents is one row in the list and one deletion, with every derived
   database and every desktop-side copy cleaned up alongside it.
-- **Scheduled cleanup.** Runs on an interval, skips pinned conversations, unfinished
-  goals and queued work, and never touches configuration or workspace output.
+- **Scheduled cleanup.** Runs on an interval over stale temporary folders, confirmed old
+  plugin versions and aged-out conversations only. It skips pinned conversations,
+  unfinished goals and queued work, and never touches caches, configuration or workspace
+  output.
 - **Bilingual, light and dark.** English and 简体中文, following the system appearance or
   a fixed choice.
 
 ### What it will not delete
 
-Configuration and credentials (`config.toml`, `auth.json`), the state database, the
-session projection database, the plugin version Codex is currently using and its
-runtimes, and — for scheduled runs — your workspace output. These are counted so the
-totals add up, and shown as protected.
+Configuration and credentials (`config.toml`, `auth.json`), the state and session
+projection databases, the plugin version Codex is currently using and its runtimes, the
+Chromium profile data your desktop sign-in lives in, and every cache — both Codex's own
+operational metadata cache and the desktop application's runtime caches. Workspace output
+is additionally out of scope for scheduled runs. All of it is counted so the totals add
+up, and shown as protected.
 
 ## Install
 
@@ -76,9 +90,9 @@ a worker so the interface never blocks. The result comes back in four parts:
   or unpushed work.
 
 A scan result is only a read-only snapshot. When cleanup runs, the main process rebuilds
-its task list from that snapshot and re-validates every path; configuration, credentials,
-the state database, the current plugins and workspace output never enter scheduled
-cleanup.
+its task list from that snapshot and re-validates every path; caches, configuration,
+credentials, the state database, the current plugins and workspace output never enter
+scheduled cleanup.
 
 ### Where the data comes from
 
@@ -112,15 +126,35 @@ Each source is scanned as what it actually is:
 - **`visualizations/YYYY/MM/DD/<thread-id>`** — the rich visual results Codex generates,
   such as JPG/PNG comparisons or HTML visualization previews. The date levels are walked
   recursively and attributed to the conversation they belong to.
-- **`~/.codex/cache`, and the top-level `Cache` / `GraphiteDawnCache` in Application
-  Support** — counted as rebuildable caches, and cleanable only once ChatGPT/Codex has
-  quit.
+- **`~/.codex/cache`** — the remote plugin catalog, tool definitions, connector runtime
+  and Apps server information Codex works from. Counted as protected data, with no way
+  to delete it.
+- **`~/Library/Caches/Codex`, `~/Library/Caches/com.openai.codex`** — the desktop
+  application's runtime caches. The container and every leaf directory inside it are
+  counted as protected data, with no way to delete them.
+- **The Chromium profile data your desktop sign-in lives in** — `Cookies`, `Network/`,
+  `Local Storage`, `Session Storage`, `IndexedDB`, `Service Worker`, `Preferences`,
+  `Web Data`, `Local State`, `Partitions/`, `codex-browser-app/` and the like. The root,
+  `Default/` and the desktop's own partition layout are all locked: counted, never
+  cleaned. Deletion is refused for the whole Application Support tree and for the
+  platform cache containers.
+- **`~/.codex/sqlite`, `.codex-global-state.json` and its `.bak`** — the desktop's own
+  session database and persisted state. Rows and keys go only when a session is deleted;
+  the files themselves are locked.
 - **`vendor_imports`, `shell_snapshots`, `attachments`, `ambient-suggestions`, `browser`,
   the Wasm TTS components and the goals/queue/memories databases** — counted towards
   usage, but kept locked.
 - **`.tmp/bundled-marketplaces`** — only the current `openai-bundled` source is
-  protected; a sibling `.staging-*` directory that has not been written to in over an
-  hour is listed as an update leftover.
+  protected; a sibling `.staging-*` directory that has not been written to in over 24
+  hours is listed as an update leftover. Any other unknown `.tmp` subdirectory is never
+  inferred to be disposable just because it has sat there a long time.
+
+**Recommended** on the overview holds two kinds of thing, and only these two, because
+they are the only ones backed by evidence beyond "it looks like a cache": install and
+update staging leftovers, which have to be more than 24 hours untouched, match a known
+path pattern, and not belong to the current source; and old plugin directories, where
+`plugin/list` has authoritatively confirmed a current version exists. When neither is
+present, nothing is recommended, and that is the correct answer rather than a failed scan.
 
 ### Sessions, segments and subagents
 
@@ -186,7 +220,8 @@ the wrong version to be removed.
 
 ### Logs
 
-Session deletion is written to a cleanup log: macOS
+Cleanup is written to a log — cache and leftover removals record the path and byte count
+of each deletion, including the ones that failed or were skipped: macOS
 `~/Library/Logs/CleanMyCodex/cleanup.log`, Windows
 `%APPDATA%\CleanMyCodex\logs\cleanup.log`, Linux
 `~/.config/CleanMyCodex/logs/cleanup.log`. Each deletion records the thread IDs that

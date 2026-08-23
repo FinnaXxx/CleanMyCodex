@@ -19,24 +19,37 @@
 
 </div>
 
+## 注意事项
+
+> [!IMPORTANT]
+> **当前是测试阶段，请提前备份。** 清理是永久删除，且不能保证在所有 Codex 版本、所有电脑上都能
+> 正常工作。第一次清理前请先备份。
+
+欢迎提 PR 共建。描述你自己的 Codex 目录长什么样的 issue 同样有用 —— 扫描器要处理对的，大部分是
+它还没见过的目录布局。
+
 ## 这是什么
 
-Codex 会不断堆积：几秒就能重建的缓存、每一次会话留下的 rollout 文件、一直没被删掉的插件旧版本，
-以及会话写到磁盘上的各种产出。Clean My Codex 一次扫清全部，告诉你空间到底去了哪里，然后只删掉你
-勾选的部分。
+Codex 会不断堆积：每一次会话留下的 rollout 文件、一直没被删掉的插件旧版本、更新中断留下的 staging
+目录，以及会话写到磁盘上的各种产出。Clean My Codex 一次扫清全部，告诉你空间到底去了哪里，然后只
+删掉你勾选的部分。
 
 - **一次扫描，四个方向。** Codex 数据目录、会话、插件和工作产出，各有各的页面和各自的规则。
 - **数字如实。** SQLite 数据库只统计实际占用，可复用的空闲页不会被算成可释放空间。
-- **默认保守。** 只统计、不删除的内容在界面上都会标出来，默认勾选范围始终落在确实安全的部分。
+- **默认保守。** 没有正面证据表明可以删的东西一律不推荐，所以扫描结果里推荐项为 0 是正常结果，
+  不是扫描失败。只统计、不删除的内容在界面上都会标出来。
 - **会话按整体处理。** 跨多个 rollout 分段、带多层子代理的会话在列表里是一行，删除也是一次，
   连带派生数据库和桌面端自己的那份副本一起清理。
-- **定时清理。** 按周期运行，跳过置顶会话、未完成的 goal 和排队中的任务，不碰配置和工作产出。
+- **定时清理。** 按周期运行，范围只有过期临时目录、已确认的插件旧版本和超过保留期的会话；跳过置顶
+  会话、未完成的 goal 和排队中的任务，不碰缓存、配置和工作产出。
 - **双语，明暗两套。** 简体中文与英文，跟随系统外观或固定选择。
 
 ### 不会被删除的东西
 
-配置与凭据（`config.toml`、`auth.json`）、状态数据库、会话投影数据库、Codex 当前正在使用的插件版本
-及其运行组件，以及定时清理时的工作产出。这些会被统计以保证总量对得上，并在界面上标记为受保护。
+配置与凭据（`config.toml`、`auth.json`）、状态数据库与会话投影数据库、Codex 当前正在使用的插件版本
+及其运行组件、承载桌面端登录的 Chromium 用户资料数据，以及全部缓存 —— 既包括 Codex 自己的运行元
+数据缓存，也包括桌面应用的运行缓存。工作产出另外不进入定时清理。这些都会被统计以保证总量对得上，
+并在界面上标记为受保护。
 
 ## 安装
 
@@ -59,7 +72,7 @@ Codex 会不断堆积：几秒就能重建的缓存、每一次会话留下的 r
 - **工作产出**：仅在用户打开对应页面后扫描，优先关联 SQLite 中的来源会话标题，并标记 git 未提交
   或未推送状态。
 
-扫描结果只是只读快照。执行清理时，主进程会根据快照重新生成任务并校验路径；配置、凭据、状态库、
+扫描结果只是只读快照。执行清理时，主进程会根据快照重新生成任务并校验路径；缓存、配置、凭据、状态库、
 当前插件和工作产出不会进入定时清理范围。
 
 ### 数据来源
@@ -84,12 +97,24 @@ Codex 会不断堆积：几秒就能重建的缓存、每一次会话留下的 r
 - **`generated_images/<thread-id>`**：会话生成的独立图片目录。
 - **`visualizations/YYYY/MM/DD/<thread-id>`**：Codex 生成的富视觉结果，例如 JPG/PNG 对比图或 HTML
   可视化预览。扫描时会递归识别日期层级并归到对应会话。
-- **`~/.codex/cache`、App Support 顶层 `Cache`/`GraphiteDawnCache`**：作为可重建缓存统计，要求
-  ChatGPT/Codex 退出后才能清理。
+- **`~/.codex/cache`**：Codex 使用的远程插件目录、工具定义、connector runtime 和 Apps server 信息，
+  作为受保护数据统计，不提供删除。
+- **`~/Library/Caches/Codex`、`~/Library/Caches/com.openai.codex`**：桌面应用运行缓存，容器及其所有
+  叶子目录都作为受保护数据统计，不提供删除。
+- **承载桌面端登录的 Chromium 用户资料数据**：`Cookies`、`Network/`、`Local Storage`、
+  `Session Storage`、`IndexedDB`、`Service Worker`、`Preferences`、`Web Data`、`Local State`、
+  `Partitions/`、`codex-browser-app/` 等。根目录、`Default/` 和桌面端专用分区布局都锁定，只统计不
+  清理；整个 App Support 和平台应用缓存容器都禁止删除。
+- **`~/.codex/sqlite`、`.codex-global-state.json` 及其 `.bak`**：桌面端自己的会话库和持久状态，只在
+  删除会话时按 thread ID 删行或删键，文件本身锁定。
 - **`vendor_imports`、`shell_snapshots`、`attachments`、`ambient-suggestions`、`browser`、Wasm TTS
   组件及 goals/queue/memories 数据库**：纳入占用统计但保持锁定。
-- **`.tmp/bundled-marketplaces`**：只保护当前 `openai-bundled` 源；超过一小时未更新的同级
-  `.staging-*` 目录作为更新残留列出。
+- **`.tmp/bundled-marketplaces`**：只保护当前 `openai-bundled` 源；超过 24 小时未更新的同级
+  `.staging-*` 目录作为更新残留列出。其他未知 `.tmp` 子目录不会因为存放时间长就自动推断为可删。
+
+首页「建议清理」只包含两类有额外证据的内容：超过 24 小时未写入、路径模式明确且不属于当前源的安装／
+更新 staging 残留；以及 `plugin/list` 权威确认已有当前版本的旧插件目录。没有这两类内容时，推荐项
+为 0 是正常结果。
 
 ### 会话、分段与子代理
 
@@ -132,7 +157,7 @@ Visualization 目录。
 
 ### 日志
 
-会话删除会写入清理日志：macOS `~/Library/Logs/CleanMyCodex/cleanup.log`，
+清理会写入清理日志（缓存和残留清理逐条记录删掉的路径与字节数，删除失败或跳过的也记）：macOS `~/Library/Logs/CleanMyCodex/cleanup.log`，
 Windows `%APPDATA%\CleanMyCodex\logs\cleanup.log`，
 Linux `~/.config/CleanMyCodex/logs/cleanup.log`。每次删除记录解析出的 thread ID、`thread/delete`
 是否可用、本地复查删掉了多少行，以及桌面端的哪张表、哪个状态文件被清理了多少条，超过 1 MB 保留

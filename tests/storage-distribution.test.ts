@@ -26,7 +26,7 @@ describe('overview storage distribution', () => {
     expect(Object.fromEntries(result.items.map((item) => [item.kind, item.bytes]))).toMatchObject({
       workspace: 500,
       sessions: 400,
-      caches: 100,
+      protectedData: 100,
       other: 500
     })
     expect(result.total).toBe(1_500)

@@ -26,16 +26,71 @@ describe('cleanup path guard', () => {
     expect(rejection(() => guard.validate(locations.workspace))).toBe('guard.wholeDataRoot')
   })
 
-  it('allows dedicated app cache roots but keeps other data roots protected', () => {
+  it('locks named cache directories and whole data roots', () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
     const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
     for (const cache of locations.appCaches) mkdirSync(cache, { recursive: true })
     mkdirSync(locations.appSupport, { recursive: true })
     const guard = new ProtectedPaths(locations)
 
-    for (const cache of locations.appCaches) expect(() => guard.validate(cache)).not.toThrow()
+    for (const cache of locations.appCaches) expect(rejection(() => guard.validate(cache))).toBe('guard.protectedPath')
+    expect(locations.appCacheContainers.length).toBeGreaterThan(0)
+    // The container and every child remain locked; a cache-shaped name is not deletion
+    // authority.
+    for (const container of locations.appCacheContainers) {
+      expect(rejection(() => guard.validate(container))).toBe('guard.wholeDataRoot')
+    }
     expect(rejection(() => guard.validate(locations.home))).toBe('guard.wholeDataRoot')
     expect(rejection(() => guard.validate(locations.appSupport))).toBe('guard.wholeDataRoot')
+  })
+
+  it('rejects every unnamed path inside desktop data roots', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const guard = new ProtectedPaths(locations)
+    const unknownProfile = join(locations.appSupport, 'Future Profile', 'Future Storage')
+    const unknownCacheState = join(locations.appCacheContainers[0], 'session-state')
+    mkdirSync(unknownProfile, { recursive: true })
+    mkdirSync(unknownCacheState, { recursive: true })
+
+    expect(rejection(() => guard.validate(unknownProfile))).toBe('guard.protectedPath')
+    expect(rejection(() => guard.validate(unknownCacheState))).toBe('guard.protectedPath')
+  })
+
+  it('protects login-bearing profile data in both Chromium profile layouts', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const guard = new ProtectedPaths(locations)
+    // Cookies moved under Network/ in current Chromium, and the desktop app runs with a
+    // Default profile on some builds and straight in the user-data root on others.
+    for (const relative of ['Network', 'Network/Cookies', 'Local Storage', 'Service Worker', 'Local State',
+      'codex-browser-app', 'Default/Network/Cookies', 'Default/Local Storage', 'Default/Service Worker',
+      'Default/Partitions', 'Default/Partitions/codex-browser-app']) {
+      const path = join(locations.appSupport, relative)
+      mkdirSync(path, { recursive: true })
+      expect(rejection(() => guard.validate(path)), relative).toBe('guard.protectedPath')
+    }
+    // The desktop's own conversation store and persisted state never go either.
+    for (const relative of ['sqlite', '.codex-global-state.json']) {
+      const path = join(locations.home, relative)
+      mkdirSync(path, { recursive: true })
+      expect(rejection(() => guard.validate(path)), relative).toBe('guard.protectedPath')
+    }
+  })
+
+  it('locks cache-shaped paths in App Support and platform-cache containers', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const guard = new ProtectedPaths(locations)
+    for (const relative of ['Cache', 'Default/Cache', 'GraphiteDawnCache']) {
+      const path = join(locations.appSupport, relative)
+      mkdirSync(path, { recursive: true })
+      expect(rejection(() => guard.validate(path)), path).toBe('guard.protectedPath')
+    }
+    for (const path of locations.appCaches) {
+      mkdirSync(path, { recursive: true })
+      expect(rejection(() => guard.validate(path)), path).toBe('guard.protectedPath')
+    }
   })
 
   it('rejects parents of protected files and symlinks outside writable roots', () => {

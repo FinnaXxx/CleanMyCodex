@@ -100,7 +100,9 @@ function pluginEntries(plugins: PluginVersionItem[], status: 'outdated' | 'orpha
       bytes: plugin.bytes,
       reclaimableBytes: plugin.bytes,
       minimumIdleSeconds: null,
-      requiresCodexStopped: false,
+      // Plugin helpers may still be executing code from an old version while the desktop
+      // app is open. Even an inventory-confirmed remnant is only removed after full exit.
+      requiresCodexStopped: true,
       risk
     })).sort((a, b) => b.bytes - a.bytes)
 }

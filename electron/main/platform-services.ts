@@ -15,6 +15,7 @@ const MAC_BUNDLE_IDS = ['com.openai.codex', 'com.openai.chat']
 const MAC_DESKTOP_PATH = /(?:Codex|ChatGPT)\.app[/\\]Contents[/\\]/i
 const MAC_DESKTOP_MAIN_PATH = /(?:Codex|ChatGPT)\.app[/\\]Contents[/\\]MacOS[/\\](?:Codex|ChatGPT)(?=$|\s)/i
 const MAC_DESKTOP_SESSION_SERVICE_PATH = /(?:Codex|ChatGPT)\.app[/\\]Contents[/\\]Resources[/\\]codex(?:\s|$).*\bapp-server\b/i
+const MAC_DESKTOP_CRASHPAD_PATH = /(?:Codex|ChatGPT)\.app[/\\]Contents[/\\].*[/\\](?:browser|chrome)_crashpad_handler(?=$|\s)/i
 const COMPUTER_USE_HELPER_PATH = /Codex Computer Use\.app[/\\]Contents[/\\]MacOS[/\\]SkyComputerUseService/i
 
 export function codexEnvironment(): CodexEnvironment {
@@ -32,11 +33,11 @@ export function codexEnvironment(): CodexEnvironment {
   const commands = detected.filter(isCodexProcessCommand)
   const desktop = commands.filter(isCodexDesktopProcessCommand)
   const cli = commands.filter((command) => !isCodexDesktopProcessCommand(command))
-  // Electron helpers (especially orphaned crashpad handlers) can outlive the app.
-  // Ignore those, but keep waiting for the bundled app-server because it owns the
-  // thread-history SQLite handles and can still write while the UI is gone.
+  // Chromium's network/storage/renderer helpers can keep profile handles open after the
+  // main window disappears. Wait for all desktop children except crashpad, whose only
+  // job is reporting crashes and which commonly survives a normal app quit.
   const desktopRunning = process.platform === 'darwin'
-    ? commands.some((command) => isCodexDesktopMainProcessCommand(command) || isCodexDesktopSessionServiceCommand(command))
+    ? commands.some(isCodexDesktopActiveProcessCommand)
     : desktop.length > 0
   const blockers: Message[] = []
   if (desktopRunning) blockers.push(message('blocker.desktopRunning'))
@@ -92,7 +93,7 @@ function runningMacDesktopProcessIDs(): number[] {
   const result = spawnSync('/bin/ps', ['-Ao', 'pid=,command='], { encoding: 'utf8', timeout: 5_000 })
   if (result.status !== 0) return []
   return (result.stdout ?? '').split(/\r?\n/).flatMap((line): number[] => {
-    if (!isCodexDesktopMainProcessCommand(line) && !isCodexDesktopSessionServiceCommand(line)) return []
+    if (!isCodexDesktopActiveProcessCommand(line)) return []
     const pid = Number(line.trim().match(/^(\d+)/)?.[1])
     return Number.isInteger(pid) && pid > 1 ? [pid] : []
   })
@@ -144,6 +145,9 @@ export function isCodexDesktopMainProcessCommand(command: string): boolean {
 }
 export function isCodexDesktopSessionServiceCommand(command: string): boolean {
   return MAC_DESKTOP_SESSION_SERVICE_PATH.test(command)
+}
+export function isCodexDesktopActiveProcessCommand(command: string): boolean {
+  return isCodexDesktopProcessCommand(command) && !MAC_DESKTOP_CRASHPAD_PATH.test(command)
 }
 function execFilePromise(file: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => execFile(file, args, { timeout: 10_000 }, (error) => error ? reject(error) : resolve()))

@@ -1,9 +1,30 @@
 import { homedir, platform } from 'node:os'
-import { join, normalize, win32 } from 'node:path'
+import { join, normalize } from 'node:path'
 
-export function windowsAppCacheDirectories(localAppData: string): string[] {
-  const relatives = ['Cache', 'Code Cache', 'GPUCache', 'ShaderCache', 'GrShaderCache']
-  return ['Codex', 'com.openai.codex'].flatMap((root) => relatives.map((name) => win32.join(localAppData, root, name)))
+/** Chromium cache directory names observed across desktop app versions. */
+const CACHE_DIRECTORY_NAMES = [
+  'Cache',
+  'Code Cache',
+  'GPUCache',
+  'ShaderCache',
+  'GrShaderCache',
+  'DawnCache',
+  'DawnGraphiteCache',
+  'DawnWebGPUCache',
+  'GraphiteDawnCache'
+]
+
+/**
+ * The cache directories inside one application cache container, and inside its `Default`
+ * profile. Never the container itself: an application's cache directory is its own
+ * private space. These names are used only to account for known cache leaves; both the
+ * leaves and anything beside them remain protected from deletion.
+ */
+export function appCacheDirectories(container: string, path = { join }): string[] {
+  return [
+    ...CACHE_DIRECTORY_NAMES.map((name) => path.join(container, name)),
+    ...CACHE_DIRECTORY_NAMES.map((name) => path.join(container, 'Default', name))
+  ]
 }
 
 /**
@@ -15,7 +36,7 @@ export function windowsAppCacheDirectories(localAppData: string): string[] {
  * - `home` — Codex' runtime data (`~/.codex`, or `CODEX_HOME`).
  * - `library` — profile and application-support data. macOS `~/Library`, Windows
  *   `%APPDATA%`, Linux `$XDG_CONFIG_HOME`.
- * - `caches` — rebuildable caches. macOS `~/Library/Caches`, Windows `%LOCALAPPDATA%`,
+ * - `caches` — platform cache roots. macOS `~/Library/Caches`, Windows `%LOCALAPPDATA%`,
  *   Linux `$XDG_CACHE_HOME`.
  *
  * `documents` holds the sandbox workspace (`~/Documents/Codex`).
@@ -86,17 +107,24 @@ export class CodexLocations {
     return join(this.library, platform() === 'darwin' ? 'Application Support/Codex' : 'Codex')
   }
 
-  get appCaches(): string[] {
+  /**
+   * The per-product cache containers. Read for size accounting and used as roots the
+   * guard recognizes as protected roots — never as deletion targets. Installers,
+   * updaters and future builds may put state beside cache-shaped folders below them.
+   */
+  get appCacheContainers(): string[] {
     switch (platform()) {
       case 'darwin':
-        return [join(this.caches, 'Codex'), join(this.caches, 'com.openai.codex')]
       case 'win32':
-        // Never classify the whole LocalAppData/Codex directory as cache: installers and
-        // future builds may put executable or profile data beside these well-known folders.
-        return windowsAppCacheDirectories(this.caches)
+        return [join(this.caches, 'Codex'), join(this.caches, 'com.openai.codex')]
       default:
         return [join(this.caches, 'Codex')]
     }
+  }
+
+  /** Recognized cache leaves inside those containers, shown as protected usage. */
+  get appCaches(): string[] {
+    return this.appCacheContainers.flatMap((container) => appCacheDirectories(container))
   }
 
   get appLogs(): string {
@@ -108,34 +136,9 @@ export class CodexLocations {
     return join(this.caches, 'CleanMyCodex')
   }
 
-  /** Chromium-style caches that the desktop app rebuilds on demand. */
-  get browserCacheDirectories(): string[] {
-    return [
-      'Default/Cache',
-      'Default/Code Cache',
-      'Default/DawnGraphiteCache',
-      'Default/DawnWebGPUCache',
-      'Default/GPUCache',
-      'Default/Service Worker/CacheStorage',
-      'Default/Service Worker/ScriptCache',
-      'Cache',
-      'GraphiteDawnCache',
-      'GPUCache',
-      'ShaderCache',
-      'GrShaderCache',
-      'component_crx_cache',
-      'extensions_crx_cache'
-    ].map((rel) => join(this.appSupport, rel))
-  }
-
-  /** Roots the cleanup engine will ever touch. Anything outside is rejected. */
+  /** Roots recognized by path validation. Anything outside is rejected; individual
+   *  roots may be fully locked by `ProtectedPaths`. */
   get writableRoots(): string[] {
-    return [this.home, this.appSupport, this.appLogs, this.workspace, ...this.appCaches]
-  }
-
-  /** Dedicated, rebuildable roots that may themselves be removed. Other writable roots
-   *  contain user data or mixed-purpose application state and only allow child targets. */
-  get removableRoots(): string[] {
-    return this.appCaches
+    return [this.home, this.appSupport, this.appLogs, this.workspace, ...this.appCacheContainers]
   }
 }

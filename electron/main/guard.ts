@@ -14,8 +14,8 @@ function outermost(paths: string[]): string[] {
 /**
  * The allow/deny list that every deletion goes through. Deny-by-default: a path must sit
  * inside one of the Codex data roots and must not match a protected entry. Writable roots
- * themselves are denied except for dedicated rebuildable roots explicitly allowlisted by
- * `CodexLocations`.
+ * themselves are always denied. Desktop data outside ~/.codex is stricter still: both
+ * the App Support profile and platform cache containers are entirely read-only.
  */
 export class ProtectedPaths {
   private readonly locations: CodexLocations
@@ -25,6 +25,10 @@ export class ProtectedPaths {
   /** Relative names inside ~/.codex that hold credentials, configuration or user work. */
   static readonly protectedHomeEntries = [
     'auth.json',
+    'cache',
+    'sqlite',
+    '.codex-global-state.json',
+    '.codex-global-state.json.bak',
     'config.toml',
     'config.json',
     'version.json',
@@ -47,20 +51,56 @@ export class ProtectedPaths {
   /** Prefixes of files inside ~/.codex that must never be deleted. */
   static readonly protectedHomePrefixes = ['state_', 'thread_history_', 'goals_', 'queue_', 'memories_', 'history']
 
-  /** Browser profile data that carries the Codex login. */
-  static readonly protectedAppSupportEntries = [
-    'Default/Cookies',
-    'Default/Login Data',
-    'Default/Local Storage',
-    'Default/Session Storage',
-    'Default/IndexedDB',
-    'Default/databases',
-    'Default/Preferences',
-    'Default/Web Data',
+  /**
+   * Chromium profile data that carries the Codex login: the cookie and storage backends,
+   * and the preference files that hold the key material for them. Chromium has moved
+   * several of these between releases — cookies now live under `Network/`, and the
+   * desktop app runs with a `Default` profile on some builds and straight in the
+   * user-data root on others — so every name is protected in both layouts.
+   */
+  static readonly protectedProfileEntries = [
+    'Cookies',
+    'Cookies-journal',
+    'Network',
+    'Login Data',
+    'Login Data For Account',
+    'Local Storage',
+    'Session Storage',
+    'IndexedDB',
+    'databases',
+    'File System',
+    'Service Worker',
+    'WebStorage',
+    'Storage',
+    'Preferences',
+    'Secure Preferences',
+    'Web Data',
+    'Trust Tokens',
+    'Trust Tokens-journal',
+    'Sync Data',
+    'Partitions',
+    'blob_storage',
+    'SharedStorage',
+    'Network Persistent State',
+    'TransportSecurity'
+  ]
+
+  /** Login-bearing data that only ever sits in the user-data root, beside the profile. */
+  static readonly protectedAppSupportRootEntries = [
     'Local State',
+    'codex-browser-app',
     'WidevineCdm',
     'WasmTtsEngine'
   ]
+
+  /** Every protected entry below the app support root, in both profile layouts. */
+  static get protectedAppSupportEntries(): string[] {
+    return [
+      ...ProtectedPaths.protectedAppSupportRootEntries,
+      ...ProtectedPaths.protectedProfileEntries,
+      ...ProtectedPaths.protectedProfileEntries.map((name) => `Default/${name}`)
+    ]
+  }
 
   constructor(
     locations: CodexLocations,
@@ -88,8 +128,15 @@ export class ProtectedPaths {
     return this.locations.writableRoots.map(normalize)
   }
 
-  private get removableRoots(): string[] {
-    return this.locations.removableRoots.map(normalize)
+  /** External Chromium/application roots are deny-by-default, including future profiles. */
+  private isAllowedExternalCacheTarget(target: string): boolean {
+    if (ProtectedPaths.contains(this.locations.appSupport, target)) {
+      return false
+    }
+    if (this.locations.appCacheContainers.some((root) => ProtectedPaths.contains(root, target))) {
+      return false
+    }
+    return true
   }
 
   private canonical(path: string): string {
@@ -127,14 +174,18 @@ export class ProtectedPaths {
     const target = normalize(url)
     const canonicalRoots = this.writableRoots.map((root) => this.canonical(root))
     const canonicalTarget = this.canonical(target)
+    // No data root is ever a target itself, cache containers included: they hold
+    // application state beside the rebuildable directories the scanner names.
     const isWritableRoot = this.writableRoots.some((root) => root === target)
       || canonicalRoots.some((root) => root === canonicalTarget)
-    const isRemovableRoot = this.removableRoots.some((root) => root === target)
-    if (isWritableRoot && !isRemovableRoot) {
+    if (isWritableRoot) {
       throw new ProtectedPathError(message('guard.wholeDataRoot', { path: target }))
     }
     if (!this.writableRoots.some((root) => ProtectedPaths.contains(root, target))) {
       throw new ProtectedPathError(message('guard.outsideDataRoots', { path: target }))
+    }
+    if (!this.isAllowedExternalCacheTarget(target)) {
+      throw new ProtectedPathError(message('guard.protectedPath', { path: target }))
     }
     if (this.isProtected(target)) {
       throw new ProtectedPathError(message('guard.protectedPath', { path: target }))

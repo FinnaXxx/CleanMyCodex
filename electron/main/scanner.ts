@@ -134,7 +134,6 @@ export async function scanSnapshot(
   // --- Recommended: disposable or rebuildable ---
 
   const staleTemporary: StorageEntry[] = []
-  const marketplaceCaches: StorageEntry[] = []
   let temporaryNames: string[] = []
   try { temporaryNames = readdirSync(locations.temporary) } catch { /* missing */ }
   for (const name of temporaryNames) {
@@ -147,7 +146,7 @@ export async function scanSnapshot(
         const bundledPath = join(path, bundledName)
         if (guards.isProtected(bundledPath) || !bundledName.includes('.staging-')) continue
         const measured = measureTree(bundledPath, signal)
-        const idleSeconds = 3_600
+        const idleSeconds = 86_400
         if (measured.bytes && Date.now() - measured.latestActivity >= idleSeconds * 1000) {
           staleTemporary.push(entry(bundledName, 'note.marketplaceStaging', bundledPath, measured.bytes, 'safe', {
             minimumIdleSeconds: idleSeconds, requiresCodexStopped: true
@@ -157,40 +156,36 @@ export async function scanSnapshot(
       continue
     }
     if (guards.isProtected(path)) continue
+    const staging = name.includes('.staging-') || name.startsWith('plugins-clone-')
+    // Unknown children of .tmp may become live state in a later Codex release. Only
+    // installer/update staging patterns we understand are eligible for default cleanup.
+    if (!staging) continue
     progress('stage.caches', path, 0.08)
     const measured = measureTree(path, signal)
     if (!measured.bytes) continue
-    if (name.toLowerCase().includes('marketplace')) {
-      marketplaceCaches.push(entry(name, 'note.marketplaceCopy', path, measured.bytes, 'rebuildable', {
-        requiresCodexStopped: true
-      }))
-      continue
-    }
-    const staging = name.includes('.staging-') || name.startsWith('plugins-clone-')
-    const idleSeconds = staging ? 3_600 : 3 * 86_400
+    const idleSeconds = 86_400
     if (Date.now() - measured.latestActivity < idleSeconds * 1000) continue
-    staleTemporary.push(entry(name, staging ? 'note.installLeftover' : 'note.idleThreeDays', path, measured.bytes, 'safe', {
+    staleTemporary.push(entry(name, 'note.installLeftover', path, measured.bytes, 'safe', {
       minimumIdleSeconds: idleSeconds, requiresCodexStopped: true
     }))
   }
   categories.push(category('temporary', 'recommended', 'safe', staleTemporary))
-  categories.push(category('marketplaceCache', 'review', 'rebuildable', marketplaceCaches))
   await yieldToEventLoop()
 
-  const browserEntries = locations.browserCacheDirectories
+  const codexCacheEntries = [locations.codexCache]
     .filter(entryExists)
-    .map((path) => entry(basename(path), 'note.rebuildableCache', path, measure(path, 'stage.caches', 0.12), 'rebuildable', {
+    .map((path) => entry(cacheTitle(path, locations), 'note.codexOperationalCache', path, measure(path, 'stage.caches', 0.15), 'shielded', {
       requiresCodexStopped: true
     }))
-  categories.push(category('browserCache', 'recommended', 'rebuildable', browserEntries))
+  categories.push(category('codexCache', 'protectedData', 'shielded', codexCacheEntries))
   await yieldToEventLoop()
 
-  const appCacheEntries = [locations.codexCache, ...locations.appCaches]
+  const appCacheEntries = locations.appCaches
     .filter(entryExists)
-    .map((path) => entry(basename(path), 'note.rebuildableCache', path, measure(path, 'stage.caches', 0.16), 'rebuildable', {
+    .map((path) => entry(cacheTitle(path, locations), 'note.platformCache', path, measure(path, 'stage.caches', 0.16), 'shielded', {
       requiresCodexStopped: true
     }))
-  categories.push(category('appCache', 'recommended', 'rebuildable', appCacheEntries))
+  categories.push(category('appCache', 'protectedData', 'shielded', appCacheEntries))
   await yieldToEventLoop()
 
   const logCutoff = Date.now() - 10 * 86_400_000
@@ -199,11 +194,16 @@ export async function scanSnapshot(
   const oldLogs = logNames.flatMap((name): StorageEntry[] => {
     const path = join(locations.appLogs, name)
     try {
-      if (statSync(path).mtimeMs >= logCutoff) return []
-      return [entry(name, 'note.oldAppLog', path, measure(path, 'stage.caches', 0.18), 'rebuildable')]
+      progress('stage.caches', path, 0.18)
+      const measured = measureTree(path, signal)
+      if (!measured.bytes || measured.latestActivity >= logCutoff) return []
+      return [entry(name, 'note.oldAppLog', path, measured.bytes, 'safe', {
+        minimumIdleSeconds: 10 * 86_400,
+        requiresCodexStopped: true
+      })]
     } catch { return [] }
   })
-  categories.push(category('appLogs', 'recommended', 'rebuildable', oldLogs))
+  categories.push(category('appLogs', 'review', 'safe', oldLogs))
   await yieldToEventLoop()
 
   const logs = logDatabases(locations.home)
@@ -233,10 +233,6 @@ export async function scanSnapshot(
   if (installedPlugins === null && pluginVersions.length) notes.push(message('scanNote.appServerUnavailable'))
   await yieldToEventLoop()
 
-  // --- Review: rebuildable but affects offline use ---
-
-  // bundled-marketplaces is a live source referenced by config.toml, not disposable cache.
-
   // --- Protected: shown for awareness, never selected ---
 
   const sessions = await scanSessions(locations, (path, fraction) => progress('stage.sessions', path, 0.43 + fraction * 0.49), signal)
@@ -250,6 +246,7 @@ export async function scanSnapshot(
   const marketplaceSources = new Set(guards.localMarketplaceSources)
   const protectedConfigEntries: StorageEntry[] = []
   for (const path of guards.protectedURLs) {
+    if (path === locations.codexCache) continue // represented by its dedicated category
     if ((!ProtectedPaths.contains(locations.home, path) && !marketplaceSources.has(path)) || !entryExists(path)) continue
     protectedConfigEntries.push(entry(
       marketplaceSources.has(path) ? relativeToHome(path, locations.home) : basename(path),
@@ -273,7 +270,7 @@ export async function scanSnapshot(
   })
   categories.push(category('protectedUserData', 'protectedData', 'shielded', protectedUserEntries))
 
-  const externalBytes = outermostStorageRoots([locations.appSupport, ...locations.appCaches, locations.appLogs].filter(entryExists))
+  const externalBytes = outermostStorageRoots([locations.appSupport, ...locations.appCacheContainers, locations.appLogs].filter(entryExists))
     .reduce((sum, path) => sum + directoryAllocatedSize(path), 0)
   const totalCodexBytes = directoryAllocatedSize(locations.home) + externalBytes
   progress('stage.done', '', 1)
@@ -297,8 +294,18 @@ export function outermostStorageRoots(paths: string[]): string[] {
   ))
 }
 
+/** `Codex/Default/Cache`, so cache directories sharing a name stay distinguishable. */
+function cacheTitle(path: string, locations: CodexLocations): string {
+  return relativeTo(locations.caches, path)
+}
+
 function relativeToHome(path: string, home: string): string {
-  const value = relative(home, path)
+  return relativeTo(home, path)
+}
+
+/** A path named by where it sits under `root`, falling back to its own name. */
+function relativeTo(root: string, path: string): string {
+  const value = relative(root, path)
   return value && !value.startsWith('..') ? value : basename(path)
 }
 
@@ -307,9 +314,9 @@ function assetCategories(
   measure: (path: string) => number
 ): StorageCategory[] {
   const computerUse = entryExists(locations.computerUse)
-    ? [entry('computer-use', 'note.computerUseComponent', locations.computerUse, measure(locations.computerUse), 'caution', {
+    ? [entry('computer-use', 'note.computerUseComponent', locations.computerUse, measure(locations.computerUse), 'shielded', {
         requiresCodexStopped: true
       })]
     : []
-  return [category('computerUse', 'review', 'caution', computerUse)]
+  return [category('computerUse', 'protectedData', 'shielded', computerUse)]
 }
