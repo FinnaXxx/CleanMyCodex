@@ -95,7 +95,7 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'category.sessionDatabase.title': ['会话投影数据库', 'Session Projection Databases'],
   'category.sessionDatabase.detail': ['Codex 加载会话使用的 SQLite 投影', 'SQLite projection Codex uses to load sessions'],
   'category.temporary.title': ['过期临时目录', 'Stale Temporary Folders'],
-  'category.temporary.detail': ['安装和更新过程留下的临时目录，Codex 退出后清理', 'Temporary folders left by installs and updates; cleaned once Codex quits'],
+  'category.temporary.detail': ['安装和更新过程留下的临时目录', 'Temporary folders left by installs and updates; cleaned once Codex quits'],
   'category.marketplaceCache.title': ['插件市场缓存', 'Marketplace Cache'],
   'category.marketplaceCache.detail': ['可重新下载，离线时会影响插件安装', 'Downloadable again; removing it affects offline plugin installs'],
   'category.pluginRemnants.title': ['老版本插件与卸载残留', 'Old Plugins & Leftovers'],
