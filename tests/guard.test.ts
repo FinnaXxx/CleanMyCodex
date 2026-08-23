@@ -78,11 +78,12 @@ describe('cleanup path guard', () => {
     }
   })
 
-  it('locks every App Support cache while allowing exact platform-cache leaves', () => {
+  it('locks cache-shaped App Support paths while allowing exact platform-cache leaves', () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
     const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
     const guard = new ProtectedPaths(locations)
-    for (const path of locations.browserCacheDirectories) {
+    for (const relative of ['Cache', 'Default/Cache', 'GraphiteDawnCache']) {
+      const path = join(locations.appSupport, relative)
       mkdirSync(path, { recursive: true })
       expect(rejection(() => guard.validate(path)), path).toBe('guard.protectedPath')
     }

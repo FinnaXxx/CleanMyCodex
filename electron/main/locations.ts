@@ -136,25 +136,6 @@ export class CodexLocations {
     return join(this.caches, 'CleanMyCodex')
   }
 
-  /** Cache-shaped directories inside the desktop profile. Scanned for awareness only;
-   *  the path guard locks every App Support descendant against deletion. */
-  get browserCacheDirectories(): string[] {
-    return [
-      'Default/Cache',
-      'Default/Code Cache',
-      'Default/DawnGraphiteCache',
-      'Default/DawnWebGPUCache',
-      'Default/GPUCache',
-      'Cache',
-      'GraphiteDawnCache',
-      'GPUCache',
-      'ShaderCache',
-      'GrShaderCache',
-      'component_crx_cache',
-      'extensions_crx_cache'
-    ].map((rel) => join(this.appSupport, rel))
-  }
-
   /** Roots the cleanup engine will ever touch. Anything outside is rejected, and no root
    *  is ever a target itself — only named entries below one. */
   get writableRoots(): string[] {

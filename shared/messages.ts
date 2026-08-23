@@ -26,7 +26,6 @@ export type MessageKey =
   | 'category.pluginRemnants.title' | 'category.pluginRemnants.detail'
   | 'category.pluginOrphans.title' | 'category.pluginOrphans.detail'
   | 'category.pluginRuntime.title' | 'category.pluginRuntime.detail'
-  | 'category.browserCache.title' | 'category.browserCache.detail'
   | 'category.codexCache.title' | 'category.codexCache.detail'
   | 'category.appCache.title' | 'category.appCache.detail'
   | 'category.appLogs.title' | 'category.appLogs.detail'
@@ -35,7 +34,7 @@ export type MessageKey =
   | 'category.protectedUserData.title' | 'category.protectedUserData.detail'
   // Storage entry notes
   | 'note.marketplaceStaging' | 'note.marketplaceCopy' | 'note.installLeftover' | 'note.idleThreeDays'
-  | 'note.profileAdjacentCache' | 'note.codexOperationalCache' | 'note.platformCache'
+  | 'note.codexOperationalCache' | 'note.platformCache'
   | 'note.oldAppLog' | 'note.logDatabase' | 'note.sessionProjection'
   | 'note.localMarketplace' | 'note.configOrCredentials' | 'note.stateDatabase' | 'note.browserProfile'
   | 'note.computerUseComponent' | 'note.builtinPlugin' | 'note.currentPlugin' | 'note.unconfirmedPlugin' | 'note.pluginRuntime'
@@ -108,8 +107,6 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'category.pluginOrphans.detail': ['需要人工确认，不会默认或定时清理', 'Requires manual review; never selected or cleaned automatically'],
   'category.pluginRuntime.title': ['当前插件与运行组件', 'Current Plugins & Runtime'],
   'category.pluginRuntime.detail': ['已统计但不会自动删除', 'Counted, but never removed automatically'],
-  'category.browserCache.title': ['浏览器与渲染缓存', 'Browser & Rendering Cache'],
-  'category.browserCache.detail': ['与桌面登录资料共用根目录，已锁定', 'Shares the desktop sign-in data root and is locked'],
   'category.codexCache.title': ['Codex 运行元数据缓存', 'Codex Operational Metadata Cache'],
   'category.codexCache.detail': ['插件目录、工具定义和服务信息；离线时可能无法恢复', 'Plugin catalog, tool definitions, and service info; may not recover offline'],
   'category.appCache.title': ['应用缓存', 'App Cache'],
@@ -127,7 +124,6 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'note.marketplaceCopy': ['插件市场的本地副本，可重新下载', 'Local copy of a marketplace; can be downloaded again'],
   'note.installLeftover': ['安装或更新时留下的目录', 'Folder left behind by an install or update'],
   'note.idleThreeDays': ['超过 3 天没有改动', 'Not modified for over 3 days'],
-  'note.profileAdjacentCache': ['位于桌面用户资料内，未证明删除不影响登录', 'Inside the desktop profile; deletion has not been proven sign-in-safe'],
   'note.codexOperationalCache': ['删除后需要联网重新获取插件与工具元数据', 'Deleting this requires plugin and tool metadata to be fetched again online'],
   'note.platformCache': ['文件格式可确认是 Chromium 缓存，但无官方安全删除承诺', 'The format identifies a Chromium cache, but there is no official safe-deletion guarantee'],
   'note.oldAppLog': ['早于 10 天的应用日志', 'App log older than 10 days'],

@@ -183,16 +183,6 @@ export async function scanSnapshot(
   categories.push(category('marketplaceCache', 'review', 'rebuildable', marketplaceCaches))
   await yieldToEventLoop()
 
-  const browserEntries = locations.browserCacheDirectories
-    .filter(entryExists)
-    .map((path) => entry(relativeTo(locations.appSupport, path), 'note.profileAdjacentCache', path, measure(path, 'stage.caches', 0.12), 'shielded', {
-      requiresCodexStopped: true
-    }))
-  // These paths sit inside the same Chromium user-data root as the desktop sign-in
-  // profiles. A cache-shaped directory is not enough evidence that deleting it is safe.
-  categories.push(category('browserCache', 'protectedData', 'shielded', browserEntries))
-  await yieldToEventLoop()
-
   const codexCacheEntries = [locations.codexCache]
     .filter(entryExists)
     .map((path) => entry(cacheTitle(path, locations), 'note.codexOperationalCache', path, measure(path, 'stage.caches', 0.15), 'caution', {

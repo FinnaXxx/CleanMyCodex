@@ -25,7 +25,6 @@ function snapshot(): ScanSnapshot {
     codexHome: '/codex', scannedAt: 1, totalCodexBytes: 1000, externalBytes: 0,
     categories: [
       { kind: 'temporary', group: 'recommended', risk: 'safe', entries: [storage('safe')] },
-      { kind: 'browserCache', group: 'recommended', risk: 'rebuildable', entries: [storage('browser', 'rebuildable')] },
       { kind: 'appCache', group: 'recommended', risk: 'rebuildable', entries: [storage('app-cache', 'rebuildable')] },
       { kind: 'appLogs', group: 'recommended', risk: 'rebuildable', entries: [storage('app-log', 'rebuildable')] },
       { kind: 'marketplaceCache', group: 'review', risk: 'rebuildable', entries: [storage('market', 'rebuildable')] },
@@ -157,7 +156,6 @@ describe('automatic cleanup planner', () => {
     expect(tasks.map((task) => task.id)).toContain('old-plugin')
     expect(tasks.map((task) => task.id)).not.toContain('orphan-plugin')
     expect(tasks.map((task) => task.id)).not.toContain('market')
-    expect(tasks.map((task) => task.id)).not.toContain('browser')
     expect(tasks.map((task) => task.id)).not.toContain('app-cache')
     expect(tasks.map((task) => task.id)).not.toContain('app-log')
     expect(tasks.map((task) => task.threadID)).toContain('active')
