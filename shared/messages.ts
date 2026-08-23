@@ -279,6 +279,16 @@ export function formatErrorText(text: string, language: Language): string {
 export const SCAN_STOPPED = encodeMessage({ key: 'error.scanStopped' })
 
 /** An `Error` whose message a localised UI can recover with `decodeMessage`. */
+/**
+ * A message as a log should carry it: the key, not the sentence. The key does not move
+ * when the wording or the reader's language does, so a report from any machine can be
+ * grepped for `guard.protectedPath` and matched against the source.
+ */
+export function describeMessage(value: Message): string {
+  const params = Object.entries(value.params ?? {})
+  return params.length ? `${value.key}(${params.map(([k, v]) => `${k}=${v}`).join(', ')})` : value.key
+}
+
 export class MessageError extends Error {
   readonly info: Message
   constructor(info: Message) {

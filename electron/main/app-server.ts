@@ -4,7 +4,7 @@ import { statSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { homedir } from 'node:os'
 import { Writable, Readable } from 'node:stream'
-import { MessageError, SCAN_STOPPED, message } from '../../shared/messages'
+import { MessageError, SCAN_STOPPED, describeMessage, message } from '../../shared/messages'
 
 /** Talks to `codex app-server` over newline-delimited JSON-RPC on stdio. CleanMyCodex
  * currently uses it only to discover installed plugins; session scanning and cleanup
@@ -210,8 +210,17 @@ export class AppServerClient {
     }
   }
 
-  /** Best-effort plugin inventory. Returns null when the app server cannot be reached. */
-  async installedPlugins(signal?: AbortSignal): Promise<InstalledPlugin[] | null> {
+  /**
+   * Best-effort plugin inventory. Returns null when the app server cannot be reached.
+   *
+   * `onFailure` reports why it came back null. Without it the difference between "Codex
+   * says no plugins", "the CLI could not be started" and "the response shape moved" is
+   * invisible, and all three lock every plugin on disk in exactly the same way.
+   */
+  async installedPlugins(
+    signal?: AbortSignal,
+    onFailure?: (reason: string) => void
+  ): Promise<InstalledPlugin[] | null> {
     let session: AppServerSession | null = null
     const abort = () => session?.close()
     signal?.addEventListener('abort', abort, { once: true })
@@ -222,8 +231,14 @@ export class AppServerClient {
       const plugins = parsePlugins(response)
       // An empty inventory is indistinguishable from an unknown response shape. Never
       // turn every on-disk plugin into an "orphan" on that evidence.
+      if (!plugins.length) onFailure?.('no plugin rows parsed from the response')
       return plugins.length ? plugins : null
-    } catch {
+    } catch (error) {
+      // A MessageError hides an encoded token in its text; report its key instead.
+      if (!signal?.aborted) {
+        onFailure?.(error instanceof MessageError ? describeMessage(error.info)
+          : error instanceof Error ? error.message : String(error))
+      }
       return null
     } finally {
       signal?.removeEventListener('abort', abort)
