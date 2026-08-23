@@ -30,13 +30,9 @@ export default function AutomationView() {
       {state.nextRunAt && <small>{t('预计下次运行：', 'Next run: ')}{formatMoment(state.nextRunAt, locale)}</small>}
       {state.lastRun && <small>{t('上次运行：', 'Last run: ')}{formatMoment(state.lastRun.finishedAt, locale)} · {t('释放', 'Freed')} {formatBytes(state.lastRun.freedBytes)} · {t('成功', 'Succeeded')} {state.lastRun.succeeded} · {t('跳过', 'Skipped')} {state.lastRun.deferred} · {t('失败', 'Failed')} {state.lastRun.failed}</small>}
       {state.lastRun?.note && <small>{m(state.lastRun.note)}</small>}
-      <label><input type="checkbox" checked={settings.launchAtLogin} onChange={(event) => update('launchAtLogin', event.target.checked)}/> {t('登录时打开 Clean My Codex', 'Open Clean My Codex at login')}</label>
-      <small>{t('只是开机自动打开这个应用，定时清理不需要它——定时任务由系统调度，应用关着也会运行。',
-        'This only opens the app at login. Scheduled cleanup does not need it: the system runs it whether or not the app is open.')}</small>
     </section>
     <section className="card form-card"><h3>{t('定时清理范围', 'Cleanup Scope')}</h3>
-      <small>{t('触发时 Codex 如果是打开状态，这一轮会全部跳过，下次再试。',
-        'A run that fires while Codex is open skips everything and waits for the next one.')}</small>
+      <small>{t('Codex 开着时这一轮会全部跳过。', 'A run that fires while Codex is open skips everything.')}</small>
       <label><input type="checkbox" checked={settings.cleanCaches} onChange={(event) => update('cleanCaches', event.target.checked)}/> {t('过期临时目录（安装和更新残留）', 'Stale temporary folders (install and update leftovers)')}</label>
       <label><input type="checkbox" checked={settings.cleanOldPlugins} onChange={(event) => update('cleanOldPlugins', event.target.checked)}/> {t('老版本插件，只保留当前版本', 'Old plugins, keeping only the current version')}</label>
       <label><input type="checkbox" checked={settings.cleanArchivedSessions} onChange={(event) => update('cleanArchivedSessions', event.target.checked)}/> {t('已归档会话，保留', 'Archived sessions, keep for')} <input className="number" type="number" min="7" max="1825" value={settings.archivedRetentionDays} disabled={!settings.cleanArchivedSessions} onChange={(event) => update('archivedRetentionDays', Number(event.target.value))}/> {t('天', 'days')}</label>
@@ -45,6 +41,9 @@ export default function AutomationView() {
     <section className="card form-card"><h3>{t('安全规则', 'Safety Rules')}</h3>
       <label><input type="checkbox" checked={settings.skipRecentSessions} onChange={(event) => update('skipRecentSessions', event.target.checked)}/> {t('跳过 24 小时内活动过的会话', 'Skip sessions active within the last 24 hours')}</label>
       <label><input type="checkbox" checked={settings.notifyWhenFinished} onChange={(event) => update('notifyWhenFinished', event.target.checked)}/> {t('完成后显示通知', 'Show a notification when finished')}</label>
+    </section>
+    <section className="card form-card"><h3>{t('应用', 'Application')}</h3>
+      <label><input type="checkbox" checked={settings.launchAtLogin} onChange={(event) => update('launchAtLogin', event.target.checked)}/> {t('登录时打开 Clean My Codex', 'Open Clean My Codex at login')}</label>
     </section>
   </div>
 }
