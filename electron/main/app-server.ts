@@ -1,7 +1,7 @@
 import { spawn, spawnSync, type ChildProcessByStdio } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { statSync } from 'node:fs'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { homedir } from 'node:os'
 import { Writable, Readable } from 'node:stream'
 import { MessageError, SCAN_STOPPED, message } from '../../shared/messages'
@@ -283,16 +283,38 @@ export function parsePlugins(response: unknown): InstalledPlugin[] {
     .map(({ marketplace, plugin: row }): InstalledPlugin | null => {
       const name = firstString(row, ['name', 'pluginName', 'plugin']) ?? idName(row['id'])
       if (!name || !name.length) return null
-      const version = firstString(row, ['localVersion', 'version', 'installedVersion', 'currentVersion', 'resolvedVersion'])
+      // `localVersion` is the version materialized on disk; `version` is the one the
+      // marketplace backend advertises, which is the latest available rather than the
+      // installed one. A row that carries `localVersion` is answering the question
+      // directly, so a null there means "not known", never "look at the remote version" —
+      // reading the remote one would call the only copy on disk a superseded remnant.
+      const version = 'localVersion' in row
+        ? firstString(row, ['localVersion'])
+        : firstString(row, ['version', 'installedVersion', 'currentVersion', 'resolvedVersion'])
       let directory = firstString(row, ['path', 'directory', 'installPath', 'root', 'location'])
-      if (!directory && row['source'] && typeof row['source'] === 'object') {
-        directory = firstString(row['source'] as Record<string, unknown>, ['path', 'directory', 'root', 'location'])
-      }
+      if (!directory) directory = sourceDirectory(row['source'])
       if (directory?.startsWith('~/')) directory = join(homedir(), directory.slice(2))
+      // Only an absolute path names an install directory. A git source's `path` is a
+      // subdirectory inside the repository, and resolving it against this app's working
+      // directory would compare a plugin against somewhere it has never been.
+      if (directory && !isAbsolute(directory)) directory = undefined
       const installed = typeof row['installed'] === 'boolean' ? row['installed'] as boolean : null
       return { marketplace, name, version: version ?? null, directory: directory ?? null, installed }
     })
     .filter((p): p is InstalledPlugin => p !== null)
+}
+
+/**
+ * The install directory a plugin's `source` names, if any. `source` is a tagged union —
+ * `{"type":"local","path":…}` is the only variant whose `path` is an install location.
+ * `git` carries the subdirectory inside the repository under the same key.
+ */
+function sourceDirectory(source: unknown): string | undefined {
+  if (!source || typeof source !== 'object') return undefined
+  const row = source as Record<string, unknown>
+  const kind = typeof row['type'] === 'string' ? (row['type'] as string).toLowerCase() : null
+  if (kind && kind !== 'local') return undefined
+  return firstString(row, ['path', 'directory', 'root', 'location'])
 }
 
 function firstString(row: Record<string, unknown>, keys: string[]): string | undefined {
