@@ -169,7 +169,7 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
         title={t('会话记录', 'Sessions')}
         bytes={snapshotSessionBytes(snapshot)}
         rowDetail={sessionCount
-          ? t(`${sessionCount} 个会话，在会话记录页逐条挑选后删除`, `${sessionCount} conversations, picked one by one on the Sessions page`)
+          ? t(`${sessionCount} 个会话，在会话记录页删除`, `${sessionCount} conversations, picked on the Sessions page`)
           : t('没有扫描到本地会话', 'No local conversations found')}
         value={sessionCount ? formatBytes(snapshotSessionBytes(snapshot)) : '—'}
         onOpen={onOpenSessions}
@@ -180,7 +180,7 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
         title={t('工作产出', 'Workspace Output')}
         bytes={workspaceBytes(snapshot.workspace)}
         rowDetail={snapshot.workspace.isScanned
-          ? t('Codex 生成的文件和仓库，在工作产出页逐项确认后删除', 'Files and repositories Codex produced, confirmed one by one on the Workspace page')
+          ? t('Codex 生成的文件和仓库，在工作产出页删除', 'Files and repositories Codex produced, confirmed on the Workspace page')
           : t('尚未完成统计，重新扫描后可查看', 'Not measured yet; scan again to see it')}
         value={snapshot.workspace.isScanned ? formatBytes(workspaceBytes(snapshot.workspace)) : '—'}
         onOpen={onOpenWorkspace}
