@@ -53,15 +53,6 @@ Clean My Codex 用于扫描和清理 Codex 产生的缓存、会话数据、插�
 
 自动会话清理会跳过置顶会话、存在未完成 goal 的会话和仍有 queued item 的会话；任一子代理满足这些条件时，整个顶层会话都会跳过。置顶同时取自 `state_*.sqlite` 的 `is_pinned` 列和 `.codex-global-state.json` 的 `pinned-thread-ids` —— 桌面端把置顶记在后者，只看列会漏。手动删除不受这些条件限制：明确选中并确认过的会话就按用户的意思删，会话列表会给置顶会话标出「置顶」，确认弹窗也会说明所选会话里有几个是置顶的。手动删除前会先检查 SQLite 完整性、受支持的核心表和写锁，避免会话文件已经删除后才发现数据库无法修改。插件删除则会在真正执行前重新向 `codex app-server` 查询当前版本，防止扫描后升级造成误删。
 
-### 残留会话记录
-
-会话页会检测两类残留，退出 ChatGPT/Codex 后可一键清理：
-
-- `state_*.sqlite` 里 rollout 路径已不存在的记录（`.zst` 归档算存在）。一小时内更新过的跳过，避免误删刚建立、还没落盘的会话。
-- 桌面端会话列表里 Codex 已经完全不认识的条目：rollout、`state_*.sqlite`、`thread_history_*.sqlite` 三处都没有。三处同时缺失是很强的判据，清理又只在 Codex 退出后执行，所以这类不设时间宽限。远端会话（`host` 不是 `local`）永远不算残留，它们的数据本来就不在本机。
-
-两类都有同一个兜底：如果整张表没有任何一条记录能对应到实际存在的会话，而磁盘上确实有 rollout，说明数据的组织方式不是这里假设的样子，此时不报告也不清理。改写 `.codex-global-state.json` 前会先把原文件复制到 `userData/state-backups/`。
-
 ### 日志
 
 会话删除会写入清理日志：macOS `~/Library/Logs/CleanMyCodex/cleanup.log`，Windows `%APPDATA%\CleanMyCodex\logs\cleanup.log`，Linux `~/.config/CleanMyCodex/logs/cleanup.log`。每次删除记录解析出的 thread ID、`thread/delete` 是否可用、本地复查删掉了多少行，以及桌面端的哪张表、哪个状态文件被清理了多少条，超过 1 MB 保留一代历史。定时清理另有 `autoclean.log`。
