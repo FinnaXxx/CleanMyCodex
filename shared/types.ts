@@ -29,13 +29,13 @@ export type StorageKind =
   | 'protectedUserData'
 
 /** Content type the category belongs to; drives how the overview groups rows. */
-export type StorageSection = 'caches' | 'logs' | 'plugins' | 'assets' | 'protectedData'
+export type StorageSection = 'caches' | 'logs' | 'plugins' | 'protectedData'
 
-export const StorageSectionOrder: StorageSection[] = ['caches', 'logs', 'plugins', 'assets', 'protectedData']
+export const StorageSectionOrder: StorageSection[] = ['caches', 'logs', 'plugins', 'protectedData']
 
 export const StorageKindSection: Record<StorageKind, StorageSection> = {
   logDatabase: 'logs',
-  sessionDatabase: 'assets',
+  sessionDatabase: 'logs',
   temporary: 'caches',
   marketplaceCache: 'caches',
   pluginRemnants: 'plugins',
