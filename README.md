@@ -26,7 +26,9 @@ Clean My Codex 用于扫描和清理 Codex 产生的缓存、会话数据、插�
 - `.codex-global-state.json`：桌面端的持久化状态，按 thread ID 存置顶、项目归属、排队任务等。只剔除被删会话的键和列表项；`electron-persisted-atom-state`（草稿、面板布局等界面状态）整块保持不动。
 - `generated_images/<thread-id>`：会话生成的独立图片目录。
 - `visualizations/YYYY/MM/DD/<thread-id>`：Codex 生成的富视觉结果，例如 JPG/PNG 对比图或 HTML 可视化预览。扫描时会递归识别日期层级并归到对应会话。
-- `~/.codex/cache`、App Support 顶层 `Cache`/`GraphiteDawnCache`：作为可重建缓存统计，要求 ChatGPT/Codex 退出后才能清理。
+- `~/.codex/cache`，以及 App Support 和 `~/Library/Caches/Codex`、`~/Library/Caches/com.openai.codex` 里按名字列出的 Chromium 缓存目录（`Cache`、`Code Cache`、`GPUCache`、`ShaderCache`、`GrShaderCache`、各种 Dawn 缓存，根目录和 `Default/` 两种布局都算）：作为可重建缓存统计，要求 ChatGPT/Codex 退出后才能清理。缓存容器目录本身永远不删 —— 应用会把自己的状态放在这些缓存目录旁边，整个删掉就可能把登录一起带走。
+- `Cookies`、`Network/`、`Local Storage`、`Session Storage`、`IndexedDB`、`Service Worker`、`Preferences`、`Web Data`、`Local State` 等承载桌面端登录的 Chromium 用户资料数据：根目录和 `Default/` 两种布局都锁定，只统计不清理。
+- `~/.codex/sqlite`、`.codex-global-state.json` 及其 `.bak`：桌面端自己的会话库和持久状态，只在删除会话时按 thread ID 删行或删键，文件本身锁定。
 - `vendor_imports`、`shell_snapshots`、`attachments`、`ambient-suggestions`、`browser`、Wasm TTS 组件及 goals/queue/memories 数据库：纳入占用统计但保持锁定。
 - `.tmp/bundled-marketplaces`：只保护当前 `openai-bundled` 源；超过一小时未更新的同级 `.staging-*` 目录作为更新残留列出。
 
@@ -55,7 +57,7 @@ Clean My Codex 用于扫描和清理 Codex 产生的缓存、会话数据、插�
 
 ### 日志
 
-会话删除会写入清理日志：macOS `~/Library/Logs/CleanMyCodex/cleanup.log`，Windows `%APPDATA%\CleanMyCodex\logs\cleanup.log`，Linux `~/.config/CleanMyCodex/logs/cleanup.log`。每次删除记录解析出的 thread ID、`thread/delete` 是否可用、本地复查删掉了多少行，以及桌面端的哪张表、哪个状态文件被清理了多少条，超过 1 MB 保留一代历史。定时清理另有 `autoclean.log`。
+清理会写入清理日志（缓存和残留清理逐条记录删掉的路径与字节数，删除失败或跳过的也记）：macOS `~/Library/Logs/CleanMyCodex/cleanup.log`，Windows `%APPDATA%\CleanMyCodex\logs\cleanup.log`，Linux `~/.config/CleanMyCodex/logs/cleanup.log`。每次删除记录解析出的 thread ID、`thread/delete` 是否可用、本地复查删掉了多少行，以及桌面端的哪张表、哪个状态文件被清理了多少条，超过 1 MB 保留一代历史。定时清理另有 `autoclean.log`。
 
 ## 开发
 

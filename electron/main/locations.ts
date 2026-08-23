@@ -1,9 +1,30 @@
 import { homedir, platform } from 'node:os'
-import { join, normalize, win32 } from 'node:path'
+import { join, normalize } from 'node:path'
 
-export function windowsAppCacheDirectories(localAppData: string): string[] {
-  const relatives = ['Cache', 'Code Cache', 'GPUCache', 'ShaderCache', 'GrShaderCache']
-  return ['Codex', 'com.openai.codex'].flatMap((root) => relatives.map((name) => win32.join(localAppData, root, name)))
+/** Chromium's rebuildable cache directories, by the names it has used across versions. */
+const CACHE_DIRECTORY_NAMES = [
+  'Cache',
+  'Code Cache',
+  'GPUCache',
+  'ShaderCache',
+  'GrShaderCache',
+  'DawnCache',
+  'DawnGraphiteCache',
+  'DawnWebGPUCache',
+  'GraphiteDawnCache'
+]
+
+/**
+ * The cache directories inside one application cache container, and inside its `Default`
+ * profile. Never the container itself: an application's cache directory is its own
+ * private space, and only these well-known names are known to be rebuildable. Anything
+ * else the app keeps beside them — session state included — is not ours to delete.
+ */
+export function appCacheDirectories(container: string, path = { join }): string[] {
+  return [
+    ...CACHE_DIRECTORY_NAMES.map((name) => path.join(container, name)),
+    ...CACHE_DIRECTORY_NAMES.map((name) => path.join(container, 'Default', name))
+  ]
 }
 
 /**
@@ -86,17 +107,24 @@ export class CodexLocations {
     return join(this.library, platform() === 'darwin' ? 'Application Support/Codex' : 'Codex')
   }
 
-  get appCaches(): string[] {
+  /**
+   * The per-product cache containers. Read for size accounting and used as roots the
+   * engine may reach into — never as deletion targets. Installers, updaters and future
+   * builds put profile and executable data beside the cache folders below them.
+   */
+  get appCacheContainers(): string[] {
     switch (platform()) {
       case 'darwin':
-        return [join(this.caches, 'Codex'), join(this.caches, 'com.openai.codex')]
       case 'win32':
-        // Never classify the whole LocalAppData/Codex directory as cache: installers and
-        // future builds may put executable or profile data beside these well-known folders.
-        return windowsAppCacheDirectories(this.caches)
+        return [join(this.caches, 'Codex'), join(this.caches, 'com.openai.codex')]
       default:
         return [join(this.caches, 'Codex')]
     }
+  }
+
+  /** The rebuildable cache directories inside those containers. */
+  get appCaches(): string[] {
+    return this.appCacheContainers.flatMap((container) => appCacheDirectories(container))
   }
 
   get appLogs(): string {
@@ -116,8 +144,6 @@ export class CodexLocations {
       'Default/DawnGraphiteCache',
       'Default/DawnWebGPUCache',
       'Default/GPUCache',
-      'Default/Service Worker/CacheStorage',
-      'Default/Service Worker/ScriptCache',
       'Cache',
       'GraphiteDawnCache',
       'GPUCache',
@@ -128,14 +154,9 @@ export class CodexLocations {
     ].map((rel) => join(this.appSupport, rel))
   }
 
-  /** Roots the cleanup engine will ever touch. Anything outside is rejected. */
+  /** Roots the cleanup engine will ever touch. Anything outside is rejected, and no root
+   *  is ever a target itself — only named entries below one. */
   get writableRoots(): string[] {
-    return [this.home, this.appSupport, this.appLogs, this.workspace, ...this.appCaches]
-  }
-
-  /** Dedicated, rebuildable roots that may themselves be removed. Other writable roots
-   *  contain user data or mixed-purpose application state and only allow child targets. */
-  get removableRoots(): string[] {
-    return this.appCaches
+    return [this.home, this.appSupport, this.appLogs, this.workspace, ...this.appCacheContainers]
   }
 }

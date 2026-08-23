@@ -24,7 +24,7 @@ describe('cleanup engine', () => {
     expect(report.outcomes[0].freedBytes).toBeGreaterThan(0)
   })
 
-  it('permanently deletes a dedicated app cache root', async () => {
+  it('permanently deletes a named application cache directory', async () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-cleanup-')); roots.push(root)
     const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
     const target = locations.appCaches[0]
@@ -37,6 +37,20 @@ describe('cleanup engine', () => {
     expect(report.outcomes[0].status.kind).toBe('succeeded')
     expect(report.outcomes[0].freedBytes).toBeGreaterThan(0)
     expect(existsSync(target)).toBe(false)
+  })
+
+  it('refuses a whole application cache container and leaves it in place', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-cleanup-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const target = locations.appCacheContainers[0]
+    mkdirSync(target, { recursive: true }); writeFileSync(join(target, 'session-state'), Buffer.alloc(8192))
+    const task: CleanupTask = { id: target, title: 'Codex', detail: target, url: target, expectedBytes: 8192, threadID: null, companionURLs: [], minimumIdleSeconds: null, requiresCodexStopped: false }
+    const report = await runCleanup([task], new ProtectedPaths(locations), {
+      remove: async (path) => rmSync(path, { recursive: true, force: true }), isCodexRunning: () => false
+    })
+
+    expect(report.outcomes[0].status.kind).toBe('failed')
+    expect(existsSync(target)).toBe(true)
   })
 
   it('reports an emptied directory as cleaned even though it frees no bytes', async () => {

@@ -25,6 +25,9 @@ export class ProtectedPaths {
   /** Relative names inside ~/.codex that hold credentials, configuration or user work. */
   static readonly protectedHomeEntries = [
     'auth.json',
+    'sqlite',
+    '.codex-global-state.json',
+    '.codex-global-state.json.bak',
     'config.toml',
     'config.json',
     'version.json',
@@ -47,20 +50,49 @@ export class ProtectedPaths {
   /** Prefixes of files inside ~/.codex that must never be deleted. */
   static readonly protectedHomePrefixes = ['state_', 'thread_history_', 'goals_', 'queue_', 'memories_', 'history']
 
-  /** Browser profile data that carries the Codex login. */
-  static readonly protectedAppSupportEntries = [
-    'Default/Cookies',
-    'Default/Login Data',
-    'Default/Local Storage',
-    'Default/Session Storage',
-    'Default/IndexedDB',
-    'Default/databases',
-    'Default/Preferences',
-    'Default/Web Data',
+  /**
+   * Chromium profile data that carries the Codex login: the cookie and storage backends,
+   * and the preference files that hold the key material for them. Chromium has moved
+   * several of these between releases — cookies now live under `Network/`, and the
+   * desktop app runs with a `Default` profile on some builds and straight in the
+   * user-data root on others — so every name is protected in both layouts.
+   */
+  static readonly protectedProfileEntries = [
+    'Cookies',
+    'Cookies-journal',
+    'Network',
+    'Login Data',
+    'Login Data For Account',
+    'Local Storage',
+    'Session Storage',
+    'IndexedDB',
+    'databases',
+    'File System',
+    'Service Worker',
+    'WebStorage',
+    'Storage',
+    'Preferences',
+    'Secure Preferences',
+    'Web Data',
+    'Trust Tokens',
+    'Sync Data'
+  ]
+
+  /** Login-bearing data that only ever sits in the user-data root, beside the profile. */
+  static readonly protectedAppSupportRootEntries = [
     'Local State',
     'WidevineCdm',
     'WasmTtsEngine'
   ]
+
+  /** Every protected entry below the app support root, in both profile layouts. */
+  static get protectedAppSupportEntries(): string[] {
+    return [
+      ...ProtectedPaths.protectedAppSupportRootEntries,
+      ...ProtectedPaths.protectedProfileEntries,
+      ...ProtectedPaths.protectedProfileEntries.map((name) => `Default/${name}`)
+    ]
+  }
 
   constructor(
     locations: CodexLocations,
@@ -86,10 +118,6 @@ export class ProtectedPaths {
 
   private get writableRoots(): string[] {
     return this.locations.writableRoots.map(normalize)
-  }
-
-  private get removableRoots(): string[] {
-    return this.locations.removableRoots.map(normalize)
   }
 
   private canonical(path: string): string {
@@ -127,10 +155,11 @@ export class ProtectedPaths {
     const target = normalize(url)
     const canonicalRoots = this.writableRoots.map((root) => this.canonical(root))
     const canonicalTarget = this.canonical(target)
+    // No data root is ever a target itself, cache containers included: they hold
+    // application state beside the rebuildable directories the scanner names.
     const isWritableRoot = this.writableRoots.some((root) => root === target)
       || canonicalRoots.some((root) => root === canonicalTarget)
-    const isRemovableRoot = this.removableRoots.some((root) => root === target)
-    if (isWritableRoot && !isRemovableRoot) {
+    if (isWritableRoot) {
       throw new ProtectedPathError(message('guard.wholeDataRoot', { path: target }))
     }
     if (!this.writableRoots.some((root) => ProtectedPaths.contains(root, target))) {

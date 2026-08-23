@@ -35,6 +35,7 @@ import {
   reportFreedBytes,
   type AutomationSettings,
   type CleanupProgress,
+  type CleanupReport,
   type CleanupRequest,
   type CleanupSelection,
   type ScanSnapshot,
@@ -221,9 +222,11 @@ ipcMain.handle('cleanup:run', async (_event, request: CleanupRequest) => {
     reopen = await quitCodexDesktop(20_000, request.forceQuitCodex)
   }
   try {
-    return await runCleanup(tasks, guards, cleanupDependencies(), (progress: CleanupProgress) => {
+    const report = await runCleanup(tasks, guards, cleanupDependencies(), (progress: CleanupProgress) => {
       mainWindow?.webContents.send('cleanup:progress', progress)
     })
+    logRemovals(request.selection, report)
+    return report
   } finally {
     if (reopen.length) {
       mainWindow?.webContents.send('cleanup:stage', message('cleanup.reopening'))
@@ -232,6 +235,21 @@ ipcMain.handle('cleanup:run', async (_event, request: CleanupRequest) => {
     mainWindow?.webContents.send('cleanup:stage', null)
   }
 })
+
+/**
+ * What a cleanup actually deleted, path by path. Session deletion writes its own richer
+ * entries; this is the record for everything else, because a cache or leftover deletion
+ * is permanent and the only way to answer "what did this remove" afterwards.
+ */
+function logRemovals(selection: CleanupSelection, report: CleanupReport): void {
+  const removed = report.outcomes.filter((outcome) => outcome.status.kind === 'succeeded')
+  const failed = report.outcomes.filter((outcome) => outcome.status.kind === 'failed')
+  logCleanup(`${selection.kind} cleanup: ${removed.length} removed, ${failed.length} failed, ${report.outcomes.length - removed.length - failed.length} skipped`)
+  for (const outcome of report.outcomes) {
+    if (outcome.status.kind === 'skipped') continue
+    logCleanup(`  ${outcome.status.kind} ${outcome.detail} (${outcome.freedBytes} bytes)`)
+  }
+}
 
 async function refreshPluginsBeforeCleanup(): Promise<void> {
   if (!latestSnapshot) throw new MessageError(message('error.scanFirst'))

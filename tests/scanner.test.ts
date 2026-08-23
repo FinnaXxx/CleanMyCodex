@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, win32 } from 'node:path'
 import type { ScanProgress } from '../shared/types'
-import { CodexLocations, windowsAppCacheDirectories } from '../electron/main/locations'
+import { CodexLocations, appCacheDirectories } from '../electron/main/locations'
 import { outermostStorageRoots, scanSnapshot } from '../electron/main/scanner'
 
 const roots: string[] = []
@@ -107,22 +107,26 @@ describe('storage scanner semantics', () => {
     expect(outermostStorageRoots(['/app/Codex', '/app/Codex/Logs', '/cache/Codex'])).toEqual(['/app/Codex', '/cache/Codex'])
   })
 
-  it('derives every cache root from the injected caches directory, on any platform', () => {
-    // The engine may delete these roots outright, so a scan (or a test) must never be
-    // able to reach the real user-level cache directory through an injected location.
+  it('derives every cache path from the injected caches directory, on any platform', () => {
+    // A scan (or a test) must never be able to reach the real user-level cache directory
+    // through an injected location.
     const locations = new CodexLocations({ home: '/tmp/x/.codex', library: '/tmp/x/Library', caches: '/tmp/x/Caches', documents: '/tmp/x/Documents' })
     expect(locations.appCaches.length).toBeGreaterThan(0)
-    for (const path of [...locations.appCaches, locations.scanCache]) {
+    for (const path of [...locations.appCacheContainers, ...locations.appCaches, locations.scanCache]) {
       expect(path.startsWith(locations.caches), path).toBe(true)
     }
-    expect(locations.removableRoots).toEqual(locations.appCaches)
   })
 
-  it('never treats a whole Windows LocalAppData product directory as a cache root', () => {
+  it('never treats a whole product cache container as a deletable cache, on any platform', () => {
     const localRoot = 'C:\\Users\\test\\AppData\\Local'
-    const paths = windowsAppCacheDirectories(localRoot)
+    const paths = appCacheDirectories(`${localRoot}\\Codex`, win32)
     expect(paths).not.toContain(`${localRoot}\\Codex`)
-    expect(paths).not.toContain(`${localRoot}\\com.openai.codex`)
-    expect(paths.every((path) => /(?:Cache|GPUCache|ShaderCache)$/.test(path))).toBe(true)
+    expect(paths.every((path) => /(?:Cache)$/.test(path))).toBe(true)
+
+    const locations = new CodexLocations({ home: '/tmp/x/.codex', library: '/tmp/x/Library', caches: '/tmp/x/Caches', documents: '/tmp/x/Documents' })
+    for (const container of locations.appCacheContainers) {
+      expect(locations.appCaches).not.toContain(container)
+      expect(locations.writableRoots).toContain(container)
+    }
   })
 })

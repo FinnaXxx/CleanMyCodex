@@ -26,7 +26,7 @@ describe('cleanup path guard', () => {
     expect(rejection(() => guard.validate(locations.workspace))).toBe('guard.wholeDataRoot')
   })
 
-  it('allows dedicated app cache roots but keeps other data roots protected', () => {
+  it('allows named cache directories but never a whole data root, cache containers included', () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
     const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
     for (const cache of locations.appCaches) mkdirSync(cache, { recursive: true })
@@ -34,8 +34,44 @@ describe('cleanup path guard', () => {
     const guard = new ProtectedPaths(locations)
 
     for (const cache of locations.appCaches) expect(() => guard.validate(cache)).not.toThrow()
+    expect(locations.appCacheContainers.length).toBeGreaterThan(0)
+    // An application's cache container holds whatever it likes beside the rebuildable
+    // directories: deleting it outright is what takes a login with it.
+    for (const container of locations.appCacheContainers) {
+      expect(rejection(() => guard.validate(container))).toBe('guard.wholeDataRoot')
+    }
     expect(rejection(() => guard.validate(locations.home))).toBe('guard.wholeDataRoot')
     expect(rejection(() => guard.validate(locations.appSupport))).toBe('guard.wholeDataRoot')
+  })
+
+  it('protects login-bearing profile data in both Chromium profile layouts', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const guard = new ProtectedPaths(locations)
+    // Cookies moved under Network/ in current Chromium, and the desktop app runs with a
+    // Default profile on some builds and straight in the user-data root on others.
+    for (const relative of ['Network', 'Network/Cookies', 'Local Storage', 'Service Worker', 'Local State',
+      'Default/Network/Cookies', 'Default/Local Storage', 'Default/Service Worker']) {
+      const path = join(locations.appSupport, relative)
+      mkdirSync(path, { recursive: true })
+      expect(rejection(() => guard.validate(path)), relative).toBe('guard.protectedPath')
+    }
+    // The desktop's own conversation store and persisted state never go either.
+    for (const relative of ['sqlite', '.codex-global-state.json']) {
+      const path = join(locations.home, relative)
+      mkdirSync(path, { recursive: true })
+      expect(rejection(() => guard.validate(path)), relative).toBe('guard.protectedPath')
+    }
+  })
+
+  it('keeps every scanned cache target out of protected profile data', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const guard = new ProtectedPaths(locations)
+    for (const path of [...locations.browserCacheDirectories, ...locations.appCaches]) {
+      mkdirSync(path, { recursive: true })
+      expect(() => guard.validate(path), path).not.toThrow()
+    }
   })
 
   it('rejects parents of protected files and symlinks outside writable roots', () => {

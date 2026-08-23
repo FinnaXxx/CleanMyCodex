@@ -179,7 +179,7 @@ export async function scanSnapshot(
 
   const browserEntries = locations.browserCacheDirectories
     .filter(entryExists)
-    .map((path) => entry(basename(path), 'note.rebuildableCache', path, measure(path, 'stage.caches', 0.12), 'rebuildable', {
+    .map((path) => entry(relativeTo(locations.appSupport, path), 'note.rebuildableCache', path, measure(path, 'stage.caches', 0.12), 'rebuildable', {
       requiresCodexStopped: true
     }))
   categories.push(category('browserCache', 'recommended', 'rebuildable', browserEntries))
@@ -187,7 +187,7 @@ export async function scanSnapshot(
 
   const appCacheEntries = [locations.codexCache, ...locations.appCaches]
     .filter(entryExists)
-    .map((path) => entry(basename(path), 'note.rebuildableCache', path, measure(path, 'stage.caches', 0.16), 'rebuildable', {
+    .map((path) => entry(cacheTitle(path, locations), 'note.rebuildableCache', path, measure(path, 'stage.caches', 0.16), 'rebuildable', {
       requiresCodexStopped: true
     }))
   categories.push(category('appCache', 'recommended', 'rebuildable', appCacheEntries))
@@ -273,7 +273,7 @@ export async function scanSnapshot(
   })
   categories.push(category('protectedUserData', 'protectedData', 'shielded', protectedUserEntries))
 
-  const externalBytes = outermostStorageRoots([locations.appSupport, ...locations.appCaches, locations.appLogs].filter(entryExists))
+  const externalBytes = outermostStorageRoots([locations.appSupport, ...locations.appCacheContainers, locations.appLogs].filter(entryExists))
     .reduce((sum, path) => sum + directoryAllocatedSize(path), 0)
   const totalCodexBytes = directoryAllocatedSize(locations.home) + externalBytes
   progress('stage.done', '', 1)
@@ -297,8 +297,18 @@ export function outermostStorageRoots(paths: string[]): string[] {
   ))
 }
 
+/** `Codex/Default/Cache`, so cache directories sharing a name stay distinguishable. */
+function cacheTitle(path: string, locations: CodexLocations): string {
+  return relativeTo(locations.caches, path)
+}
+
 function relativeToHome(path: string, home: string): string {
-  const value = relative(home, path)
+  return relativeTo(home, path)
+}
+
+/** A path named by where it sits under `root`, falling back to its own name. */
+function relativeTo(root: string, path: string): string {
+  const value = relative(root, path)
   return value && !value.startsWith('..') ? value : basename(path)
 }
 
