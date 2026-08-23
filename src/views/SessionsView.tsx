@@ -102,8 +102,8 @@ export default function SessionsView({ snapshot, cleaning, actionsDisabled, clea
       <div>
         <strong>{t(`发现 ${leftovers.count} 条残留会话记录`, `${leftovers.count} leftover session records`)}</strong>
         <p>{t(
-          '这些会话的 rollout 文件已经删除，但 Codex 的会话数据库里还留着记录：它们仍会出现在 ChatGPT/Codex 的侧边栏，点开时提示 “no rollout found for thread id”。清理需要先退出 ChatGPT/Codex。',
-          'Their rollout files are gone but Codex still has the records: they keep appearing in the ChatGPT/Codex sidebar and fail to open with “no rollout found for thread id”. Quit ChatGPT/Codex before cleaning them up.'
+          '这些会话的文件和数据库记录都已经删除，但 ChatGPT/Codex 桌面端自己的会话列表里还留着条目：它们仍会出现在左侧边栏，点开时提示 “no rollout found for thread id”。清理需要先退出 ChatGPT/Codex；远端会话不在清理范围内。',
+          'Their files and database records are gone, but the ChatGPT/Codex desktop still lists them: they keep appearing in the sidebar and fail to open with “no rollout found for thread id”. Quit ChatGPT/Codex before cleaning them up; remote conversations are never touched.'
         )}</p>
       </div>
       <div className="leftover-actions">

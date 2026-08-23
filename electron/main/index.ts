@@ -11,9 +11,10 @@ import { AppServerClient } from './app-server'
 import { buildAutomaticTasks, buildTrustedTasks, makeCleanupPreview } from './planner'
 import { codexEnvironment, codexIsRunning, quitCodexDesktop, relaunchCodex } from './platform-services'
 import {
+  countOrphanRecords,
   deleteOrphanSessionRecords,
   deleteSessionRecords,
-  findOrphanSessionRecords,
+  describeDesktopSweep,
   preflightSessionRecords,
   sessionProtocolThreadIDs
 } from './session-database'
@@ -189,14 +190,14 @@ ipcMain.handle('window:theme', (_event, dark: boolean) => {
  * appearing in the desktop sidebar until the row itself is removed.
  */
 ipcMain.handle('sessions:leftovers', () => ({
-  count: findOrphanSessionRecords(locations.home).length,
+  count: countOrphanRecords(locations.home),
   logPath: cleanupLogPath()
 }))
 
 ipcMain.handle('sessions:repairLeftovers', () => {
   if (codexIsRunning()) throw new MessageError(message('error.codexRunningForRepair'))
-  const report = deleteOrphanSessionRecords(locations.home)
-  logCleanup(`repair removed ${report.removedRows} rows for ${report.threadIDs.length} threads`)
+  const report = deleteOrphanSessionRecords(locations.home, stateBackupDirectory())
+  logCleanup(`repair removed ${report.removedRows} rows for ${report.threadIDs.length} threads; ${describeDesktopSweep()}`)
   return { threads: report.threadIDs.length, removedRows: report.removedRows }
 })
 
@@ -287,6 +288,11 @@ function guardsFor(snapshot: ScanSnapshot): ProtectedPaths {
     .map((plugin) => plugin.directoryURL))
 }
 
+/** Where a copy of the desktop state file goes before this app rewrites it. */
+function stateBackupDirectory(): string {
+  return join(app.getPath('userData'), 'state-backups')
+}
+
 function cleanupDependencies(): CleanupDeps {
   return {
     // Permanent, so that the reported "freed" bytes are bytes the volume actually gained.
@@ -304,8 +310,8 @@ function cleanupDependencies(): CleanupDeps {
       // left behind. Older app servers do not expose thread/delete at all, and then
       // this is the whole cleanup, run after the recoverable file cleanup.
       deleteThreadLocally: (threadID, relatedURLs) => {
-        const report = deleteSessionRecords(locations.home, threadID, relatedURLs)
-        logCleanup(`local sweep ${threadID} rows=${report.removedRows}`)
+        const report = deleteSessionRecords(locations.home, threadID, relatedURLs, stateBackupDirectory())
+        logCleanup(`local sweep ${threadID} rows=${report.removedRows}; ${describeDesktopSweep()}`)
         return report
       },
       reportProtocolLeftovers: (threadID, removedRows, reason) => {
