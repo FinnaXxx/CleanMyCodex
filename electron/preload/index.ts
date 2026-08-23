@@ -35,6 +35,12 @@ const api = {
     ipcRenderer.on('cleanup:progress', handler)
     return () => ipcRenderer.removeListener('cleanup:progress', handler)
   },
+  /** ⌘, / Ctrl+, from the native menu, which cannot open a page by itself. */
+  onOpenSettings: (listener: () => void): (() => void) => {
+    const handler = (): void => listener()
+    ipcRenderer.on('menu:settings', handler)
+    return () => ipcRenderer.removeListener('menu:settings', handler)
+  },
   onCleanupStage: (listener: (stage: Message | null) => void): (() => void) => {
     const handler = (_event: unknown, stage: Message | null): void => listener(stage)
     ipcRenderer.on('cleanup:stage', handler)

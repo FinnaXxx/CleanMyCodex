@@ -74,6 +74,8 @@ export type MessageKey =
   | 'error.verbatim'
   // Automatic cleanup log and notification
   | 'auto.disabled' | 'auto.nothingToClean' | 'auto.summary' | 'auto.skippedItem' | 'auto.failed'
+  // Native application menu
+  | 'menu.file' | 'menu.settings'
 
 export interface Message {
   key: MessageKey
@@ -229,7 +231,10 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'auto.nothingToClean': ['没有需要清理的项目。', 'Nothing to clean.'],
   'auto.summary': ['已释放 {bytes}，成功 {succeeded} 项，跳过 {skipped} 项，失败 {failed} 项', 'Freed {bytes}. {succeeded} succeeded, {skipped} skipped, {failed} failed.'],
   'auto.skippedItem': ['跳过：{title} — {reason}', 'Skipped: {title} — {reason}'],
-  'auto.failed': ['定时清理失败：{reason}', 'Scheduled cleanup failed: {reason}']
+  'auto.failed': ['定时清理失败：{reason}', 'Scheduled cleanup failed: {reason}'],
+
+  'menu.file': ['文件', 'File'],
+  'menu.settings': ['设置…', 'Settings…']
 }
 
 export function formatMessage(value: Message, language: Language): string {
