@@ -52,6 +52,15 @@ function walk(path: string, recursive: boolean): WalkResult {
   for (const child of children) {
     if (isSystemJunk(child.name)) continue
     const childPath = join(path, child.name)
+    // A link contributes no bytes of its own and is never followed, matching how every
+    // other directory in the app is measured. Counting the target instead would charge a
+    // workspace for the same bytes twice over a tree like `node_modules`, whose links
+    // mostly point back inside it, and would charge it for outside trees it does not own.
+    if (child.isSymbolicLink()) {
+      result.files += 1
+      result.looseFiles.push(childPath)
+      continue
+    }
     if (!child.isDirectory()) {
       result.bytes += fileAllocatedSize(childPath)
       result.files += 1

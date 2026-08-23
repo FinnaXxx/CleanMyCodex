@@ -20,6 +20,31 @@ function age(path: string, days: number): void {
 }
 
 describe('storage scanner semantics', () => {
+  it('ages desktop logs by the day they belong to, not by the year directory', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-scan-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    // The desktop application writes one log per session per process below YYYY/MM/DD.
+    const day = (parts: string[], days: number): string => {
+      const directory = join(locations.appLogs, ...parts)
+      for (const name of ['codex-desktop-s1-100-t0.log', 'codex-desktop-s2-200-t0.log']) {
+        write(join(directory, name)); age(join(directory, name), days)
+      }
+      age(directory, days)
+      return directory
+    }
+    const stale = day(['2026', '07', '01'], 40)
+    const current = day(['2026', '08', '23'], 1)
+
+    const snapshot = await scanSnapshot(locations, [])
+    const urls = snapshot.categories.find((category) => category.kind === 'appLogs')?.entries.map((entry) => entry.url) ?? []
+    expect(urls).toContain(stale)
+    expect(urls).not.toContain(current)
+    // Neither the year nor the month stands in for the days below it.
+    expect(urls).not.toContain(join(locations.appLogs, '2026'))
+    expect(urls).not.toContain(join(locations.appLogs, '2026', '07'))
+    expect(urls).not.toContain(locations.appLogs)
+  })
+
   it('reclaims every staging root Codex abandons, and nothing live beside them', async () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-scan-')); roots.push(root)
     const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })

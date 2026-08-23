@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { isSystemJunk, scanWorkspace } from '../electron/main/workspace'
@@ -9,6 +9,22 @@ const roots: string[] = []
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
 
 describe('workspace scanner', () => {
+  it('never charges a workspace for what a symlink points at', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-workspace-')); roots.push(root)
+    const outside = join(root, 'outside.bin')
+    writeFileSync(outside, Buffer.alloc(1024 * 1024))
+    const session = join(root, '2026-08-22', 'session-a')
+    mkdirSync(session, { recursive: true })
+    writeFileSync(join(session, 'result.txt'), 'result')
+    const plain = scanWorkspace(root).entries[0].children[0].bytes
+    // A link to a megabyte outside the tree, and one back into it, add nothing either way.
+    symlinkSync(outside, join(session, 'link-out'))
+    symlinkSync(join(session, 'result.txt'), join(session, 'link-in'))
+    const linked = scanWorkspace(root).entries[0].children[0]
+    expect(linked.bytes).toBe(plain)
+    expect(linked.fileCount).toBe(3)
+  })
+
   it('groups session output below date folders and counts loose files', () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-workspace-')); roots.push(root)
     const date = join(root, '2026-08-22')

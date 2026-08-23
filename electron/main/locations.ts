@@ -156,8 +156,17 @@ export class CodexLocations {
     return this.appCacheContainers.flatMap((container) => appCacheDirectories(container))
   }
 
+  /**
+   * Where the desktop application writes its own logs, one file per session per process,
+   * below a `YYYY/MM/DD` directory. macOS keys the directory by bundle identity; Windows
+   * puts it under the local app data root rather than the roaming one.
+   */
   get appLogs(): string {
-    return join(this.library, platform() === 'darwin' ? 'Logs/com.openai.codex' : 'Codex/Logs')
+    switch (platform()) {
+      case 'darwin': return join(this.library, 'Logs', 'com.openai.codex')
+      case 'win32': return join(this.caches, 'Codex', 'Logs')
+      default: return join(this.library, 'Codex', 'Logs')
+    }
   }
 
   /** Where CleanMyCodex keeps its own rescan cache. Never a cleanup target. */
