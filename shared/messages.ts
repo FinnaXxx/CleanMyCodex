@@ -17,7 +17,7 @@ export type Language = 'zh-CN' | 'en'
 
 export type MessageKey =
   // Storage sections
-  | 'section.caches' | 'section.logs' | 'section.plugins' | 'section.assets' | 'section.protectedData'
+  | 'section.caches' | 'section.logs' | 'section.plugins' | 'section.protectedData'
   // Storage category titles
   | 'category.logDatabase.title' | 'category.logDatabase.detail'
   | 'category.sessionDatabase.title' | 'category.sessionDatabase.detail'
@@ -87,13 +87,12 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'section.caches': ['缓存与临时文件', 'Caches & Temporary Files'],
   'section.logs': ['日志与数据库', 'Logs & Databases'],
   'section.plugins': ['插件与组件', 'Plugins & Components'],
-  'section.assets': ['会话资产', 'Session Assets'],
   'section.protectedData': ['受保护的数据', 'Protected Data'],
 
   'category.logDatabase.title': ['日志数据库', 'Log Databases'],
   'category.logDatabase.detail': ['仅统计占用；SQLite 空闲页会复用，不提供清理', 'Usage only; SQLite reuses free pages, so no cleanup is offered'],
   'category.sessionDatabase.title': ['会话投影数据库', 'Session Projection Databases'],
-  'category.sessionDatabase.detail': ['Codex 加载会话使用的 SQLite 投影', 'SQLite projection Codex uses to load sessions'],
+  'category.sessionDatabase.detail': ['Codex 加载会话使用的 SQLite 投影；仅统计占用，空闲页会复用，不提供清理', 'SQLite projection Codex uses to load sessions; usage only, free pages are reused, so no cleanup is offered'],
   'category.temporary.title': ['过期临时目录', 'Stale Temporary Folders'],
   'category.temporary.detail': ['安装和更新过程留下的临时目录', 'Temporary folders left by installs and updates; cleaned once Codex quits'],
   'category.marketplaceCache.title': ['插件市场缓存', 'Marketplace Cache'],

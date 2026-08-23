@@ -436,7 +436,6 @@ progress { width: 100%; height: 5px; border-radius: 3px; overflow: hidden; }
 .section-caches { --section-tone: var(--accent); }
 .section-logs { --section-tone: var(--violet); }
 .section-plugins { --section-tone: var(--teal); }
-.section-assets { --section-tone: var(--caution); }
 .section-protectedData { --section-tone: var(--text-tertiary); }
 .card, .panel {
   background: var(--surface);
