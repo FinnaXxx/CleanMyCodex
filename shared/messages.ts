@@ -55,7 +55,7 @@ export type MessageKey =
   // Scan notes
   | 'scanNote.appServerUnavailable' | 'scanNote.noSessionTitles'
   // Cleanup preview warnings
-  | 'warning.permanent' | 'warning.workspaceGit'
+  | 'warning.permanent' | 'warning.workspaceGit' | 'warning.pinnedSessions'
   // Codex runtime blockers
   | 'blocker.detectionFailed' | 'blocker.desktopRunning' | 'blocker.cliRunning'
   // Guard rejections
@@ -187,6 +187,7 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
 
   'warning.permanent': ['清理的内容会被永久删除，无法恢复。', 'Everything cleaned is deleted permanently and cannot be recovered.'],
   'warning.workspaceGit': ['请确认未提交或未推送的内容已经保存。', 'Make sure anything uncommitted or unpushed has been saved.'],
+  'warning.pinnedSessions': ['所选会话中有 {count} 个是置顶会话，删除后不会恢复', '{count} of the selected conversations are pinned; deleting them is permanent'],
 
   'blocker.detectionFailed': ['无法确认 Codex 是否正在运行', 'Cannot determine whether Codex is running'],
   'blocker.desktopRunning': ['ChatGPT/Codex 桌面应用或会话服务正在运行', 'The ChatGPT/Codex desktop app or its session service is running'],

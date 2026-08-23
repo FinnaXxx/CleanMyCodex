@@ -172,7 +172,10 @@ function SessionRow({ session, checked, locale, onToggle }: { session: SessionIt
     <input type="checkbox" aria-label={sessionDisplayName(session)} checked={checked} onChange={onToggle} />
     <div className="session-title">
       <span className="session-name">{sessionDisplayName(session)}</span>
-      {session.tags.length > 0 && <span className="session-tags">{session.tags.map((tag) => <span key={tag} className={`tag tag-${tag}`}>{SessionTagLabel[tag]}</span>)}</span>}
+      {(session.isPinned || session.tags.length > 0) && <span className="session-tags">
+        {session.isPinned && <span className="tag tag-pinned" title={t('置顶会话不会被定时清理，手动删除仍然可以', 'Pinned conversations are skipped by scheduled cleanup; deleting one by hand still works')}>{t('置顶', 'Pinned')}</span>}
+        {session.tags.map((tag) => <span key={tag} className={`tag tag-${tag}`}>{SessionTagLabel[tag]}</span>)}
+      </span>}
       <span className="session-path">{sessionProjectName(session) ? `${sessionProjectName(session)} · ` : ''}{session.fileURL}{session.isUnstable ? t(' · 正在写入', ' · Being written') : ''}</span>
     </div>
     <span className="col-status"><span className={`pill loc-${session.location}`}>{m(message(`location.${session.location}`))}</span></span>

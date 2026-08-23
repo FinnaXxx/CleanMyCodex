@@ -11,7 +11,7 @@ function session(id: string, overrides: Partial<SessionItem> = {}): SessionItem 
   return {
     id: `/codex/sessions/${id}.jsonl`, threadID: id, fileURL: `/codex/sessions/${id}.jsonl`, segmentURLs: [], location: 'active',
     modifiedAt: 0, fileBytes: 100, assetBytes: 0, assetURLs: [], workingDirectory: null, title: id, preview: null, tags: [],
-    isCompressed: false, isUnstable: false, parseWarnings: 0, blocksAutomaticCleanup: false, isSubagent: false, parentThreadID: null,
+    isCompressed: false, isUnstable: false, parseWarnings: 0, blocksAutomaticCleanup: false, isPinned: false, isSubagent: false, parentThreadID: null,
     childThreadCount: 0, childBytes: 0, childURLs: [], ...overrides
   }
 }
@@ -170,5 +170,18 @@ describe('automatic cleanup planner', () => {
     const snap = snapshot()
     snap.sessions = [session('protected', { blocksAutomaticCleanup: true, modifiedAt: 0 })]
     expect(buildAutomaticTasks(snap, settings, 100 * 86_400_000).some((task) => task.threadID === 'protected')).toBe(false)
+  })
+
+  it('warns before deleting a pinned conversation by hand, but still deletes it', () => {
+    const snap = snapshot()
+    snap.sessions = [session('pinned', { blocksAutomaticCleanup: true, isPinned: true }), session('ordinary')]
+    const selection: CleanupSelection = { kind: 'sessions-delete', ids: snap.sessions.map((item) => item.id) }
+    const tasks = buildTrustedTasks(selection, snap, snap.workspace)
+    expect(tasks.map((task) => task.threadID)).toEqual(['pinned', 'ordinary'])
+    const preview = makeCleanupPreview(selection, tasks, {
+      running: false, detectionKnown: true, desktopRunning: false,
+      cliCommands: [], canRestart: false, blockers: []
+    }, snap)
+    expect(preview.warnings).toContainEqual(message('warning.pinnedSessions', { count: 1 }))
   })
 })
