@@ -15,7 +15,7 @@ Clean My Codex 用于扫描和清理 Codex 产生的缓存、会话数据、插�
 
 ### 数据来源
 
-Clean My Codex 不通过一个接口读取所有信息，而是按数据的实际来源扫描：
+按数据的实际来源扫描：
 
 - `codex app-server`：调用 `plugin/list` 确认已安装的插件及版本；支持 `thread/delete` 的版本会优先由 Codex 自己删除会话，不支持时回退到本地定向清理。
 - rollout JSONL：直接流式扫描 `~/.codex/sessions` 和 `~/.codex/archived_sessions`。它们是会话事件的持久记录；Codex 也以 rollout 为来源构建会话历史投影。
