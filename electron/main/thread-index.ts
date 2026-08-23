@@ -6,6 +6,8 @@ import { randomUUID } from 'node:crypto'
 import type { WorkspaceThreadReference } from '../../shared/types'
 import { cleanPreview } from './preview'
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 export interface CodexWorkspaceThread extends WorkspaceThreadReference {
   cwd: string
 }
@@ -75,8 +77,34 @@ export class CodexThreadIndex {
   }
 }
 
-function readAuxiliaryCleanupBlockers(home: string): Set<string> {
+/**
+ * Pins live in the desktop's own state file, not only in the state database's `pinned`
+ * column — `~/.codex/.codex-global-state.json` keeps `pinned-thread-ids`, and a
+ * per-host list for threads migrated to the app server. Reading only the column means a
+ * pinned conversation can look unprotected to automatic cleanup.
+ */
+function readPinnedThreadIDs(home: string): Set<string> {
   const result = new Set<string>()
+  const path = join(home, '.codex-global-state.json')
+  try {
+    if (statSync(path).size > 64 * 1024 * 1024) return result
+    const state = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
+    for (const key of ['pinned-thread-ids', 'app-server-migrated-pinned-thread-ids-by-host']) {
+      collectThreadIDs(state[key], result)
+    }
+  } catch { /* the desktop state file is optional and its shape may change */ }
+  return result
+}
+
+/** Thread ids wherever they sit in that value: a list, or per-host lists of them. */
+function collectThreadIDs(value: unknown, into: Set<string>): void {
+  if (typeof value === 'string') { if (UUID_RE.test(value)) into.add(value) ; return }
+  if (Array.isArray(value)) { for (const item of value) collectThreadIDs(item, into); return }
+  if (value && typeof value === 'object') for (const item of Object.values(value)) collectThreadIDs(item, into)
+}
+
+function readAuxiliaryCleanupBlockers(home: string): Set<string> {
+  const result = readPinnedThreadIDs(home)
   const queries: Array<[string, string]> = [
     ['goals_', "SELECT thread_id FROM thread_goals WHERE status <> 'complete'"],
     ['queue_', 'SELECT DISTINCT thread_id FROM queued_items']

@@ -49,6 +49,21 @@ app.whenReady().then(async () => {
     goals.exec('CREATE TABLE thread_goals (thread_id TEXT PRIMARY KEY, status TEXT)')
     goals.prepare('INSERT INTO thread_goals VALUES (?, ?)').run(id, 'active')
     goals.close()
+    // Pins live in the desktop state file. A thread pinned only there, with the state
+    // database's own column saying otherwise, must still block automatic cleanup.
+    const pinnedOnlyInState = '77777777-7777-7777-7777-777777777777'
+    const pinnedRollout = join(locations.sessions, `rollout-${pinnedOnlyInState}.jsonl`)
+    writeFileSync(pinnedRollout, `${JSON.stringify({ type: 'session_meta', payload: { id: pinnedOnlyInState } })}\n`)
+    const pinnedDB = new Database(join(locations.home, 'state_7.sqlite'))
+    pinnedDB.prepare('INSERT INTO threads VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+      pinnedOnlyInState, '桌面端置顶', pinnedRollout, null, 'user', 0, 0, null, 0)
+    pinnedDB.close()
+    writeFileSync(join(locations.home, '.codex-global-state.json'), JSON.stringify({
+      'pinned-thread-ids': [pinnedOnlyInState],
+      'app-server-migrated-pinned-thread-ids-by-host': { local: [] },
+      'electron-main-window-bounds': { width: 1180 }
+    }))
+
     const sessions = await scanSessions(locations)
     const named = sessions.find((session) => session.threadID === id)
     if (named?.title !== '检查Electron重构功能交互对齐') throw new Error(`会话索引标题未优先：${named?.title}`)
@@ -56,6 +71,8 @@ app.whenReady().then(async () => {
     const desktop = sessions.find((session) => session.threadID === desktopID)
     if (desktop?.title !== '这是什么') throw new Error(`桌面端外壳标题未剥离：${desktop?.title}`)
     if (!desktop.blocksAutomaticCleanup) throw new Error('置顶会话没有阻止自动清理')
+    const pinnedDesktopOnly = sessions.find((session) => session.threadID === pinnedOnlyInState)
+    if (!pinnedDesktopOnly?.blocksAutomaticCleanup) throw new Error('桌面端状态文件里的置顶没有阻止自动清理')
     const workspaceThreads = CodexThreadIndex.load(locations.home).workspaceThreads(locations.workspace)
     if (workspaceThreads[0]?.title !== '检查Electron重构功能交互对齐' || !workspaceThreads[0]?.archived) throw new Error('工作产出关联索引未生效')
     console.log('THREAD_INDEX_OK')
