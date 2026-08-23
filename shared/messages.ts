@@ -22,7 +22,6 @@ export type MessageKey =
   | 'category.logDatabase.title' | 'category.logDatabase.detail'
   | 'category.sessionDatabase.title' | 'category.sessionDatabase.detail'
   | 'category.temporary.title' | 'category.temporary.detail'
-  | 'category.marketplaceCache.title' | 'category.marketplaceCache.detail'
   | 'category.pluginRemnants.title' | 'category.pluginRemnants.detail'
   | 'category.pluginOrphans.title' | 'category.pluginOrphans.detail'
   | 'category.pluginRuntime.title' | 'category.pluginRuntime.detail'
@@ -33,7 +32,7 @@ export type MessageKey =
   | 'category.protectedConfig.title' | 'category.protectedConfig.detail'
   | 'category.protectedUserData.title' | 'category.protectedUserData.detail'
   // Storage entry notes
-  | 'note.marketplaceStaging' | 'note.marketplaceCopy' | 'note.installLeftover' | 'note.idleThreeDays'
+  | 'note.marketplaceStaging' | 'note.installLeftover' | 'note.idleThreeDays'
   | 'note.codexOperationalCache' | 'note.platformCache'
   | 'note.oldAppLog' | 'note.logDatabase' | 'note.sessionProjection'
   | 'note.localMarketplace' | 'note.configOrCredentials' | 'note.stateDatabase' | 'note.browserProfile'
@@ -99,18 +98,16 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'category.sessionDatabase.detail': ['Codex 加载会话使用的 SQLite 投影', 'SQLite projection Codex uses to load sessions'],
   'category.temporary.title': ['过期临时目录', 'Stale Temporary Folders'],
   'category.temporary.detail': ['安装和更新过程留下的临时目录', 'Temporary folders left by installs and updates'],
-  'category.marketplaceCache.title': ['插件市场缓存', 'Marketplace Cache'],
-  'category.marketplaceCache.detail': ['可重新下载，离线时会影响插件安装', 'Downloadable again; removing it affects offline plugin installs'],
   'category.pluginRemnants.title': ['老版本插件', 'Old Plugin Versions'],
   'category.pluginRemnants.detail': ['已有明确当前版本，可清理的旧版本', 'Older versions with a confirmed current version'],
-  'category.pluginOrphans.title': ['疑似卸载残留', 'Possible Plugin Leftovers'],
-  'category.pluginOrphans.detail': ['需要人工确认，不会默认或定时清理', 'Requires manual review; never selected or cleaned automatically'],
+  'category.pluginOrphans.title': ['卸载插件残留', 'Uninstalled Plugin Leftovers'],
+  'category.pluginOrphans.detail': ['plugin/list 已确认未安装，仅供手动清理', 'Confirmed uninstalled by plugin/list; manual cleanup only'],
   'category.pluginRuntime.title': ['当前插件与运行组件', 'Current Plugins & Runtime'],
   'category.pluginRuntime.detail': ['已统计但不会自动删除', 'Counted, but never removed automatically'],
   'category.codexCache.title': ['Codex 运行元数据缓存', 'Codex Operational Metadata Cache'],
-  'category.codexCache.detail': ['插件目录、工具定义和服务信息；离线时可能无法恢复', 'Plugin catalog, tool definitions, and service info; may not recover offline'],
+  'category.codexCache.detail': ['插件目录、工具定义和服务信息，保持锁定', 'Plugin catalog, tool definitions, and service info; kept locked'],
   'category.appCache.title': ['应用缓存', 'App Cache'],
-  'category.appCache.detail': ['已识别的 Chromium 缓存叶子，未经官方删除保证', 'Recognized Chromium cache leaves without an official deletion guarantee'],
+  'category.appCache.detail': ['桌面应用运行缓存，保持锁定', 'Desktop application runtime cache; kept locked'],
   'category.appLogs.title': ['旧应用日志', 'Old App Logs'],
   'category.appLogs.detail': ['保留最近 10 天，其余可以清理', 'Keeps the last 10 days; older logs can be removed'],
   'category.computerUse.title': ['Computer Use 组件', 'Computer Use Component'],
@@ -121,11 +118,10 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'category.protectedUserData.detail': ['浏览器登录状态与本地配置', 'Browser sign-in state and local configuration'],
 
   'note.marketplaceStaging': ['插件市场更新留下的 staging 目录', 'Staging folder left by a marketplace update'],
-  'note.marketplaceCopy': ['插件市场的本地副本，可重新下载', 'Local copy of a marketplace; can be downloaded again'],
   'note.installLeftover': ['安装或更新时留下的目录', 'Folder left behind by an install or update'],
   'note.idleThreeDays': ['超过 3 天没有改动', 'Not modified for over 3 days'],
-  'note.codexOperationalCache': ['删除后需要联网重新获取插件与工具元数据', 'Deleting this requires plugin and tool metadata to be fetched again online'],
-  'note.platformCache': ['文件格式可确认是 Chromium 缓存，但无官方安全删除承诺', 'The format identifies a Chromium cache, but there is no official safe-deletion guarantee'],
+  'note.codexOperationalCache': ['Codex 使用的插件与工具元数据', 'Plugin and tool metadata used by Codex'],
+  'note.platformCache': ['桌面应用使用的运行缓存', 'Runtime cache used by the desktop application'],
   'note.oldAppLog': ['早于 10 天的应用日志', 'App log older than 10 days'],
   'note.logDatabase': ['Codex 诊断日志数据库（含 WAL/SHM）', 'Codex diagnostic log database (including WAL/SHM)'],
   'note.sessionProjection': ['会话内容投影数据库（含 WAL/SHM）', 'Session content projection database (including WAL/SHM)'],

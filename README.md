@@ -26,9 +26,9 @@ Clean My Codex 用于扫描和清理 Codex 产生的缓存、会话数据、插�
 - `.codex-global-state.json`：桌面端的持久化状态，按 thread ID 存置顶、项目归属、排队任务等。只剔除被删会话的键和列表项；`electron-persisted-atom-state`（草稿、面板布局等界面状态）整块保持不动。
 - `generated_images/<thread-id>`：会话生成的独立图片目录。
 - `visualizations/YYYY/MM/DD/<thread-id>`：Codex 生成的富视觉结果，例如 JPG/PNG 对比图或 HTML 可视化预览。扫描时会递归识别日期层级并归到对应会话。
-- `~/.codex/cache`：Codex 二进制用于保存远程插件目录、工具定义、connector runtime 和 Apps server 信息的运行元数据缓存。删除后需要联网重新获取，离线时可能无法恢复，因此只供人工复核，不默认或定时清理。
-- `~/Library/Caches/Codex`、`~/Library/Caches/com.openai.codex` 里按名字和文件格式确认的 Chromium 缓存叶子目录（`Cache`、`Code Cache`、`GPUCache`、`ShaderCache`、`GrShaderCache`、各种 Dawn 缓存，根目录和 `Default/` 两种布局都算）：只供人工复核，要求 ChatGPT/Codex 完全退出。缓存容器本身和任何未知同级目录永远不删；目录名与 Chromium 格式只能证明其用途，不能替代官方安全删除承诺。
-- `Cookies`、`Network/`、`Local Storage`、`Session Storage`、`IndexedDB`、`Service Worker`、`Preferences`、`Web Data`、`Local State`、`Partitions/`、`codex-browser-app/` 等承载桌面端登录的 Chromium 用户资料数据：根目录、`Default/` 和桌面端专用分区布局都锁定，只统计不清理。整个 App Support 都禁止删除；平台应用缓存容器只允许扫描器明确列出的叶子目录，未来新增的未知目录也会被拒绝。
+- `~/.codex/cache`：Codex 使用的远程插件目录、工具定义、connector runtime 和 Apps server 信息，作为受保护数据统计，不提供删除。
+- `~/Library/Caches/Codex`、`~/Library/Caches/com.openai.codex`：桌面应用运行缓存，容器及其所有叶子目录都作为受保护数据统计，不提供删除。
+- `Cookies`、`Network/`、`Local Storage`、`Session Storage`、`IndexedDB`、`Service Worker`、`Preferences`、`Web Data`、`Local State`、`Partitions/`、`codex-browser-app/` 等承载桌面端登录的 Chromium 用户资料数据：根目录、`Default/` 和桌面端专用分区布局都锁定，只统计不清理。整个 App Support 和平台应用缓存容器都禁止删除。
 - `~/.codex/sqlite`、`.codex-global-state.json` 及其 `.bak`：桌面端自己的会话库和持久状态，只在删除会话时按 thread ID 删行或删键，文件本身锁定。
 - `vendor_imports`、`shell_snapshots`、`attachments`、`ambient-suggestions`、`browser`、Wasm TTS 组件及 goals/queue/memories 数据库：纳入占用统计但保持锁定。
 - `.tmp/bundled-marketplaces`：只保护当前 `openai-bundled` 源；超过 24 小时未更新的同级 `.staging-*` 目录作为更新残留列出。其他未知 `.tmp` 子目录不会因为存放时间长就自动推断为可删。

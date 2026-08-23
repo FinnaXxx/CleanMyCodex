@@ -1,7 +1,7 @@
 import { homedir, platform } from 'node:os'
 import { join, normalize } from 'node:path'
 
-/** Chromium's rebuildable cache directories, by the names it has used across versions. */
+/** Chromium cache directory names observed across desktop app versions. */
 const CACHE_DIRECTORY_NAMES = [
   'Cache',
   'Code Cache',
@@ -17,8 +17,8 @@ const CACHE_DIRECTORY_NAMES = [
 /**
  * The cache directories inside one application cache container, and inside its `Default`
  * profile. Never the container itself: an application's cache directory is its own
- * private space, and only these well-known names are known to be rebuildable. Anything
- * else the app keeps beside them — session state included — is not ours to delete.
+ * private space. These names are used only to account for known cache leaves; both the
+ * leaves and anything beside them remain protected from deletion.
  */
 export function appCacheDirectories(container: string, path = { join }): string[] {
   return [
@@ -36,7 +36,7 @@ export function appCacheDirectories(container: string, path = { join }): string[
  * - `home` — Codex' runtime data (`~/.codex`, or `CODEX_HOME`).
  * - `library` — profile and application-support data. macOS `~/Library`, Windows
  *   `%APPDATA%`, Linux `$XDG_CONFIG_HOME`.
- * - `caches` — rebuildable caches. macOS `~/Library/Caches`, Windows `%LOCALAPPDATA%`,
+ * - `caches` — platform cache roots. macOS `~/Library/Caches`, Windows `%LOCALAPPDATA%`,
  *   Linux `$XDG_CACHE_HOME`.
  *
  * `documents` holds the sandbox workspace (`~/Documents/Codex`).
@@ -109,8 +109,8 @@ export class CodexLocations {
 
   /**
    * The per-product cache containers. Read for size accounting and used as roots the
-   * engine may reach into — never as deletion targets. Installers, updaters and future
-   * builds put profile and executable data beside the cache folders below them.
+   * guard recognizes as protected roots — never as deletion targets. Installers,
+   * updaters and future builds may put state beside cache-shaped folders below them.
    */
   get appCacheContainers(): string[] {
     switch (platform()) {
@@ -122,7 +122,7 @@ export class CodexLocations {
     }
   }
 
-  /** The rebuildable cache directories inside those containers. */
+  /** Recognized cache leaves inside those containers, shown as protected usage. */
   get appCaches(): string[] {
     return this.appCacheContainers.flatMap((container) => appCacheDirectories(container))
   }
@@ -136,8 +136,8 @@ export class CodexLocations {
     return join(this.caches, 'CleanMyCodex')
   }
 
-  /** Roots the cleanup engine will ever touch. Anything outside is rejected, and no root
-   *  is ever a target itself — only named entries below one. */
+  /** Roots recognized by path validation. Anything outside is rejected; individual
+   *  roots may be fully locked by `ProtectedPaths`. */
   get writableRoots(): string[] {
     return [this.home, this.appSupport, this.appLogs, this.workspace, ...this.appCacheContainers]
   }

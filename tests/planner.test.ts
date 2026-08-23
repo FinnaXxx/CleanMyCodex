@@ -27,7 +27,6 @@ function snapshot(): ScanSnapshot {
       { kind: 'temporary', group: 'recommended', risk: 'safe', entries: [storage('safe')] },
       { kind: 'appCache', group: 'recommended', risk: 'rebuildable', entries: [storage('app-cache', 'rebuildable')] },
       { kind: 'appLogs', group: 'recommended', risk: 'rebuildable', entries: [storage('app-log', 'rebuildable')] },
-      { kind: 'marketplaceCache', group: 'review', risk: 'rebuildable', entries: [storage('market', 'rebuildable')] },
       { kind: 'protectedConfig', group: 'protectedData', risk: 'shielded', entries: [storage('shielded', 'shielded')] },
       { kind: 'pluginRemnants', group: 'recommended', risk: 'safe', entries: [storage('old-plugin')] },
       { kind: 'pluginOrphans', group: 'review', risk: 'caution', entries: [storage('orphan-plugin', 'caution')] }
@@ -155,7 +154,6 @@ describe('automatic cleanup planner', () => {
     expect(tasks.map((task) => task.id)).toContain('safe')
     expect(tasks.map((task) => task.id)).toContain('old-plugin')
     expect(tasks.map((task) => task.id)).not.toContain('orphan-plugin')
-    expect(tasks.map((task) => task.id)).not.toContain('market')
     expect(tasks.map((task) => task.id)).not.toContain('app-cache')
     expect(tasks.map((task) => task.id)).not.toContain('app-log')
     expect(tasks.map((task) => task.threadID)).toContain('active')

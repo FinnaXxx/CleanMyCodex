@@ -18,7 +18,6 @@ export type StorageKind =
   | 'logDatabase'
   | 'sessionDatabase'
   | 'temporary'
-  | 'marketplaceCache'
   | 'pluginRemnants'
   | 'pluginOrphans'
   | 'pluginRuntime'
@@ -38,12 +37,11 @@ export const StorageKindSection: Record<StorageKind, StorageSection> = {
   logDatabase: 'logs',
   sessionDatabase: 'logs',
   temporary: 'caches',
-  marketplaceCache: 'caches',
   pluginRemnants: 'plugins',
   pluginOrphans: 'plugins',
   pluginRuntime: 'plugins',
-  codexCache: 'caches',
-  appCache: 'caches',
+  codexCache: 'protectedData',
+  appCache: 'protectedData',
   appLogs: 'logs',
   computerUse: 'plugins',
   protectedConfig: 'protectedData',

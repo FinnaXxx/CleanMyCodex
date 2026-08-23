@@ -24,7 +24,7 @@ describe('cleanup engine', () => {
     expect(report.outcomes[0].freedBytes).toBeGreaterThan(0)
   })
 
-  it('permanently deletes a named application cache directory', async () => {
+  it('refuses a named application cache directory and leaves it in place', async () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-cleanup-')); roots.push(root)
     const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
     const target = locations.appCaches[0]
@@ -34,9 +34,8 @@ describe('cleanup engine', () => {
       remove: async (path) => rmSync(path, { recursive: true, force: true }), isCodexRunning: () => false
     })
 
-    expect(report.outcomes[0].status.kind).toBe('succeeded')
-    expect(report.outcomes[0].freedBytes).toBeGreaterThan(0)
-    expect(existsSync(target)).toBe(false)
+    expect(report.outcomes[0].status.kind).toBe('failed')
+    expect(existsSync(target)).toBe(true)
   })
 
   it('refuses a whole application cache container and leaves it in place', async () => {

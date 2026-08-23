@@ -26,17 +26,17 @@ describe('cleanup path guard', () => {
     expect(rejection(() => guard.validate(locations.workspace))).toBe('guard.wholeDataRoot')
   })
 
-  it('allows named cache directories but never a whole data root, cache containers included', () => {
+  it('locks named cache directories and whole data roots', () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
     const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
     for (const cache of locations.appCaches) mkdirSync(cache, { recursive: true })
     mkdirSync(locations.appSupport, { recursive: true })
     const guard = new ProtectedPaths(locations)
 
-    for (const cache of locations.appCaches) expect(() => guard.validate(cache)).not.toThrow()
+    for (const cache of locations.appCaches) expect(rejection(() => guard.validate(cache))).toBe('guard.protectedPath')
     expect(locations.appCacheContainers.length).toBeGreaterThan(0)
-    // An application's cache container holds whatever it likes beside the rebuildable
-    // directories: deleting it outright is what takes a login with it.
+    // The container and every child remain locked; a cache-shaped name is not deletion
+    // authority.
     for (const container of locations.appCacheContainers) {
       expect(rejection(() => guard.validate(container))).toBe('guard.wholeDataRoot')
     }
@@ -78,7 +78,7 @@ describe('cleanup path guard', () => {
     }
   })
 
-  it('locks cache-shaped App Support paths while allowing exact platform-cache leaves', () => {
+  it('locks cache-shaped paths in App Support and platform-cache containers', () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
     const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
     const guard = new ProtectedPaths(locations)
@@ -89,7 +89,7 @@ describe('cleanup path guard', () => {
     }
     for (const path of locations.appCaches) {
       mkdirSync(path, { recursive: true })
-      expect(() => guard.validate(path), path).not.toThrow()
+      expect(rejection(() => guard.validate(path)), path).toBe('guard.protectedPath')
     }
   })
 

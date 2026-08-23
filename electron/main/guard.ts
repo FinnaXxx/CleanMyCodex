@@ -14,9 +14,8 @@ function outermost(paths: string[]): string[] {
 /**
  * The allow/deny list that every deletion goes through. Deny-by-default: a path must sit
  * inside one of the Codex data roots and must not match a protected entry. Writable roots
- * themselves are always denied. Desktop data outside ~/.codex is stricter still: the
- * App Support profile is never writable, and only exact platform-cache leaves named by
- * `CodexLocations` may be removed.
+ * themselves are always denied. Desktop data outside ~/.codex is stricter still: both
+ * the App Support profile and platform cache containers are entirely read-only.
  */
 export class ProtectedPaths {
   private readonly locations: CodexLocations
@@ -26,6 +25,7 @@ export class ProtectedPaths {
   /** Relative names inside ~/.codex that hold credentials, configuration or user work. */
   static readonly protectedHomeEntries = [
     'auth.json',
+    'cache',
     'sqlite',
     '.codex-global-state.json',
     '.codex-global-state.json.bak',
@@ -128,17 +128,13 @@ export class ProtectedPaths {
     return this.locations.writableRoots.map(normalize)
   }
 
-  private pathsEqual(left: string, right: string): boolean {
-    return ProtectedPaths.contains(left, right) && ProtectedPaths.contains(right, left)
-  }
-
   /** External Chromium/application roots are deny-by-default, including future profiles. */
   private isAllowedExternalCacheTarget(target: string): boolean {
     if (ProtectedPaths.contains(this.locations.appSupport, target)) {
       return false
     }
     if (this.locations.appCacheContainers.some((root) => ProtectedPaths.contains(root, target))) {
-      return this.locations.appCaches.some((path) => this.pathsEqual(path, target))
+      return false
     }
     return true
   }
