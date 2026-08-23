@@ -26,8 +26,7 @@ English · [简体中文](README_CN.md)
 > and correct behaviour cannot be guaranteed for every Codex version on every machine.
 > Take a backup before your first cleanup.
 
-Pull requests are welcome. Issues describing what your own Codex directory looks like are
-just as useful — most of what the scanner has to get right is layout it has not seen yet.
+Pull requests are welcome.
 
 ## What it does
 
