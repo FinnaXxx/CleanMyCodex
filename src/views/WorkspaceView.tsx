@@ -2,13 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import type { CleanupProgress, CleanupSelection, SessionLocation, WorkspaceFolder, WorkspaceSnapshot } from '../../shared/types'
 import { formatBytes, repositoryStateIsSafe, workspaceBytes, workspaceFolderFileCount, workspaceFolderIsUnsafe } from '../../shared/types'
 import { message } from '../../shared/messages'
-import { BackIcon, FolderIcon } from '../icons'
+import { FolderIcon } from '../icons'
 import { formatShortDate } from '../format'
 import { usePreferences } from '../preferences'
 
-interface Props { snapshot: WorkspaceSnapshot; cleaning: boolean; actionsDisabled: boolean; cleanProgress: CleanupProgress | null; onBack: () => void; onCleanup: (selection: CleanupSelection) => void }
+interface Props { snapshot: WorkspaceSnapshot; cleaning: boolean; actionsDisabled: boolean; cleanProgress: CleanupProgress | null; onCleanup: (selection: CleanupSelection) => void }
 
-export default function WorkspaceView({ snapshot, cleaning, actionsDisabled, cleanProgress, onBack, onCleanup }: Props) {
+export default function WorkspaceView({ snapshot, cleaning, actionsDisabled, cleanProgress, onCleanup }: Props) {
   const { t, locale } = usePreferences()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   useEffect(() => { setSelected(new Set()) }, [snapshot])
@@ -32,7 +32,6 @@ export default function WorkspaceView({ snapshot, cleaning, actionsDisabled, cle
 
   return <>
     <div className="detail-content">
-    <section className="page-heading"><div className="page-title"><button className="icon-button detail-back-button" title={t('返回', 'Back')} aria-label={t('返回', 'Back')} onClick={onBack}><BackIcon /></button><div><h2>{t('工作产出', 'Workspace Output')}</h2></div></div></section>
     <section className="workspace-metrics card"><div><small>{t('总占用', 'Total')}</small><strong>{formatBytes(workspaceBytes(snapshot))}</strong></div><div><small>{t('已选择', 'Selected')}</small><strong>{formatBytes(chosenBytes)}</strong></div></section>
     {!snapshot.isScanned && <p className="empty-panel">{t('工作产出尚未完成统计，请在首页重新扫描', 'Workspace output has not been scanned. Scan again from Home.')}<br/><code>{snapshot.root}</code></p>}
     {snapshot.isScanned && !rows.length && <p className="empty-panel">{t('没有找到工作产出目录', 'No workspace output folders found')}<br/><code>{snapshot.root}</code></p>}

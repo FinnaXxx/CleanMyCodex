@@ -10,6 +10,10 @@ import {
   type WorkspaceSnapshot,
   reportFreedBytes,
   cleanupStatusReason,
+  snapshotSessionBytes,
+  snapshotPluginBytes,
+  listableSessions,
+  workspaceBytes,
   formatBytes
 } from '../shared/types'
 import { decodeMessage, message } from '../shared/messages'
@@ -20,14 +24,15 @@ import PluginsView from './views/PluginsView'
 import WorkspaceView from './views/WorkspaceView'
 import AutomationView from './views/AutomationView'
 import SettingsView from './views/SettingsView'
+import { BackIcon, BrandMark, NavIcon, RescanIcon, StopIcon, type NavGlyphName } from './icons'
 import { usePreferences } from './preferences'
 import './App.css'
 
-type Detail = 'sessions' | 'plugins' | 'workspace' | 'settings' | 'automation'
+type Page = 'overview' | 'sessions' | 'workspace' | 'plugins' | 'settings' | 'automation'
 
 function App() {
   const { t, e } = usePreferences()
-  const [detail, setDetail] = useState<Detail | null>(null)
+  const [page, setPage] = useState<Page>('overview')
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
   const [snapshot, setSnapshot] = useState<ScanSnapshot | null>(null)
   const [progress, setProgress] = useState<ScanProgress | null>(null)
@@ -113,36 +118,106 @@ function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || cleaning) return
       if (cleanupPreview) setCleanupPreview(null)
-      else if (detail === 'automation') setDetail('settings')
-      else if (detail) setDetail(null)
+      else if (page === 'automation') setPage('settings')
+      else if (page !== 'overview') setPage('overview')
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [cleaning, cleanupPreview, detail])
+  }, [cleaning, cleanupPreview, page])
 
-  return (
-    <main className="app">
-      {!snapshot && <InitialScanView progress={progress} error={error} onRetry={runScan} />}
-      {error && snapshot && <p className="error">{t('出错：', 'Error: ')}{e(error)}</p>}
+  const dialogs = <>
+    {cleanupPreview && (cleaning || dialogReport
+      ? <CleanupExperience preview={cleanupPreview} report={dialogReport} progress={cleanProgress}
+          scanProgress={progress} stage={cleanupStage} onDone={() => setCleanupPreview(null)} />
+      : <CleanupDialog preview={cleanupPreview} restart={restartCodex} forceQuit={forceQuitCodex} onRestart={setRestartCodex} onForceQuit={setForceQuitCodex}
+          onConfirm={runCleanup} onClose={() => setCleanupPreview(null)} />)}
+  </>
 
-      {snapshot && <OverviewView snapshot={snapshot} workspace={workspace} appInfo={appInfo} cleaning={cleaning}
-        scanning={!!progress} scanProgress={progress} actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup}
-        onScan={() => progress ? window.cleanmycodex.cancelScan() : runScan()} onOpenDetail={setDetail} />}
-      {detail && <div className="detail-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !cleaning) setDetail(null) }}>
-        <section className="detail-sheet" onMouseDown={(event) => event.stopPropagation()}>
-        {snapshot && detail === 'sessions' ? <SessionsView snapshot={snapshot} cleaning={cleaning} actionsDisabled={!!progress} cleanProgress={cleanProgress} onBack={() => setDetail(null)} onCleanup={requestCleanup} />
-          : snapshot && detail === 'plugins' ? <PluginsView snapshot={snapshot} cleaning={cleaning} actionsDisabled={!!progress} cleanProgress={cleanProgress} onBack={() => setDetail(null)} onCleanup={requestCleanup} />
-          : detail === 'workspace' && workspace ? <WorkspaceView snapshot={workspace} cleaning={cleaning} actionsDisabled={!!progress} cleanProgress={cleanProgress} onBack={() => setDetail(null)} onCleanup={requestCleanup} />
-          : detail === 'settings' ? <SettingsView onBack={() => setDetail(null)} onOpenScheduledCleanup={() => setDetail('automation')} />
-          : detail === 'automation' ? <AutomationView onBack={() => setDetail('settings')} /> : null}
-      </section></div>}
-      {cleanupPreview && (cleaning || dialogReport
-        ? <CleanupExperience preview={cleanupPreview} report={dialogReport} progress={cleanProgress}
-            scanProgress={progress} stage={cleanupStage} onDone={() => setCleanupPreview(null)} />
-        : <CleanupDialog preview={cleanupPreview} restart={restartCodex} forceQuit={forceQuitCodex} onRestart={setRestartCodex} onForceQuit={setForceQuitCodex}
-            onConfirm={runCleanup} onClose={() => setCleanupPreview(null)} />)}
-    </main>
-  )
+  if (!snapshot) return <>
+    <InitialScanView progress={progress} error={error} onRetry={runScan} />
+    {dialogs}
+  </>
+
+  const titles: Record<Page, string> = {
+    overview: t('总览', 'Overview'),
+    sessions: t('会话记录', 'Sessions'),
+    workspace: t('工作产出', 'Workspace Output'),
+    plugins: t('插件版本', 'Plugin Versions'),
+    settings: t('设置', 'Settings'),
+    automation: t('定时清理', 'Scheduled Cleanup')
+  }
+
+  return <>
+    <div className="shell">
+      <Sidebar page={page} onNavigate={setPage} snapshot={snapshot} workspace={workspace} />
+      <div className="pane">
+        <header className="titlebar">
+          <div className="titlebar-title">
+            {page === 'automation' && <button className="icon-button titlebar-back" title={t('返回设置', 'Back to Settings')}
+              aria-label={t('返回设置', 'Back to Settings')} onClick={() => setPage('settings')}><BackIcon /></button>}
+            <h2>{titles[page]}</h2>
+          </div>
+          <div className="titlebar-actions">
+            {progress && <span className="titlebar-status">{t('扫描中', 'Scanning')} {Math.round((progress.fraction || 0) * 100)}%</span>}
+            <button className="btn btn-quiet" disabled={cleaning} onClick={() => progress ? window.cleanmycodex.cancelScan() : runScan()}
+              title={progress ? t('停止扫描', 'Stop Scan') : t('重新扫描', 'Scan Again')}>
+              {progress ? <StopIcon /> : <RescanIcon />}
+              <span>{progress ? t('停止', 'Stop') : t('重新扫描', 'Scan Again')}</span>
+            </button>
+          </div>
+          <span className="titlebar-progress" aria-hidden="true" style={{ transform: `scaleX(${progress ? Math.max(0.02, progress.fraction || 0) : 0})` }} />
+        </header>
+
+        {error && <p className="pane-error">{t('出错：', 'Error: ')}{e(error)}</p>}
+
+        {page === 'overview' && <OverviewView snapshot={snapshot} appInfo={appInfo} cleaning={cleaning}
+          actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup} />}
+        {page === 'sessions' && <SessionsView snapshot={snapshot} cleaning={cleaning} actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup} />}
+        {page === 'plugins' && <PluginsView snapshot={snapshot} cleaning={cleaning} actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup} />}
+        {page === 'workspace' && workspace && <WorkspaceView snapshot={workspace} cleaning={cleaning} actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup} />}
+        {page === 'settings' && <SettingsView onOpenScheduledCleanup={() => setPage('automation')} />}
+        {page === 'automation' && <AutomationView />}
+      </div>
+    </div>
+    {dialogs}
+  </>
+}
+
+function Sidebar({ page, snapshot, workspace, onNavigate }: {
+  page: Page
+  snapshot: ScanSnapshot
+  workspace: WorkspaceSnapshot | null
+  onNavigate: (page: Page) => void
+}) {
+  const { t } = usePreferences()
+  const sessionCount = listableSessions(snapshot).length
+  const items: Array<{ page: Page; glyph: NavGlyphName; label: string; value: string }> = [
+    { page: 'overview', glyph: 'overview', label: t('总览', 'Overview'), value: formatBytes(snapshot.totalCodexBytes) },
+    { page: 'sessions', glyph: 'sessions', label: t('会话记录', 'Sessions'), value: sessionCount ? formatBytes(snapshotSessionBytes(snapshot)) : '—' },
+    { page: 'workspace', glyph: 'workspace', label: t('工作产出', 'Workspace'), value: workspace?.isScanned ? formatBytes(workspaceBytes(workspace)) : '—' },
+    { page: 'plugins', glyph: 'plugins', label: t('插件版本', 'Plugins'), value: formatBytes(snapshotPluginBytes(snapshot)) }
+  ]
+  return <aside className="sidebar">
+    <div className="sidebar-head">
+      <BrandMark />
+      <span className="brand-text"><strong>Clean My Codex</strong><small>{t('Codex 空间管理', 'Codex storage')}</small></span>
+    </div>
+    <nav className="nav" aria-label={t('主导航', 'Main navigation')}>
+      {items.map((item) => <button key={item.page} className={`nav-item${page === item.page ? ' selected' : ''}`}
+        aria-current={page === item.page ? 'page' : undefined} onClick={() => onNavigate(item.page)}>
+        <NavIcon name={item.glyph} />
+        <span className="nav-label">{item.label}</span>
+        <span className="nav-value">{item.value}</span>
+      </button>)}
+    </nav>
+    <div className="sidebar-foot">
+      <button className={`nav-item${page === 'settings' || page === 'automation' ? ' selected' : ''}`}
+        aria-current={page === 'settings' ? 'page' : undefined} onClick={() => onNavigate('settings')}>
+        <NavIcon name="settings" />
+        <span className="nav-label">{t('设置', 'Settings')}</span>
+      </button>
+    </div>
+  </aside>
 }
 
 function InitialScanView({ progress, error, onRetry }: {
@@ -156,8 +231,9 @@ function InitialScanView({ progress, error, onRetry }: {
   const stage = m(progress?.stage ?? message('stage.preparing'))
 
   return <section className={`initial-scan${error ? ' initial-scan-error' : ''}`} aria-live="polite">
+    <span className="drag-strip" aria-hidden="true" />
     <div className="initial-scan-shell">
-      <div className="initial-scan-brand"><strong>Clean My Codex</strong></div>
+      <div className="initial-scan-brand"><BrandMark /><strong>Clean My Codex</strong></div>
       <div className="scan-visual" aria-hidden="true">
         <span className="scan-ring scan-ring-one" />
         <span className="scan-ring scan-ring-two" />

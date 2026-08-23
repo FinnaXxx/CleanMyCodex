@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   type ScanSnapshot,
-  type WorkspaceSnapshot,
   type AppInfo,
   type CleanupSelection,
   type CleanupProgress,
-  type ScanProgress,
   type StorageCategory,
   type StorageEntry,
   type StorageKind,
@@ -16,33 +14,22 @@ import {
   categoryIsEmpty,
   categorySection,
   isSelectable,
-  snapshotSessionBytes,
-  snapshotPluginBytes,
-  listableSessions,
-  workspaceBytes,
   formatBytes
 } from '../../shared/types'
 import { message } from '../../shared/messages'
 import { FolderIcon } from '../icons'
 import { usePreferences } from '../preferences'
 
-type Detail = 'sessions' | 'plugins' | 'workspace' | 'settings'
-
 interface Props {
   snapshot: ScanSnapshot
-  workspace: WorkspaceSnapshot | null
   appInfo: AppInfo | null
   cleaning: boolean
-  scanning: boolean
-  scanProgress: ScanProgress | null
   actionsDisabled: boolean
   cleanProgress: CleanupProgress | null
   onCleanup: (selection: CleanupSelection) => void
-  onScan: () => void
-  onOpenDetail: (detail: Detail) => void
 }
 
-export default function OverviewView({ snapshot, workspace, appInfo, cleaning, scanning, scanProgress, actionsDisabled, cleanProgress, onCleanup, onScan, onOpenDetail }: Props) {
+export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisabled, cleanProgress, onCleanup }: Props) {
   const { t, m, locale } = usePreferences()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [expanded, setExpanded] = useState<Set<StorageKind>>(new Set())
@@ -50,7 +37,6 @@ export default function OverviewView({ snapshot, workspace, appInfo, cleaning, s
   const allEntries = useMemo<StorageEntry[]>(() => snapshot.categories.flatMap((c) => c.entries), [snapshot])
   const selectedEntries = useMemo(() => allEntries.filter((e) => selected.has(e.id)), [allEntries, selected])
   const selectedBytes = selectedEntries.reduce((sum, e) => sum + e.reclaimableBytes, 0)
-  const sessionCount = listableSessions(snapshot).length
 
   /** Sections are content types; whether an item is worth cleaning shows up per row. */
   const sections = useMemo(() => StorageSectionOrder.map((section) => ({
@@ -109,80 +95,63 @@ export default function OverviewView({ snapshot, workspace, appInfo, cleaning, s
   })
 
   return (
-    <>
-      <section className="hero">
-        <div className="hero-heading">
-          <h1>Clean My Codex</h1>
-          <button className="icon-button settings-button" title={t('设置', 'Settings')} aria-label={t('设置', 'Settings')} onClick={() => onOpenDetail('settings')}>
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M9.7 3.4h4.6l.6 2.2c.5.2.9.4 1.3.7l2.2-.7 2.3 4-1.7 1.5a7 7 0 0 1 0 1.8l1.7 1.5-2.3 4-2.2-.7c-.4.3-.8.5-1.3.7l-.6 2.2H9.7l-.6-2.2c-.5-.2-.9-.4-1.3-.7l-2.2.7-2.3-4L5 12.9a7 7 0 0 1 0-1.8L3.3 9.6l2.3-4 2.2.7c.4-.3.8-.5 1.3-.7l.6-2.2Z"/>
-              <circle cx="12" cy="12" r="2.6"/>
-            </svg>
-          </button>
-        </div>
-        <div className="hero-body">
-          <div className="hero-summary">
-          <div className="hero-metrics">
+    <div className="detail-content">
+      <section className="summary">
+        <div className="summary-main">
+          <div className="summary-metrics">
             <div className="metric">
               <span className="metric-label">{t('当前占用', 'Current usage')}</span>
               <span className="metric-value">{formatBytes(snapshot.totalCodexBytes)}</span>
+              <span className="metric-note">{t('上次扫描 ', 'Scanned ')}{new Date(snapshot.scannedAt).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</span>
             </div>
             <div className="metric metric-reclaimable">
               <span className="metric-label">{t('本次可释放', 'Reclaimable')}</span>
-              <span className="metric-value accent">
-                {formatBytes(selectedBytes)}<small>{t(`${selectedEntries.length} 项`, `${selectedEntries.length} items`)}</small>
-              </span>
+              <span className="metric-value accent">{formatBytes(selectedBytes)}</span>
+              <span className="metric-note">{t(`已选择 ${selectedEntries.length} 项`, `${selectedEntries.length} items selected`)}</span>
             </div>
           </div>
-            <div className="hero-action">
-              <button
-                className="btn primary hero-clean-button"
-                disabled={!selectedEntries.length || cleaning || actionsDisabled}
-                onClick={() => onCleanup({ kind: 'storage', ids: selectedEntries.map((entry) => entry.id) })}
+          <button
+            className="btn primary btn-large summary-clean"
+            disabled={!selectedEntries.length || cleaning || actionsDisabled}
+            onClick={() => onCleanup({ kind: 'storage', ids: selectedEntries.map((entry) => entry.id) })}
+          >
+            {cleaning ? t(`清理中… ${cleanProgress?.completed ?? 0}/${cleanProgress?.total ?? selectedEntries.length}`, `Cleaning… ${cleanProgress?.completed ?? 0}/${cleanProgress?.total ?? selectedEntries.length}`) : t('开始清理', 'Start Cleanup')}
+          </button>
+        </div>
+        <div className="summary-chart">
+          <div className="distribution-bar" role="list" aria-label={t('空间占用分布', 'Storage distribution')}>
+            {distribution.map((item, index) => {
+              const summary = `${formatBytes(item.bytes)} · ${distributionPercent.format(item.fraction)}`
+              const description = [item.label, summary, ...(item.details ?? [])].join(t('；', '; '))
+              return <span
+                key={item.label}
+                className={`distribution-segment distribution-tone-${index + 1}`}
+                role="listitem"
+                tabIndex={0}
+                aria-label={description}
+                style={{ width: `${item.fraction * 100}%` }}
               >
-                {cleaning ? t(`清理中… ${cleanProgress?.completed ?? 0}/${cleanProgress?.total ?? selectedEntries.length}`, `Cleaning… ${cleanProgress?.completed ?? 0}/${cleanProgress?.total ?? selectedEntries.length}`) : t('开始清理', 'Start Cleanup')}
-              </button>
-              <button className="scan-link" disabled={cleaning} onClick={onScan}>{scanning ? t('停止扫描', 'Stop Scan') : t('重新扫描', 'Scan Again')}</button>
-            </div>
-          </div>
-          <div className="usage-distribution">
-            <div className="distribution-bar" role="list" aria-label={t('空间占用分布', 'Storage distribution')}>
-              {distribution.map((item, index) => {
-                const summary = `${formatBytes(item.bytes)} · ${distributionPercent.format(item.fraction)}`
-                const description = [item.label, summary, ...(item.details ?? [])].join(t('；', '; '))
-                return <span
-                  key={item.label}
-                  className={`distribution-segment distribution-tone-${index + 1}`}
-                  role="listitem"
-                  tabIndex={0}
-                  aria-label={description}
-                  style={{ width: `${item.fraction * 100}%` }}
-                >
-                  <span className="distribution-tooltip" aria-hidden="true">
-                    <strong>{item.label}</strong>
-                    <span>{summary}</span>
-                    {!!item.details?.length && <small>{item.details.join(' · ')}</small>}
-                  </span>
+                <span className="distribution-tooltip" aria-hidden="true">
+                  <strong>{item.label}</strong>
+                  <span>{summary}</span>
+                  {!!item.details?.length && <small>{item.details.join(' · ')}</small>}
                 </span>
-              })}
-            </div>
+              </span>
+            })}
           </div>
+          <ul className="distribution-legend">
+            {distribution.map((item, index) => <li key={item.label}>
+              <span className={`legend-dot distribution-tone-${index + 1}`} aria-hidden="true" />
+              <span className="legend-label">{item.label}</span>
+              <b>{formatBytes(item.bytes)}</b>
+              <span className="legend-percent">{distributionPercent.format(item.fraction)}</span>
+            </li>)}
+          </ul>
         </div>
       </section>
 
-      {scanProgress && <div className="progress overview-progress"><progress value={scanProgress.fraction} max={1}/><span>{scanProgress.stage && `${m(scanProgress.stage)} · `}{scanProgress.currentPath}</span></div>}
-
       {appInfo?.codexRunning && <p className="notice warning">{appInfo.blockers.map(m).join(t('；', '; '))}{t('，需要独占文件的项目本次会跳过；退出 Codex 后需重新清理。', '. Items requiring exclusive file access will be skipped; quit Codex and run cleanup again.')}</p>}
       {snapshot.notes.map((note) => <p className="notice" key={note.key}>{m(note)}</p>)}
-
-      <section className="shortcuts">
-        <Shortcut kind="sessions" title={t('会话记录', 'Sessions')} detail={t('查看占用并完整删除会话', 'Review usage and delete complete sessions')} value={t(`${sessionCount} 个 · ${formatBytes(snapshotSessionBytes(snapshot))}`, `${sessionCount} · ${formatBytes(snapshotSessionBytes(snapshot))}`)}
-          disabled={!sessionCount} onClick={() => onOpenDetail('sessions')} />
-        <Shortcut kind="workspace" title={t('工作产出', 'Workspace Output')} detail={t('Codex 会话的工作目录', 'Working directories created by Codex')} value={workspace?.isScanned ? formatBytes(workspaceBytes(workspace)) : t('尚未统计', 'Not scanned')}
-          onClick={() => onOpenDetail('workspace')} />
-        <Shortcut kind="plugins" title={t('插件版本', 'Plugin Versions')} detail={t('清理旧版本与卸载残留', 'Remove old versions and leftovers')} value={t(`${snapshot.pluginVersions.length} 个版本 · ${formatBytes(snapshotPluginBytes(snapshot))}`, `${snapshot.pluginVersions.length} versions · ${formatBytes(snapshotPluginBytes(snapshot))}`)}
-          onClick={() => onOpenDetail('plugins')} />
-      </section>
 
       {sections.map(({ section, categories }) => {
         const selectable = categories.flatMap((category) => category.entries).filter((item) => isSelectable(item.risk))
@@ -222,7 +191,7 @@ export default function OverviewView({ snapshot, workspace, appInfo, cleaning, s
       })}
 
       {snapshot.categories.length === 0 && <p className="empty-panel">{t('没有扫描到可清理的内容', 'No cleanable content found')}</p>}
-    </>
+    </div>
   )
 }
 
@@ -298,12 +267,6 @@ function CategoryRow({ category, selected, expanded, onExpand, onSelectAll, onTo
   )
 }
 
-const ShortcutGlyph: Record<'sessions' | 'plugins' | 'workspace', string> = {
-  sessions: 'M3 4.6h12v7.2h-6l-3.4 2.7v-2.7H3V4.6Z',
-  plugins: 'M7.4 2.6h3.2v1.9a1.6 1.6 0 1 0 3.2 0v1.9h1.7v3.2h-1.9a1.6 1.6 0 1 0 0 3.2h1.9v2.6H7.4v-1.9a1.6 1.6 0 1 0-3.2 0v-3.9h1.9a1.6 1.6 0 1 0 0-3.2H4.2V6.4h3.2V2.6Z',
-  workspace: 'M2.8 4.4h4.4l1.4 1.8h6.6v7.4H2.8V4.4Z'
-}
-
 function EntryText({ entry }: { entry: StorageEntry }) {
   const { m } = usePreferences()
   return (
@@ -314,25 +277,5 @@ function EntryText({ entry }: { entry: StorageEntry }) {
       </span>
       {entry.note && <span className="entry-detail">{m(entry.note)}</span>}
     </span>
-  )
-}
-
-function Shortcut({ kind, title, detail, value, disabled = false, onClick }: {
-  kind: 'sessions' | 'plugins' | 'workspace'
-  title: string; detail: string; value: string; disabled?: boolean; onClick: () => void
-}) {
-  return (
-    <button className={`shortcut shortcut-${kind}`} disabled={disabled} onClick={onClick}>
-      <span className="shortcut-top">
-        <span className="shortcut-icon" aria-hidden="true">
-          <svg viewBox="0 0 18 18" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round">
-            <path d={ShortcutGlyph[kind]} />
-          </svg>
-        </span>
-        <span className="shortcut-arrow" aria-hidden="true">↗</span>
-      </span>
-      <span className="shortcut-text"><span className="shortcut-title">{title}</span><span className="shortcut-detail">{detail}</span></span>
-      <span className="shortcut-value">{value}</span>
-    </button>
   )
 }
