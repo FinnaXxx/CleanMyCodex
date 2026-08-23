@@ -1144,3 +1144,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
   .cleaning-orbit, .cleaning-core, .success-visual svg, .success-halo, .success-particle, .scan-beam { animation: none; }
   .nav-item, .shortcut, .cleanup-progress-track > span, .distribution-segment, .titlebar-progress { transition: none; }
 }
+
+.leftover-notice { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.leftover-notice p { margin: 4px 0 0; }
+.leftover-notice .leftover-actions { display: flex; flex: none; gap: 8px; }

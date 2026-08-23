@@ -19,6 +19,9 @@ const api = {
   prepareCleanup: (selection: CleanupSelection): Promise<CleanupPreview> => ipcRenderer.invoke('cleanup:prepare', selection),
   cleanup: (request: CleanupRequest): Promise<CleanupReport> => ipcRenderer.invoke('cleanup:run', request),
   scanWorkspace: (): Promise<WorkspaceSnapshot | null> => ipcRenderer.invoke('workspace:scan'),
+  /** Session rows Codex still lists although their rollout file is gone. */
+  sessionLeftovers: (): Promise<{ count: number; logPath: string }> => ipcRenderer.invoke('sessions:leftovers'),
+  repairSessionLeftovers: (): Promise<{ threads: number; removedRows: number }> => ipcRenderer.invoke('sessions:repairLeftovers'),
   revealPath: (path: string): Promise<void> => ipcRenderer.invoke('path:reveal', path),
   openPath: (path: string): Promise<void> => ipcRenderer.invoke('path:open', path),
   getAutomation: (): Promise<AutomationState> => ipcRenderer.invoke('automation:get'),

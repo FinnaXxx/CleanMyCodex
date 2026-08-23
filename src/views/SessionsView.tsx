@@ -28,7 +28,7 @@ type Scope = 'all' | 'active' | 'archived'
 type Sort = 'total' | 'date' | 'name'
 
 export default function SessionsView({ snapshot, cleaning, actionsDisabled, cleanProgress, onCleanup }: Props) {
-  const { t, locale } = usePreferences()
+  const { t, e, locale } = usePreferences()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [scope, setScope] = useState<Scope>('all')
   const [sort, setSort] = useState<Sort>('total')
@@ -36,10 +36,37 @@ export default function SessionsView({ snapshot, cleaning, actionsDisabled, clea
   /** Empty keeps every session; otherwise it is "last active more than N days ago". */
   const [olderThanDays, setOlderThanDays] = useState('')
 
+  const [leftovers, setLeftovers] = useState<{ count: number; logPath: string } | null>(null)
+  const [repairing, setRepairing] = useState(false)
+  const [repairError, setRepairError] = useState<string | null>(null)
+
   useEffect(() => {
     const current = new Set(snapshot.sessions.map((session) => session.id))
     setSelected((previous) => new Set([...previous].filter((id) => current.has(id))))
   }, [snapshot.scannedAt, snapshot.sessions])
+
+  // Leftover rows are metadata, not files, so they are looked up separately from the
+  // scan — and again after every scan, because a deletion may have produced new ones.
+  useEffect(() => {
+    let cancelled = false
+    window.cleanmycodex.sessionLeftovers()
+      .then((result) => { if (!cancelled) setLeftovers(result) })
+      .catch(() => { if (!cancelled) setLeftovers(null) })
+    return () => { cancelled = true }
+  }, [snapshot.scannedAt])
+
+  const repairLeftovers = async (): Promise<void> => {
+    setRepairing(true)
+    setRepairError(null)
+    try {
+      await window.cleanmycodex.repairSessionLeftovers()
+      setLeftovers(await window.cleanmycodex.sessionLeftovers())
+    } catch (err) {
+      setRepairError(e(err instanceof Error ? err.message : String(err)))
+    } finally {
+      setRepairing(false)
+    }
+  }
 
   const listable = useMemo(() => listableSessions(snapshot), [snapshot])
 
@@ -71,6 +98,24 @@ export default function SessionsView({ snapshot, cleaning, actionsDisabled, clea
 
   return <>
     <div className="detail-content">
+    {leftovers && leftovers.count > 0 && <div className="notice warning leftover-notice">
+      <div>
+        <strong>{t(`发现 ${leftovers.count} 条残留会话记录`, `${leftovers.count} leftover session records`)}</strong>
+        <p>{t(
+          '这些会话的 rollout 文件已经删除，但 Codex 的会话数据库里还留着记录：它们仍会出现在 ChatGPT/Codex 的侧边栏，点开时提示 “no rollout found for thread id”。清理需要先退出 ChatGPT/Codex。',
+          'Their rollout files are gone but Codex still has the records: they keep appearing in the ChatGPT/Codex sidebar and fail to open with “no rollout found for thread id”. Quit ChatGPT/Codex before cleaning them up.'
+        )}</p>
+      </div>
+      <div className="leftover-actions">
+        <button className="btn" disabled={repairing || cleaning || actionsDisabled} onClick={() => void repairLeftovers()}>
+          {repairing ? t('清理中…', 'Cleaning…') : t('清理残留记录', 'Clean Up Records')}
+        </button>
+        <button className="btn btn-quiet" onClick={() => void window.cleanmycodex.revealPath(leftovers.logPath)}>
+          {t('查看清理日志', 'Show Cleanup Log')}
+        </button>
+      </div>
+    </div>}
+    {repairError && <p className="error">{repairError}</p>}
     <section className="filters">
       <select value={scope} onChange={(event) => setScope(event.target.value as Scope)}>
         <option value="all">{t('全部', 'All')} {listable.length}</option>
