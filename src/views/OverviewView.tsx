@@ -293,7 +293,7 @@ function PageSection({ glyph, title, bytes, rowDetail, value, onOpen }: {
         <span className="section-total">{t('共', 'Total')} {formatBytes(bytes)}</span>
       </div>
       <div className="card">
-        <div className="row-block">
+        <div className="row-block row-navigation">
           <div className="row">
             <span className="checkbox-space" />
             <button className="row-main" onClick={onOpen}>
