@@ -39,9 +39,22 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [language, setLanguage] = useState<LanguagePreference>(storedLanguage)
 
   useLayoutEffect(() => {
+    document.documentElement.dataset.platform = window.cleanmycodex.platform
+  }, [])
+
+  useLayoutEffect(() => {
     localStorage.setItem(THEME_KEY, theme)
     if (theme === 'system') document.documentElement.removeAttribute('data-theme')
     else document.documentElement.dataset.theme = theme
+
+    // The window backdrop is painted natively, so it has to follow the same choice the
+    // interface does, including while "follow the system" is switching underneath.
+    const system = window.matchMedia('(prefers-color-scheme: dark)')
+    const report = (): void => { void window.cleanmycodex.applyWindowTheme(theme === 'system' ? system.matches : theme === 'dark') }
+    report()
+    if (theme !== 'system') return
+    system.addEventListener('change', report)
+    return () => system.removeEventListener('change', report)
   }, [theme])
 
   useEffect(() => {

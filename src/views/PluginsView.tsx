@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import type { CleanupProgress, CleanupSelection, PluginVersionItem, ScanSnapshot } from '../../shared/types'
 import { formatBytes, pluginStatusIsRemovable } from '../../shared/types'
 import { message } from '../../shared/messages'
-import { BackIcon, FolderIcon } from '../icons'
+import { FolderIcon } from '../icons'
 import { usePreferences } from '../preferences'
 
 interface Props {
@@ -10,11 +10,10 @@ interface Props {
   cleaning: boolean
   actionsDisabled: boolean
   cleanProgress: CleanupProgress | null
-  onBack: () => void
   onCleanup: (selection: CleanupSelection) => void
 }
 
-export default function PluginsView({ snapshot, cleaning, actionsDisabled, cleanProgress, onBack, onCleanup }: Props) {
+export default function PluginsView({ snapshot, cleaning, actionsDisabled, cleanProgress, onCleanup }: Props) {
   const { t, m, locale } = usePreferences()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const groups = useMemo(() => {
@@ -37,8 +36,8 @@ export default function PluginsView({ snapshot, cleaning, actionsDisabled, clean
 
   return <>
     <div className="detail-content">
-    <section className="page-heading">
-      <div className="page-title"><button className="icon-button detail-back-button" title={t('返回', 'Back')} aria-label={t('返回', 'Back')} onClick={onBack}><BackIcon /></button><div><h2>{t('插件版本', 'Plugin Versions')}</h2></div></div>
+    <section className="view-toolbar">
+      <span className="view-toolbar-hint">{t(`${groups.length} 个插件 · ${snapshot.pluginVersions.length} 个版本`, `${groups.length} plugins · ${snapshot.pluginVersions.length} versions`)}</span>
       <button className="btn" disabled={!removable.length} onClick={() => setSelected(new Set(removable.map((item) => item.directoryURL)))}>{t('选择全部可清理版本', 'Select All Cleanable Versions')}</button>
     </section>
     {snapshot.pluginVersions.some((item) => item.status === 'unconfirmed') && <p className="notice">{t('未连接 codex app server，无法确认当前版本，已全部锁定。', 'Codex app server is unavailable, so current versions cannot be verified and are locked.')}</p>}

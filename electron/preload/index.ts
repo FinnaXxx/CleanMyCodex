@@ -6,6 +6,8 @@ import type {
 import type { Language, Message } from '../../shared/messages'
 
 const api = {
+  /** The renderer reserves room for the macOS traffic lights and squares its own chrome. */
+  platform: process.platform,
   appInfo: (): Promise<AppInfo> => ipcRenderer.invoke('app:info'),
   scan: (): Promise<ScanSnapshot | null> => ipcRenderer.invoke('scan:run'),
   cancelScan: (): Promise<void> => ipcRenderer.invoke('scan:cancel'),
@@ -22,6 +24,9 @@ const api = {
   getAutomation: (): Promise<AutomationState> => ipcRenderer.invoke('automation:get'),
   saveAutomation: (settings: AutomationSettings): Promise<AutomationState> => ipcRenderer.invoke('automation:save', settings),
   saveLanguage: (language: Language): Promise<void> => ipcRenderer.invoke('preferences:language', language),
+  // Keeps the native window backdrop in step with the theme, so resizing never flashes
+  // the opposite appearance behind the interface.
+  applyWindowTheme: (dark: boolean): Promise<void> => ipcRenderer.invoke('window:theme', dark),
   onCleanupProgress: (listener: (progress: CleanupProgress) => void): (() => void) => {
     const handler = (_event: unknown, progress: CleanupProgress): void => listener(progress)
     ipcRenderer.on('cleanup:progress', handler)
