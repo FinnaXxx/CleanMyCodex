@@ -23,7 +23,9 @@ import { ProtectedPaths } from './guard'
 import type { CodexEnvironment } from './platform-services'
 import { MessageError, message, type Message } from '../../shared/messages'
 
-const AUTOMATIC_CACHE_KINDS = new Set(['temporary', 'browserCache', 'appCache', 'appLogs'])
+// Scheduled cache cleanup is intentionally narrower than the UI. Desktop caches and
+// logs remain manual-review items even if a future scanner accidentally changes groups.
+const AUTOMATIC_CACHE_KINDS = new Set(['temporary'])
 
 export function buildTrustedTasks(
   selection: CleanupSelection,
@@ -62,7 +64,7 @@ export function buildTrustedTasks(
         bytes: plugin.bytes,
         reclaimableBytes: plugin.bytes,
         minimumIdleSeconds: null,
-        requiresCodexStopped: false,
+        requiresCodexStopped: true,
         risk: 'safe' as const
       })))
     }

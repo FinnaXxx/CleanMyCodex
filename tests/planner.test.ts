@@ -25,6 +25,9 @@ function snapshot(): ScanSnapshot {
     codexHome: '/codex', scannedAt: 1, totalCodexBytes: 1000, externalBytes: 0,
     categories: [
       { kind: 'temporary', group: 'recommended', risk: 'safe', entries: [storage('safe')] },
+      { kind: 'browserCache', group: 'recommended', risk: 'rebuildable', entries: [storage('browser', 'rebuildable')] },
+      { kind: 'appCache', group: 'recommended', risk: 'rebuildable', entries: [storage('app-cache', 'rebuildable')] },
+      { kind: 'appLogs', group: 'recommended', risk: 'rebuildable', entries: [storage('app-log', 'rebuildable')] },
       { kind: 'marketplaceCache', group: 'review', risk: 'rebuildable', entries: [storage('market', 'rebuildable')] },
       { kind: 'protectedConfig', group: 'protectedData', risk: 'shielded', entries: [storage('shielded', 'shielded')] },
       { kind: 'pluginRemnants', group: 'recommended', risk: 'safe', entries: [storage('old-plugin')] },
@@ -51,6 +54,7 @@ describe('trusted cleanup planner', () => {
     const snap = snapshot()
     const tasks = buildTrustedTasks({ kind: 'plugins', ids: ['/codex/plugins/current', '/codex/plugins/old', '/etc'] }, snap, snap.workspace)
     expect(tasks.map((task) => task.url)).toEqual(['/codex/plugins/old'])
+    expect(tasks[0].requiresCodexStopped).toBe(true)
   })
 
   it('revalidates overview plugin entries against the latest plugin versions', () => {
@@ -153,6 +157,9 @@ describe('automatic cleanup planner', () => {
     expect(tasks.map((task) => task.id)).toContain('old-plugin')
     expect(tasks.map((task) => task.id)).not.toContain('orphan-plugin')
     expect(tasks.map((task) => task.id)).not.toContain('market')
+    expect(tasks.map((task) => task.id)).not.toContain('browser')
+    expect(tasks.map((task) => task.id)).not.toContain('app-cache')
+    expect(tasks.map((task) => task.id)).not.toContain('app-log')
     expect(tasks.map((task) => task.threadID)).toContain('active')
     expect(tasks.map((task) => task.threadID)).not.toContain('unstable')
   })

@@ -44,6 +44,19 @@ describe('cleanup path guard', () => {
     expect(rejection(() => guard.validate(locations.appSupport))).toBe('guard.wholeDataRoot')
   })
 
+  it('rejects every unnamed path inside desktop data roots', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const guard = new ProtectedPaths(locations)
+    const unknownProfile = join(locations.appSupport, 'Future Profile', 'Future Storage')
+    const unknownCacheState = join(locations.appCacheContainers[0], 'session-state')
+    mkdirSync(unknownProfile, { recursive: true })
+    mkdirSync(unknownCacheState, { recursive: true })
+
+    expect(rejection(() => guard.validate(unknownProfile))).toBe('guard.protectedPath')
+    expect(rejection(() => guard.validate(unknownCacheState))).toBe('guard.protectedPath')
+  })
+
   it('protects login-bearing profile data in both Chromium profile layouts', () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
     const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
@@ -51,7 +64,8 @@ describe('cleanup path guard', () => {
     // Cookies moved under Network/ in current Chromium, and the desktop app runs with a
     // Default profile on some builds and straight in the user-data root on others.
     for (const relative of ['Network', 'Network/Cookies', 'Local Storage', 'Service Worker', 'Local State',
-      'Default/Network/Cookies', 'Default/Local Storage', 'Default/Service Worker']) {
+      'codex-browser-app', 'Default/Network/Cookies', 'Default/Local Storage', 'Default/Service Worker',
+      'Default/Partitions', 'Default/Partitions/codex-browser-app']) {
       const path = join(locations.appSupport, relative)
       mkdirSync(path, { recursive: true })
       expect(rejection(() => guard.validate(path)), relative).toBe('guard.protectedPath')

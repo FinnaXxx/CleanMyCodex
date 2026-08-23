@@ -147,7 +147,7 @@ export async function scanSnapshot(
         const bundledPath = join(path, bundledName)
         if (guards.isProtected(bundledPath) || !bundledName.includes('.staging-')) continue
         const measured = measureTree(bundledPath, signal)
-        const idleSeconds = 3_600
+        const idleSeconds = 86_400
         if (measured.bytes && Date.now() - measured.latestActivity >= idleSeconds * 1000) {
           staleTemporary.push(entry(bundledName, 'note.marketplaceStaging', bundledPath, measured.bytes, 'safe', {
             minimumIdleSeconds: idleSeconds, requiresCodexStopped: true
@@ -157,19 +157,25 @@ export async function scanSnapshot(
       continue
     }
     if (guards.isProtected(path)) continue
-    progress('stage.caches', path, 0.08)
-    const measured = measureTree(path, signal)
-    if (!measured.bytes) continue
     if (name.toLowerCase().includes('marketplace')) {
+      progress('stage.caches', path, 0.08)
+      const measured = measureTree(path, signal)
+      if (!measured.bytes) continue
       marketplaceCaches.push(entry(name, 'note.marketplaceCopy', path, measured.bytes, 'rebuildable', {
         requiresCodexStopped: true
       }))
       continue
     }
     const staging = name.includes('.staging-') || name.startsWith('plugins-clone-')
-    const idleSeconds = staging ? 3_600 : 3 * 86_400
+    // Unknown children of .tmp may become live state in a later Codex release. Only
+    // installer/update staging patterns we understand are eligible for default cleanup.
+    if (!staging) continue
+    progress('stage.caches', path, 0.08)
+    const measured = measureTree(path, signal)
+    if (!measured.bytes) continue
+    const idleSeconds = 86_400
     if (Date.now() - measured.latestActivity < idleSeconds * 1000) continue
-    staleTemporary.push(entry(name, staging ? 'note.installLeftover' : 'note.idleThreeDays', path, measured.bytes, 'safe', {
+    staleTemporary.push(entry(name, 'note.installLeftover', path, measured.bytes, 'safe', {
       minimumIdleSeconds: idleSeconds, requiresCodexStopped: true
     }))
   }
@@ -182,7 +188,9 @@ export async function scanSnapshot(
     .map((path) => entry(relativeTo(locations.appSupport, path), 'note.rebuildableCache', path, measure(path, 'stage.caches', 0.12), 'rebuildable', {
       requiresCodexStopped: true
     }))
-  categories.push(category('browserCache', 'recommended', 'rebuildable', browserEntries))
+  // Desktop caches are rebuildable today, but Chromium is free to change what a cache
+  // directory contains. Keep them visible for an explicit review, never homepage-selected.
+  categories.push(category('browserCache', 'review', 'rebuildable', browserEntries))
   await yieldToEventLoop()
 
   const appCacheEntries = [locations.codexCache, ...locations.appCaches]
@@ -190,7 +198,7 @@ export async function scanSnapshot(
     .map((path) => entry(cacheTitle(path, locations), 'note.rebuildableCache', path, measure(path, 'stage.caches', 0.16), 'rebuildable', {
       requiresCodexStopped: true
     }))
-  categories.push(category('appCache', 'recommended', 'rebuildable', appCacheEntries))
+  categories.push(category('appCache', 'review', 'rebuildable', appCacheEntries))
   await yieldToEventLoop()
 
   const logCutoff = Date.now() - 10 * 86_400_000
@@ -199,11 +207,16 @@ export async function scanSnapshot(
   const oldLogs = logNames.flatMap((name): StorageEntry[] => {
     const path = join(locations.appLogs, name)
     try {
-      if (statSync(path).mtimeMs >= logCutoff) return []
-      return [entry(name, 'note.oldAppLog', path, measure(path, 'stage.caches', 0.18), 'rebuildable')]
+      progress('stage.caches', path, 0.18)
+      const measured = measureTree(path, signal)
+      if (!measured.bytes || measured.latestActivity >= logCutoff) return []
+      return [entry(name, 'note.oldAppLog', path, measured.bytes, 'rebuildable', {
+        minimumIdleSeconds: 10 * 86_400,
+        requiresCodexStopped: true
+      })]
     } catch { return [] }
   })
-  categories.push(category('appLogs', 'recommended', 'rebuildable', oldLogs))
+  categories.push(category('appLogs', 'review', 'rebuildable', oldLogs))
   await yieldToEventLoop()
 
   const logs = logDatabases(locations.home)

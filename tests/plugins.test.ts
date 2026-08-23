@@ -28,9 +28,11 @@ describe('plugin scanner', () => {
     const categories = pluginStorageCategories(items)
     expect(categories.find((category) => category.kind === 'pluginRemnants')).toMatchObject({ group: 'recommended', risk: 'safe' })
     expect(categories.find((category) => category.kind === 'pluginRemnants')?.entries).toHaveLength(1)
+    expect(categories.find((category) => category.kind === 'pluginRemnants')?.entries[0].requiresCodexStopped).toBe(true)
     expect(categories.find((category) => category.kind === 'pluginOrphans')).toMatchObject({ group: 'review', risk: 'caution' })
     expect(categories.find((category) => category.kind === 'pluginOrphans')?.entries).toHaveLength(1)
     expect(categories.find((category) => category.kind === 'pluginOrphans')?.entries[0].risk).toBe('caution')
+    expect(categories.find((category) => category.kind === 'pluginOrphans')?.entries[0].requiresCodexStopped).toBe(true)
   })
 
   it('locks every version when plugin/list is unavailable', () => {
