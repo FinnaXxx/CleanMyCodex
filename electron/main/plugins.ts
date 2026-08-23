@@ -5,7 +5,26 @@ import { message } from '../../shared/messages'
 import type { InstalledPlugin } from './app-server'
 import { directoryAllocatedSize } from './fs-size'
 
-const OFFICIAL_BUILTIN_MARKETPLACES = new Set(['openai-bundled', 'openai-primary-runtime'])
+/**
+ * The marketplaces Codex ships and manages itself, named exactly as its own built-in test
+ * names them (`marketplace_matches_search_scope`, which is what separates "Global" from
+ * "Personal" in its plugin search). Everything else — a marketplace added from a git or
+ * npm source, the workspace and shared-with-me catalogs, an imported Claude Code
+ * marketplace — is the user's, and is judged against `plugin/list` like any other.
+ *
+ * These are deliberately absent from `plugin/list`, and Codex prunes their stale remote
+ * caches on its own, so their on-disk bundles stay locked rather than being read as
+ * uninstall leftovers.
+ */
+const OFFICIAL_BUILTIN_MARKETPLACES = new Set([
+  'openai-bundled',
+  'openai-bundled-alpha',
+  'openai-curated',
+  'openai-api-curated',
+  'openai-curated-remote',
+  'openai-primary-runtime',
+  'codex-official'
+])
 
 /**
  * Codex' sentinel for a locally installed plugin. `PluginStore::active_plugin_version`

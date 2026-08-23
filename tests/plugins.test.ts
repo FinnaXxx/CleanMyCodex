@@ -16,6 +16,27 @@ function plugin(root: string, market: string, name: string, version: string): st
 }
 
 describe('plugin scanner', () => {
+  it('locks every marketplace Codex ships, and only those', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-plugins-')); roots.push(root)
+    // Codex's own built-in set, from `marketplace_matches_search_scope`.
+    const official = ['openai-bundled', 'openai-bundled-alpha', 'openai-curated',
+      'openai-api-curated', 'openai-curated-remote', 'openai-primary-runtime', 'codex-official']
+    for (const market of official) plugin(root, market, 'shipped', '1.0.0')
+    // A marketplace the user added, and the workspace catalogs, are not built in.
+    for (const market of ['codex-curated', 'workspace-directory', 'created-by-me-remote']) {
+      plugin(root, market, 'shipped', '1.0.0')
+    }
+    // An inventory that knows each marketplace but lists none of these plugins: the
+    // user's marketplaces yield uninstall leftovers, the shipped ones must not.
+    const items = scanPluginVersions(root, [...official, 'codex-curated', 'workspace-directory', 'created-by-me-remote']
+      .map((marketplace) => ({ marketplace, name: 'other', version: '9.9.9', directory: null, installed: true })))
+    const status = new Map(items.map((item) => [item.marketplace, item.status]))
+    for (const market of official) expect(status.get(market), market).toBe('builtin')
+    for (const market of ['codex-curated', 'workspace-directory', 'created-by-me-remote']) {
+      expect(status.get(market), market).toBe('orphaned')
+    }
+  })
+
   it('never treats a `local` version as superseded, whatever the catalog reports', () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-plugins-')); roots.push(root)
     // Codex resolves the active version from the directory listing, and `local` wins over
