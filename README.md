@@ -98,7 +98,7 @@ Deleting a session requires ChatGPT/Codex to have quit. It then runs, in order:
 5. Whether the protocol or the fallback ran, re-check `thread_history_*.sqlite`, `state_*.sqlite` and `session_index.jsonl` against the same set of thread IDs, and remove records still pointing at deleted rollouts.
 6. Clean the desktop's own copy last: rows are deleted by thread ID from `~/.codex/sqlite/*.db` (`local_thread_catalog` is the sidebar conversation list, and the summary and history-snapshot databases sit beside it), and the matching mapping keys, list items and `…threadId` fields are stripped from `~/.codex/.codex-global-state.json` and its `.bak`. `thread/delete` does not cover these two — when the protocol reports success and the core data really is gone, but the conversation is still in the sidebar and opening it reports `no rollout found for thread id`, this is the step that was missing.
 
-7. Every step records how many rows it removed in the cleanup log.
+Every step records how many rows it removed in the cleanup log.
 
 Configuration, credentials, the current plugins and workspace output are not removed along with a session; the `session_index.jsonl` lines tied directly to the target session are.
 
