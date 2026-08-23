@@ -10,7 +10,14 @@ import { runCleanup, type CleanupDeps } from './cleanup'
 import { AppServerClient } from './app-server'
 import { buildAutomaticTasks, buildTrustedTasks, makeCleanupPreview } from './planner'
 import { codexEnvironment, codexIsRunning, quitCodexDesktop, relaunchCodex } from './platform-services'
-import { deleteSessionRecords, preflightSessionRecords, sessionProtocolThreadIDs } from './session-database'
+import {
+  deleteOrphanSessionRecords,
+  deleteSessionRecords,
+  findOrphanSessionRecords,
+  preflightSessionRecords,
+  sessionProtocolThreadIDs
+} from './session-database'
+import { cleanupLogPath, logCleanup } from './diagnostics'
 import { pluginStorageCategories, scanPluginVersions } from './plugins'
 import {
   appendAutomationLog,
@@ -176,6 +183,23 @@ ipcMain.handle('window:theme', (_event, dark: boolean) => {
   mainWindow?.setBackgroundColor(dark ? WindowBackdrop.dark : WindowBackdrop.light)
 })
 
+/**
+ * Metadata Codex still lists although the rollout file is gone. Reported separately from
+ * a scan because it is not disk usage: it is what makes a deleted conversation keep
+ * appearing in the desktop sidebar until the row itself is removed.
+ */
+ipcMain.handle('sessions:leftovers', () => ({
+  count: findOrphanSessionRecords(locations.home).length,
+  logPath: cleanupLogPath()
+}))
+
+ipcMain.handle('sessions:repairLeftovers', () => {
+  if (codexIsRunning()) throw new MessageError(message('error.codexRunningForRepair'))
+  const report = deleteOrphanSessionRecords(locations.home)
+  logCleanup(`repair removed ${report.removedRows} rows for ${report.threadIDs.length} threads`)
+  return { threads: report.threadIDs.length, removedRows: report.removedRows }
+})
+
 ipcMain.handle('cleanup:prepare', async (_event, selection: CleanupSelection) => {
   if (selectionTouchesPlugins(selection)) await refreshPluginsBeforeCleanup()
   const tasks = trustedTasks(selection)
@@ -239,7 +263,9 @@ function assertTrustedDisplayPath(path: unknown): asserts path is string {
 }
 
 function trustedDisplayPaths(): Set<string> {
-  const result = new Set<string>([locations.home, locations.workspace])
+  // The cleanup log is part of what the interface offers to show, so revealing it is
+  // as legitimate as revealing a scanned path.
+  const result = new Set<string>([locations.home, locations.workspace, cleanupLogPath()])
   if (latestSnapshot) {
     for (const category of latestSnapshot.categories) for (const entry of category.entries) result.add(entry.url)
     for (const session of latestSnapshot.sessions) {
@@ -269,12 +295,23 @@ function cleanupDependencies(): CleanupDeps {
     sessionDatabase: {
       preflightDelete: (threadID, relatedURLs) => preflightSessionRecords(locations.home, threadID, relatedURLs),
       deleteThreadWithProtocol: async (threadID, relatedURLs) => {
-        const protocolIDs = sessionProtocolThreadIDs(threadID, relatedURLs)
-        return appServer.deleteThreads(protocolIDs)
+        const protocolIDs = sessionProtocolThreadIDs(locations.home, threadID, relatedURLs)
+        const deleted = await appServer.deleteThreads(protocolIDs)
+        logCleanup(`thread/delete ${threadID} ids=${protocolIDs.join(' ')} ${deleted ? 'ok' : 'unavailable'}`)
+        return deleted
       },
-      // Older app servers do not expose thread/delete. Run this only after the
-      // recoverable file cleanup when the preferred protocol was unavailable.
-      deleteThreadLocally: (threadID, relatedURLs) => deleteSessionRecords(locations.home, threadID, relatedURLs)
+      // Also runs after a successful thread/delete, to sweep metadata the protocol
+      // left behind. Older app servers do not expose thread/delete at all, and then
+      // this is the whole cleanup, run after the recoverable file cleanup.
+      deleteThreadLocally: (threadID, relatedURLs) => {
+        const report = deleteSessionRecords(locations.home, threadID, relatedURLs)
+        logCleanup(`local sweep ${threadID} rows=${report.removedRows}`)
+        return report
+      },
+      reportProtocolLeftovers: (threadID, removedRows, reason) => {
+        if (reason) logCleanup(`leftover sweep failed ${threadID}: ${reason}`)
+        else if (removedRows > 0) logCleanup(`thread/delete left ${removedRows} rows for ${threadID}; removed here`)
+      }
     }
   }
 }

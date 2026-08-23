@@ -109,17 +109,64 @@ describe('cleanup engine', () => {
     mkdirSync(locations.sessions, { recursive: true }); writeFileSync(rollout, Buffer.alloc(8192))
     const task: CleanupTask = { id: rollout, title: 'thread', detail: '', url: rollout, expectedBytes: 8192, threadID: 'thread', companionURLs: [], minimumIdleSeconds: null, requiresCodexStopped: false }
     let removeCalled = false
+    let preflighted = false
     const report = await runCleanup([task], new ProtectedPaths(locations), {
       remove: async () => { removeCalled = true },
       isCodexRunning: () => false,
       sessionDatabase: {
+        preflightDelete: () => { preflighted = true },
         deleteThreadWithProtocol: async () => { rmSync(rollout); return true },
-        deleteThreadLocally: () => { throw new Error('local fallback must not run') }
+        deleteThreadLocally: () => ({ removedRows: 0, freedBytes: 0 })
       }
     })
     expect(report.outcomes[0].status.kind).toBe('succeeded')
     expect(report.outcomes[0].freedBytes).toBeGreaterThan(0)
     expect(removeCalled).toBe(false)
+    // The local preflight belongs to the fallback: a newer protocol must not be
+    // blocked by this app's understanding of the current schemas.
+    expect(preflighted).toBe(false)
+  })
+
+  it('sweeps metadata the session protocol claimed to delete but left behind', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-cleanup-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), documents: join(root, 'Documents') })
+    const rollout = join(locations.sessions, 'thread.jsonl')
+    mkdirSync(locations.sessions, { recursive: true }); writeFileSync(rollout, Buffer.alloc(8192))
+    const task: CleanupTask = { id: rollout, title: 'thread', detail: '', url: rollout, expectedBytes: 8192, threadID: 'thread', companionURLs: [], minimumIdleSeconds: null, requiresCodexStopped: false }
+    const swept: string[] = []
+    const leftovers: Array<{ threadID: string; removedRows: number; reason: string | null }> = []
+    const report = await runCleanup([task], new ProtectedPaths(locations), {
+      remove: async () => undefined,
+      isCodexRunning: () => false,
+      sessionDatabase: {
+        deleteThreadWithProtocol: async () => { rmSync(rollout); return true },
+        deleteThreadLocally: (threadID) => { swept.push(threadID); return { removedRows: 2, freedBytes: 0 } },
+        reportProtocolLeftovers: (threadID, removedRows, reason) => leftovers.push({ threadID, removedRows, reason })
+      }
+    })
+    expect(report.outcomes[0].status.kind).toBe('succeeded')
+    expect(swept).toEqual(['thread'])
+    expect(leftovers).toEqual([{ threadID: 'thread', removedRows: 2, reason: null }])
+  })
+
+  it('keeps a protocol deletion successful when the leftover sweep cannot run', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-cleanup-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), documents: join(root, 'Documents') })
+    const rollout = join(locations.sessions, 'thread.jsonl')
+    mkdirSync(locations.sessions, { recursive: true }); writeFileSync(rollout, Buffer.alloc(8192))
+    const task: CleanupTask = { id: rollout, title: 'thread', detail: '', url: rollout, expectedBytes: 8192, threadID: 'thread', companionURLs: [], minimumIdleSeconds: null, requiresCodexStopped: false }
+    const reasons: Array<string | null> = []
+    const report = await runCleanup([task], new ProtectedPaths(locations), {
+      remove: async () => undefined,
+      isCodexRunning: () => false,
+      sessionDatabase: {
+        deleteThreadWithProtocol: async () => { rmSync(rollout); return true },
+        deleteThreadLocally: () => { throw new Error('unsupported schema') },
+        reportProtocolLeftovers: (_threadID, _rows, reason) => reasons.push(reason)
+      }
+    })
+    expect(report.outcomes[0].status.kind).toBe('succeeded')
+    expect(reasons).toEqual(['unsupported schema'])
   })
 
   it('validates every companion before deleting a session', async () => {

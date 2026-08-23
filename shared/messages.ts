@@ -69,7 +69,7 @@ export type MessageKey =
   | 'error.schtasksFailed' | 'error.automationUnsupported' | 'error.invalidAutomationSettings'
   | 'error.codexBinaryMissing' | 'error.appServerExited' | 'error.appServerSpawnFailed'
   | 'error.appServerTimeout' | 'error.appServerError'
-  | 'error.integrityCheckFailed' | 'error.unsupportedDatabase'
+  | 'error.integrityCheckFailed' | 'error.unsupportedDatabase' | 'error.codexRunningForRepair'
   /** Text from outside this table (Node errno, SQLite, git) that is shown verbatim. */
   | 'error.verbatim'
   // Automatic cleanup log and notification
@@ -222,6 +222,7 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'error.appServerError': ['codex 返回错误 {code}：{reason}', 'codex returned error {code}: {reason}'],
   'error.integrityCheckFailed': ['{path} 完整性检查失败：{reason}', 'Integrity check failed for {path}: {reason}'],
   'error.unsupportedDatabase': ['{path} 缺少 {table}，暂不支持这个数据库版本', '{path} has no {table}; this database version is not supported yet'],
+  'error.codexRunningForRepair': ['请先退出 ChatGPT/Codex，再清理残留会话记录', 'Quit ChatGPT/Codex before removing leftover session records'],
   'error.verbatim': ['{text}', '{text}'],
 
   'auto.disabled': ['定时清理未开启，跳过。', 'Scheduled cleanup is off. Skipping.'],

@@ -19,6 +19,8 @@ export interface CleanupDeps {
     preflightDelete?: (threadID: string, relatedURLs: string[]) => void
     deleteThreadWithProtocol?: (threadID: string, relatedURLs: string[]) => Promise<boolean>
     deleteThreadLocally: (threadID: string, relatedURLs: string[]) => { removedRows: number; freedBytes: number }
+    /** Reports metadata the protocol claimed to delete but left behind. */
+    reportProtocolLeftovers?: (threadID: string, removedRows: number, reason: string | null) => void
   }
 }
 
@@ -137,6 +139,20 @@ async function runRemoval(
       freed += report.freedBytes
     } catch (err) {
       return outcome(task, { kind: 'failed', reason: message('cleanup.localIndexFailed', { reason: errorText(err) }) }, freed)
+    }
+  } else if (task.threadID && deps.sessionDatabase && protocolDeleted) {
+    // The protocol reporting success is not proof that every row is gone: a desktop
+    // thread pointing at the deleted rollout survives it and keeps the conversation in
+    // the sidebar, where opening it fails. Sweeping the same thread set again removes
+    // nothing when Codex did its part, so a leftover row never outlives the rollout.
+    try {
+      const report = deps.sessionDatabase.deleteThreadLocally(task.threadID, targets)
+      freed += report.freedBytes
+      deps.sessionDatabase.reportProtocolLeftovers?.(task.threadID, report.removedRows, null)
+    } catch (err) {
+      // A future Codex release may change these schemas. That must not turn a deletion
+      // Codex itself confirmed into a failure — it is recorded for diagnosis instead.
+      deps.sessionDatabase.reportProtocolLeftovers?.(task.threadID, 0, errorText(err))
     }
   }
   if (removed === 0 && removedRows === 0) {
