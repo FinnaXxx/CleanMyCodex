@@ -828,9 +828,9 @@ label.entry-label { cursor: pointer; }
   box-shadow: var(--shadow-card);
 }
 .nothing-found-glyph { display: grid; place-items: center; width: 68px; height: 68px; margin-bottom: 6px; border-radius: 50%; background: var(--surface-sunken); color: var(--text-tertiary); }
-.nothing-found-glyph svg { width: 34px; height: 34px; }
+.nothing-found-glyph svg { width: 26px; height: 26px; }
 .nothing-found h2 { margin: 0; font-size: 17px; }
-.nothing-found p { max-width: 460px; margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.7; }
+.nothing-found p { max-width: 640px; margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.7; text-wrap: pretty; }
 .nothing-found-path code { padding: 3px 9px; border-radius: 7px; background: var(--surface-sunken); color: var(--text-secondary); font-size: 12px; }
 .nothing-found-hint { color: var(--text-tertiary) !important; font-size: 12px !important; }
 .nothing-found .btn { margin-top: 12px; }

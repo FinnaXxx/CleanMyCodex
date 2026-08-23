@@ -255,9 +255,8 @@ function NothingFound({ snapshot, onRescan }: { snapshot: ScanSnapshot; onRescan
   return (
     <section className="nothing-found">
       <span className="nothing-found-glyph" aria-hidden="true">
-        <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <ellipse cx="24" cy="12" rx="13" ry="5.5" /><path d="M11 12v12c0 3 5.8 5.5 13 5.5s13-2.5 13-5.5V12" />
-          <path d="M11 24v12c0 3 5.8 5.5 13 5.5s13-2.5 13-5.5V24" /><path d="m17 19 14 14M31 19 17 33" />
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+          <path d="M6 6l12 12M18 6 6 18" />
         </svg>
       </span>
       <h2>{snapshot.codexHomeExists
