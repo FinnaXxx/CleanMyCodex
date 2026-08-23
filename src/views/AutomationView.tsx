@@ -30,6 +30,9 @@ export default function AutomationView() {
       {state.nextRunAt && <small>{t('预计下次运行：', 'Next run: ')}{formatMoment(state.nextRunAt, locale)}</small>}
       {state.lastRun && <small>{t('上次运行：', 'Last run: ')}{formatMoment(state.lastRun.finishedAt, locale)} · {t('释放', 'Freed')} {formatBytes(state.lastRun.freedBytes)} · {t('成功', 'Succeeded')} {state.lastRun.succeeded} · {t('跳过', 'Skipped')} {state.lastRun.deferred} · {t('失败', 'Failed')} {state.lastRun.failed}</small>}
       {state.lastRun?.note && <small>{m(state.lastRun.note)}</small>}
+      <label><input type="checkbox" checked={settings.launchAtLogin} onChange={(event) => update('launchAtLogin', event.target.checked)}/> {t('登录时打开 Clean My Codex', 'Open Clean My Codex at login')}</label>
+      <small>{t('只是开机自动打开这个应用，定时清理不需要它——定时任务由系统调度，应用关着也会运行。',
+        'This only opens the app at login. Scheduled cleanup does not need it: the system runs it whether or not the app is open.')}</small>
     </section>
     <section className="card form-card"><h3>{t('定时清理范围', 'Cleanup Scope')}</h3>
       <small>{t('触发时 Codex 如果是打开状态，这一轮会全部跳过，下次再试。',
@@ -42,7 +45,6 @@ export default function AutomationView() {
     <section className="card form-card"><h3>{t('安全规则', 'Safety Rules')}</h3>
       <label><input type="checkbox" checked={settings.skipRecentSessions} onChange={(event) => update('skipRecentSessions', event.target.checked)}/> {t('跳过 24 小时内活动过的会话', 'Skip sessions active within the last 24 hours')}</label>
       <label><input type="checkbox" checked={settings.notifyWhenFinished} onChange={(event) => update('notifyWhenFinished', event.target.checked)}/> {t('完成后显示通知', 'Show a notification when finished')}</label>
-      <label><input type="checkbox" checked={settings.launchAtLogin} onChange={(event) => update('launchAtLogin', event.target.checked)}/> {t('登录时打开 Clean My Codex', 'Open Clean My Codex at login')}</label>
     </section>
   </div>
 }
