@@ -77,6 +77,17 @@ function xml(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
 
+/**
+ * How often launchd should wake the app, which is not the cleanup interval.
+ *
+ * `StartInterval` counts from the moment launchd loads the agent, and the counter starts
+ * over at every login. A month-long interval on a machine that is ever logged out would
+ * simply never come due. So launchd wakes the app once a day and the app decides whether
+ * the interval has actually elapsed, which makes the interval mean elapsed time rather
+ * than uninterrupted uptime. A wake that is not due costs one short process.
+ */
+const WAKE_INTERVAL_SECONDS = 86_400
+
 function launchAgentPlist(intervalSeconds: number): string {
   const programArguments = app.isPackaged ? [process.execPath, '--auto-clean'] : [process.execPath, app.getAppPath(), '--auto-clean']
   const argumentXML = programArguments.map((argument) => `<string>${xml(argument)}</string>`).join('')
@@ -174,15 +185,26 @@ function uninstallWindowsTask(): void {
  *
  * Returns what it did, so a start that repaired something says so in the log.
  */
+/**
+ * Whether enough time has passed since the last completed run. launchd only promises a
+ * wake; this is what makes `intervalDays` mean what the settings page says it means.
+ */
+export function automaticRunIsDue(now = Date.now()): { due: boolean; nextRunAt: number } {
+  const settings = loadAutomationSettings()
+  const lastRun = readJSON<AutomaticRunRecord>(lastRunPath())
+  const nextRunAt = nextRunEstimate(settings, lastRun) ?? now
+  return { due: now >= nextRunAt, nextRunAt }
+}
+
 export function repairAutomationSchedule(): string | null {
   const settings = loadAutomationSettings()
   if (!settings.enabled || process.platform !== 'darwin') return null
-  const desired = launchAgentPlist(settings.intervalDays * 86_400)
+  const desired = launchAgentPlist(WAKE_INTERVAL_SECONDS)
   let current: string | null = null
   try { current = readFileSync(launchAgentPath(), 'utf8') } catch { /* not installed */ }
   if (current === desired && launchAgentIsLoaded()) return null
   try {
-    installLaunchAgent(settings.intervalDays * 86_400)
+    installLaunchAgent(WAKE_INTERVAL_SECONDS)
     return current === null ? 'reinstalled a missing launch agent' : 'launch agent no longer matched this build; reinstalled'
   } catch (error) {
     return `launch agent could not be repaired: ${error instanceof MessageError ? error.info.key : String(error)}`
@@ -231,7 +253,7 @@ export function applyAutomationSettings(settings: AutomationSettings): Automatio
   }
   writeJSON(settingsPath(), sanitized)
   if (sanitized.enabled) {
-    if (process.platform === 'darwin') installLaunchAgent(sanitized.intervalDays * 86_400)
+    if (process.platform === 'darwin') installLaunchAgent(WAKE_INTERVAL_SECONDS)
     else if (process.platform === 'win32') installWindowsTask(sanitized.intervalDays)
     else throw new MessageError(message('error.automationUnsupported'))
   } else {

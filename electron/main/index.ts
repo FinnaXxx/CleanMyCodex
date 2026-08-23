@@ -24,6 +24,7 @@ import { pluginStorageCategories, scanPluginVersions } from './plugins'
 import {
   appendAutomationLog,
   applyAutomationSettings,
+  automaticRunIsDue,
   getAutomationState,
   loadAutomationSettings,
   loadUILanguage,
@@ -516,6 +517,13 @@ async function runAutomaticCleanup(): Promise<void> {
     record(0, 0, 0, 0, message('auto.disabled'))
     return
   }
+  // launchd wakes the app daily; the interval the user set is enforced here. A wake that
+  // is not due records nothing — writing a run would move the anchor it is measured from.
+  const due = automaticRunIsDue()
+  if (!due.due) {
+    logCleanup(`schedule: woke but not due until ${new Date(due.nextRunAt).toISOString()}`)
+    return
+  }
   try {
     logEnvironment('automatic run')
     const startedAt = Date.now()
@@ -559,7 +567,13 @@ async function runAutomaticCleanup(): Promise<void> {
 }
 
 app.whenReady().then(async () => {
-  if (process.argv.includes('--auto-clean')) { await runAutomaticCleanup(); app.quit(); return }
+  if (process.argv.includes('--auto-clean')) {
+    // No window is ever created, so keep the run out of the Dock entirely.
+    app.dock?.hide()
+    await runAutomaticCleanup()
+    app.quit()
+    return
+  }
   logEnvironment('start')
   const repaired = repairAutomationSchedule()
   if (repaired) logCleanup(`schedule: ${repaired}`)
