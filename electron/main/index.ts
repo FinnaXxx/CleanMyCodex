@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Menu, shell, ipcMain, nativeTheme, Notification, type MenuItemConstructorOptions } from 'electron'
 import { join } from 'node:path'
+import { release } from 'node:os'
 import { rm } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { Worker } from 'node:worker_threads'
@@ -7,7 +8,7 @@ import { CodexLocations } from './locations'
 import { scanSnapshot } from './scanner'
 import { ProtectedPaths } from './guard'
 import { runCleanup, type CleanupDeps } from './cleanup'
-import { AppServerClient } from './app-server'
+import { AppServerClient, locateCodexExecutable } from './app-server'
 import { buildAutomaticTasks, buildTrustedTasks, makeCleanupPreview } from './planner'
 import { codexEnvironment, codexIsRunning, quitCodexDesktop, relaunchCodex } from './platform-services'
 import {
@@ -30,6 +31,7 @@ import {
   saveUILanguage
 } from './automation'
 import {
+  cleanupStatusReason,
   formatBytes,
   pluginStatusIsRemovable,
   reportFreedBytes,
@@ -45,6 +47,7 @@ import {
   MessageError,
   SCAN_STOPPED,
   decodeMessage,
+  describeMessage,
   formatMessage,
   message,
   type Language,
@@ -76,12 +79,15 @@ ipcMain.handle('app:info', () => {
 })
 
 ipcMain.handle('scan:run', () => runInteractiveScan(async (signal) => {
-  const installedPlugins = await appServer.installedPlugins(signal)
+  const startedAt = Date.now()
+  const installedPlugins = await appServer.installedPlugins(signal, reportPluginListFailure)
+  logCleanup(`plugin/list: ${installedPlugins === null ? 'unavailable' : `${installedPlugins.length} rows`}`)
   throwIfScanCancelled(signal)
   const snapshot = await runWorker<ScanSnapshot>({ type: 'scan', installedPlugins })
   latestSnapshot = snapshot
   latestWorkspace = snapshot.workspace
   guards = guardsFor(snapshot)
+  logScan(snapshot, Date.now() - startedAt)
   return snapshot
 }))
 
@@ -216,6 +222,7 @@ ipcMain.handle('cleanup:run', async (_event, request: CleanupRequest) => {
   if (!request || typeof request !== 'object' || typeof request.restartCodex !== 'boolean' || typeof request.forceQuitCodex !== 'boolean') throw new MessageError(message('error.invalidRequest'))
   if (selectionTouchesPlugins(request.selection)) await refreshPluginsBeforeCleanup()
   const tasks = trustedTasks(request.selection)
+  logEnvironment(`cleanup:run ${request.selection.kind} tasks=${tasks.length} restart=${request.restartCodex} force=${request.forceQuitCodex}`)
   let reopen: string[] = []
   if (request.restartCodex && tasks.some((task) => task.requiresCodexStopped)) {
     mainWindow?.webContents.send('cleanup:stage', message('cleanup.quitting'))
@@ -246,9 +253,52 @@ function logRemovals(selection: CleanupSelection, report: CleanupReport): void {
   const failed = report.outcomes.filter((outcome) => outcome.status.kind === 'failed')
   logCleanup(`${selection.kind} cleanup: ${removed.length} removed, ${failed.length} failed, ${report.outcomes.length - removed.length - failed.length} skipped`)
   for (const outcome of report.outcomes) {
-    if (outcome.status.kind === 'skipped') continue
-    logCleanup(`  ${outcome.status.kind} ${outcome.detail} (${outcome.freedBytes} bytes)`)
+    // Every outcome, with why. A skip is the most common thing a report is about — the
+    // user pressed clean and nothing happened — and a failure is usually the guard
+    // refusing a path, which is unreadable without the reason it gave.
+    const reason = cleanupStatusReason(outcome.status)
+    const why = reason ? `: ${describeMessage(reason)}` : ''
+    logCleanup(`  ${outcome.status.kind} ${outcome.detail} (${outcome.freedBytes} bytes)${why}`)
   }
+}
+
+/**
+ * The header every report needs before its first line means anything: which build, on
+ * what, pointed at which Codex home, with which CLI behind the app-server. Written once
+ * at startup and again before each cleanup, so a log that has rotated still carries it.
+ */
+/** Why the plugin inventory came back empty, which decides every plugin's status. */
+function reportPluginListFailure(reason: string): void {
+  logCleanup(`plugin/list failed: ${reason} — every on-disk plugin stays locked`)
+}
+
+function logEnvironment(label: string): void {
+  const environment = codexEnvironment()
+  const blockers = environment.blockers.map(describeMessage).join(' ') || 'none'
+  logCleanup(`${label}: CleanMyCodex ${app.getVersion()} on ${process.platform} ${release()}, electron ${process.versions.electron}`)
+  logCleanup(`  codexHome=${locations.home}${process.env['CODEX_HOME'] ? ' (CODEX_HOME)' : ''} codexBinary=${locateCodexExecutable() ?? 'not found'}`)
+  logCleanup(`  running=${environment.running} desktop=${environment.desktopRunning} canRestart=${environment.canRestart} blockers=${blockers}`)
+}
+
+/**
+ * What one scan concluded, in the terms the cleanup decisions are made in. A report of
+ * the shape "it offered nothing" or "the total looks wrong" is unanswerable without it,
+ * and plugin statuses in particular are where a misread inventory shows up first.
+ */
+function logScan(snapshot: ScanSnapshot, elapsedMs: number): void {
+  const pluginStatuses = snapshot.pluginVersions.reduce<Record<string, number>>((counts, plugin) => {
+    counts[plugin.status] = (counts[plugin.status] ?? 0) + 1
+    return counts
+  }, {})
+  const describeCounts = (counts: Record<string, number>): string =>
+    Object.entries(counts).map(([key, value]) => `${key}=${value}`).join(' ') || 'none'
+  logCleanup(`scan: ${elapsedMs}ms total=${snapshot.totalCodexBytes} external=${snapshot.externalBytes} sessions=${snapshot.sessions.length}`)
+  logCleanup(`  plugins ${describeCounts(pluginStatuses)}`)
+  for (const category of snapshot.categories) {
+    const bytes = category.entries.reduce((sum, entry) => sum + entry.bytes, 0)
+    logCleanup(`  ${category.group}/${category.kind} entries=${category.entries.length} bytes=${bytes}`)
+  }
+  for (const note of snapshot.notes) logCleanup(`  note ${describeMessage(note)}`)
 }
 
 async function refreshPluginsBeforeCleanup(): Promise<void> {
@@ -464,9 +514,13 @@ async function runAutomaticCleanup(): Promise<void> {
     return
   }
   try {
-    const installedPlugins = await appServer.installedPlugins()
+    logEnvironment('automatic run')
+    const startedAt = Date.now()
+    const installedPlugins = await appServer.installedPlugins(undefined, reportPluginListFailure)
+    logCleanup(`plugin/list: ${installedPlugins === null ? 'unavailable' : `${installedPlugins.length} rows`}`)
     const snapshot = await scanSnapshot(locations, installedPlugins)
     guards = guardsFor(snapshot)
+    logScan(snapshot, Date.now() - startedAt)
     const tasks = buildAutomaticTasks(snapshot, settings)
     if (!tasks.length) {
       appendAutomationLog(message('auto.nothingToClean'))
@@ -503,6 +557,7 @@ async function runAutomaticCleanup(): Promise<void> {
 
 app.whenReady().then(async () => {
   if (process.argv.includes('--auto-clean')) { await runAutomaticCleanup(); app.quit(); return }
+  logEnvironment('start')
   buildApplicationMenu()
   createWindow()
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
