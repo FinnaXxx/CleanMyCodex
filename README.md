@@ -90,8 +90,8 @@ The first version does not scan, count, deduplicate or rewrite images embedded i
 ### What deleting a session actually does
 
 Deleting a session requires ChatGPT/Codex to have quit. It then runs, in order:
-1. 
-2. Resolve every thread ID involved in this deletion: the IDs in the rollout file names, the subagents in `thread_spawn_edges`, and the records in `state_*.sqlite` whose rollout path points at those files. A desktop conversation has its own thread ID and does not appear in a file name, so it can only be found by looking up the rollout path.
+
+1. Resolve every thread ID involved in this deletion: the IDs in the rollout file names, the subagents in `thread_spawn_edges`, and the records in `state_*.sqlite` whose rollout path points at those files. A desktop conversation has its own thread ID and does not appear in a file name, so it can only be found by looking up the rollout path.
 2. Call the app-server's `thread/delete` for the main conversation, the desktop conversation record and each level of subagent, in preference to anything local. Each request permanently deletes that thread's continuation rollouts, database records and `session_index.jsonl` lines.
 3. Where the version does not support the protocol, or any request fails, fall back to local compatible cleanup and permanently delete the rollouts the protocol did not handle.
 4. Permanently delete the `generated_images` and Visualization directories, which the protocol does not manage.
