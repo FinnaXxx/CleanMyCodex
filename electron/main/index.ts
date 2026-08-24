@@ -373,6 +373,7 @@ function trustedDisplayPaths(): Set<string> {
       result.add(session.fileURL)
       for (const path of session.assetURLs) result.add(path)
     }
+    for (const asset of latestSnapshot.generatedAssets) result.add(asset.path)
     for (const plugin of latestSnapshot.pluginVersions) result.add(plugin.directoryURL)
   }
   const visit = (entries: WorkspaceSnapshot['entries']): void => {

@@ -29,10 +29,14 @@ function snapshot(): ScanSnapshot {
       { kind: 'appLogs', group: 'recommended', risk: 'rebuildable', entries: [storage('app-log', 'rebuildable')] },
       { kind: 'protectedConfig', group: 'protectedData', risk: 'shielded', entries: [storage('shielded', 'shielded')] },
       { kind: 'pluginRemnants', group: 'recommended', risk: 'safe', entries: [storage('old-plugin')] },
-      { kind: 'pluginOrphans', group: 'review', risk: 'caution', entries: [storage('orphan-plugin', 'caution')] },
-      { kind: 'generatedImages', group: 'review', risk: 'caution', entries: [storage('imagegen-copy', 'caution')] }
+      { kind: 'pluginOrphans', group: 'review', risk: 'caution', entries: [storage('orphan-plugin', 'caution')] }
     ],
     sessions: [session('active'), session('unstable', { isUnstable: true }), session('compressed', { isCompressed: true })],
+    generatedAssets: [{
+      id: '/codex/generated_images/active', kind: 'imageGen', path: '/codex/generated_images/active',
+      companionPaths: [], bytes: 25, fileCount: 1, formats: ['png'], modifiedAt: 0,
+      sourceThreadID: 'active', sourceSessionID: '/codex/sessions/active.jsonl'
+    }],
     pluginVersions: [
       { marketplace: 'm', plugin: 'p', version: '1', directoryURL: '/codex/plugins/current', bytes: 10, environmentBytes: 0, modifiedAt: 0, status: 'current' },
       { marketplace: 'm', plugin: 'p', version: '0', directoryURL: '/codex/plugins/old', bytes: 10, environmentBytes: 0, modifiedAt: 0, status: 'outdated' }
@@ -142,16 +146,50 @@ describe('trusted cleanup planner', () => {
     expect(preview.blockedTitles).toEqual(['active'])
   })
 
-  it('warns that deleting an ImageGen local copy leaves a stale saved path', () => {
+  it('warns that deleting a generated asset leaves a stale saved path', () => {
     const snap = snapshot()
-    const image = snap.categories.find((category) => category.kind === 'generatedImages')!.entries[0]
-    const selection: CleanupSelection = { kind: 'storage', ids: [image.id] }
+    const image = snap.generatedAssets[0]
+    const selection: CleanupSelection = { kind: 'generated-assets', ids: [image.id, '/etc/passwd'] }
     const tasks = buildTrustedTasks(selection, snap, snap.workspace)
+    expect(tasks).toMatchObject([{ id: image.id, url: image.path, companionURLs: [], expectedBytes: image.bytes, requiresCodexStopped: true }])
+    expect(tasks[0].title).toBe('active')
     const preview = makeCleanupPreview(selection, tasks, {
       running: false, detectionKnown: true, desktopRunning: false,
       cliCommands: [], canRestart: false, blockers: []
     }, snap)
-    expect(preview.warnings).toContainEqual(message('warning.imageGenLocalCopy'))
+    expect(preview.warnings).toContainEqual(message('warning.generatedAssetLocalCopy'))
+  })
+
+  it('deletes a Visualization source and Viewer as one generated asset', () => {
+    const snap = snapshot()
+    const visualization = {
+      id: '/codex/visualizations/2026/08/24/active', kind: 'visualization' as const,
+      path: '/codex/visualizations/2026/08/24/active', companionPaths: ['/codex/visualization-viewers/active'],
+      bytes: 75, fileCount: 3, formats: ['html', 'png'], modifiedAt: 0,
+      sourceThreadID: 'active', sourceSessionID: '/codex/sessions/active.jsonl'
+    }
+    snap.generatedAssets = [visualization]
+    const tasks = buildTrustedTasks({ kind: 'generated-assets', ids: [visualization.id] }, snap, snap.workspace)
+    expect(tasks).toMatchObject([{
+      id: visualization.id,
+      url: visualization.path,
+      companionURLs: visualization.companionPaths,
+      expectedBytes: visualization.bytes
+    }])
+  })
+
+  it('uses the source conversation title for generated assets and workspace outputs', () => {
+    const snap = snapshot()
+    snap.sessions[0].title = '表格里的生成资产题目'
+    const assetTask = buildTrustedTasks({ kind: 'generated-assets', ids: [snap.generatedAssets[0].id] }, snap, snap.workspace)[0]
+
+    const output = folder('/docs/Codex/day/output')
+    output.sourceThreads = [{ id: 'active', title: '表格里的工作产出题目', archived: false, isSubagent: false, modifiedAt: 1 }]
+    const workspace = { root: '/docs/Codex', isScanned: true, entries: [folder('/docs/Codex/day', [output])] }
+    const workspaceTask = buildTrustedTasks({ kind: 'workspace', ids: [output.id] }, snap, workspace)[0]
+
+    expect(assetTask.title).toBe('表格里的生成资产题目')
+    expect(workspaceTask.title).toBe('表格里的工作产出题目')
   })
 })
 

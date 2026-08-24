@@ -107,6 +107,19 @@
     childURLs: []
   }))
 
+  const generatedAssets = sessions.map((session, index) => ({
+    id: `${HOME}/${index % 2 === 0 ? 'generated_images' : 'visualizations/2026/07/14'}/${session.threadID}`,
+    kind: index % 2 === 0 ? 'imageGen' : 'visualization',
+    path: `${HOME}/${index % 2 === 0 ? 'generated_images' : 'visualizations/2026/07/14'}/${session.threadID}`,
+    companionPaths: index % 2 === 0 ? [] : [`${HOME}/visualization-viewers/${session.threadID}`],
+    bytes: session.assetBytes,
+    fileCount: 1 + index % 4,
+    formats: index % 2 === 0 ? ['png'] : ['html', 'png'],
+    modifiedAt: session.modifiedAt,
+    sourceThreadID: session.threadID,
+    sourceSessionID: session.id
+  }))
+
   const folder = (id, name, path, bytes, fileCount, dayOffset, repositories = [], children = []) => ({
     id, path, name, bytes, fileCount,
     modifiedAt: now - dayOffset * day,
@@ -132,11 +145,13 @@
 
   const snapshot = {
     codexHome: HOME,
+    codexHomeExists: true,
     scannedAt: now,
     totalCodexBytes: classified + 318 * MiB,
     externalBytes: 0,
     categories,
     sessions,
+    generatedAssets,
     workspace,
     pluginVersions: [],
     notes: []

@@ -24,7 +24,6 @@ export type StorageKind =
   | 'codexCache'
   | 'appCache'
   | 'appLogs'
-  | 'generatedImages'
   | 'computerUse'
   | 'protectedConfig'
   | 'protectedUserData'
@@ -44,7 +43,6 @@ export const StorageKindSection: Record<StorageKind, StorageSection> = {
   codexCache: 'caches',
   appCache: 'protectedData',
   appLogs: 'logs',
-  generatedImages: 'caches',
   computerUse: 'plugins',
   protectedConfig: 'protectedData',
   protectedUserData: 'protectedData'
@@ -169,6 +167,36 @@ export const sessionDisplayName = (s: SessionItem): string => {
   return s.threadID.slice(0, 12)
 }
 
+export type GeneratedAssetKind = 'imageGen' | 'visualization'
+
+/** A thread-scoped asset directory. The directory is the smallest safe deletion unit:
+ *  Visualization viewers contain several cooperating files and must stay together. */
+export interface GeneratedAssetItem {
+  id: string
+  kind: GeneratedAssetKind
+  /** Primary directory opened from the UI and removed first. */
+  path: string
+  /** Cooperating directories removed with the primary one, such as a rendered Viewer. */
+  companionPaths: string[]
+  bytes: number
+  fileCount: number
+  /** Lowercase extensions found below the asset directory, without leading dots. */
+  formats: string[]
+  modifiedAt: number
+  /** Parsed from the directory name even when the source conversation is gone. */
+  sourceThreadID: string | null
+  /** The matching rollout row, or null for an orphaned asset directory. */
+  sourceSessionID: string | null
+}
+
+export const generatedAssetBytes = (assets: GeneratedAssetItem[]): number =>
+  assets.reduce((sum, asset) => sum + asset.bytes, 0)
+
+/** The title shared by the generated-assets table and every cleanup surface. */
+export const generatedAssetDisplayName = (asset: GeneratedAssetItem, session?: SessionItem): string =>
+  session ? sessionDisplayName(session) :
+    asset.sourceThreadID ?? asset.path.split(/[/\\]/).filter(Boolean).at(-1) ?? asset.path
+
 export type PluginStatus = 'builtin' | 'current' | 'outdated' | 'orphaned' | 'unconfirmed'
 
 export const pluginStatusIsRemovable = (status: PluginStatus): boolean =>
@@ -245,6 +273,13 @@ export const workspaceDeletionTargets = (entry: WorkspaceFolder): string[] =>
 export const workspaceFolderIsUnsafe = (entry: WorkspaceFolder): boolean =>
   entry.repositories.some((repository) => !repositoryStateIsSafe(repository.state))
 
+/** The title shared by the workspace table and every cleanup surface. */
+export const workspaceDisplayName = (entry: WorkspaceFolder): string => {
+  if (!entry.sourceThreads.length) return entry.name
+  const main = entry.sourceThreads.filter((thread) => !thread.isSubagent)
+  return (main.length ? main : entry.sourceThreads)[0].title
+}
+
 const workspaceFolderTotalBytes = (entry: WorkspaceFolder): number =>
   entry.bytes + entry.children.reduce((sum, child) => sum + workspaceFolderTotalBytes(child), 0)
 
@@ -266,6 +301,7 @@ export interface ScanSnapshot {
   externalBytes: number
   categories: StorageCategory[]
   sessions: SessionItem[]
+  generatedAssets: GeneratedAssetItem[]
   workspace: WorkspaceSnapshot
   pluginVersions: PluginVersionItem[]
   notes: Message[]
@@ -274,7 +310,7 @@ export interface ScanSnapshot {
 /** Nothing of Codex' was found anywhere the scan looks: no files, no sessions, no output. */
 export const snapshotFoundNothing = (s: ScanSnapshot): boolean =>
   s.totalCodexBytes === 0 && s.categories.length === 0 && s.sessions.length === 0 &&
-  s.pluginVersions.length === 0 && s.workspace.entries.length === 0
+  s.pluginVersions.length === 0 && s.generatedAssets.length === 0 && s.workspace.entries.length === 0
 
 /** Sessions shown as top-level rows: subagents whose parent is present are rolled into the parent, so exclude them to avoid double-counting rows and bytes. */
 export const listableSessions = (s: ScanSnapshot): SessionItem[] => {
@@ -282,9 +318,16 @@ export const listableSessions = (s: ScanSnapshot): SessionItem[] => {
   return s.sessions.filter((x) => !(x.isSubagent && x.parentThreadID && presentThreadIDs.has(x.parentThreadID)))
 }
 
-export const snapshotSessionBytes = (s: ScanSnapshot): number =>
-  listableSessions(s).reduce((sum, x) => sum + sessionTotalBytes(x), 0) +
-  s.categories.filter((category) => category.kind === 'sessionDatabase').reduce((sum, category) => sum + categoryBytes(category), 0)
+export const snapshotSessionBytes = (s: ScanSnapshot): number => {
+  const sessionIDs = new Set(s.sessions.map((session) => session.id))
+  const linkedAssetBytes = generatedAssetBytes((s.generatedAssets ?? [])
+    .filter((asset) => asset.sourceSessionID !== null && sessionIDs.has(asset.sourceSessionID)))
+  return Math.max(0, listableSessions(s).reduce((sum, x) => sum + sessionTotalBytes(x), 0) - linkedAssetBytes) +
+    s.categories.filter((category) => category.kind === 'sessionDatabase').reduce((sum, category) => sum + categoryBytes(category), 0)
+}
+
+export const snapshotGeneratedAssetBytes = (s: ScanSnapshot): number =>
+  generatedAssetBytes(s.generatedAssets ?? [])
 
 export const snapshotPluginBytes = (s: ScanSnapshot): number =>
   s.categories.filter((category) => category.kind === 'pluginRemnants' || category.kind === 'pluginOrphans' || category.kind === 'pluginRuntime')
@@ -314,6 +357,7 @@ export interface CleanupTask {
 export type CleanupSelection =
   | { kind: 'storage'; ids: string[] }
   | { kind: 'sessions-delete'; ids: string[] }
+  | { kind: 'generated-assets'; ids: string[] }
   | { kind: 'plugins'; ids: string[] }
   | { kind: 'workspace'; ids: string[] }
 
@@ -373,13 +417,28 @@ export function tasksForSessionDeletion(sessions: SessionItem[]): CleanupTask[] 
   }))
 }
 
+export function tasksForGeneratedAssets(assets: GeneratedAssetItem[], sessions: SessionItem[]): CleanupTask[] {
+  const sessionsByID = new Map(sessions.map((session) => [session.id, session]))
+  return assets.map((asset) => ({
+    id: asset.id,
+    title: generatedAssetDisplayName(asset, asset.sourceSessionID ? sessionsByID.get(asset.sourceSessionID) : undefined),
+    detail: asset.path,
+    url: asset.path,
+    expectedBytes: asset.bytes,
+    threadID: null,
+    companionURLs: asset.companionPaths,
+    minimumIdleSeconds: null,
+    requiresCodexStopped: true
+  }))
+}
+
 export function tasksForWorkspace(entries: WorkspaceFolder[]): CleanupTask[] {
   return entries
     .map((entry) => ({ entry, targets: workspaceDeletionTargets(entry) }))
     .filter((item) => item.targets.length > 0)
     .map(({ entry, targets }) => ({
       id: `workspace:${entry.id}`,
-      title: entry.name,
+      title: workspaceDisplayName(entry),
       detail: entry.path,
       url: targets[0],
       expectedBytes: entry.bytes,

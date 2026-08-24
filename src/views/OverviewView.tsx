@@ -17,6 +17,7 @@ import {
   listableSessions,
   sessionMatchesSuggestedArchivePreset,
   snapshotFoundNothing,
+  snapshotGeneratedAssetBytes,
   snapshotSessionBytes,
   workspaceBytes,
   formatBytes
@@ -35,11 +36,12 @@ interface Props {
   onCleanup: (selection: CleanupSelection) => void
   onOpenSessions: () => void
   onOpenSuggestedSessions: () => void
+  onOpenGeneratedAssets: () => void
   onOpenWorkspace: () => void
   onRescan: () => void
 }
 
-export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisabled, cleanProgress, onCleanup, onOpenSessions, onOpenSuggestedSessions, onOpenWorkspace, onRescan }: Props) {
+export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisabled, cleanProgress, onCleanup, onOpenSessions, onOpenSuggestedSessions, onOpenGeneratedAssets, onOpenWorkspace, onRescan }: Props) {
   const { t, m, locale } = usePreferences()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [expanded, setExpanded] = useState<Set<StorageKind>>(new Set())
@@ -54,8 +56,10 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
   const selectedEntries = useMemo(() => allEntries.filter((e) => selected.has(e.id)), [allEntries, selected])
   const selectedBytes = selectedEntries.reduce((sum, e) => sum + e.reclaimableBytes, 0)
   const sessionBytes = snapshotSessionBytes(snapshot)
+  const generatedAssetTotalBytes = snapshotGeneratedAssetBytes(snapshot)
+  const generatedAssetCount = snapshot.generatedAssets.length
   const workspaceTotalBytes = workspaceBytes(snapshot.workspace)
-  const manualSelectionTarget = sessionCount > 0 ? 'sessions' : workspaceTotalBytes > 0 ? 'workspace' : null
+  const manualSelectionTarget = sessionCount > 0 ? 'sessions' : workspaceTotalBytes > 0 ? 'workspace' : generatedAssetCount > 0 ? 'generatedAssets' : null
 
   /** Sections are content types; whether an item is worth cleaning shows up per row. */
   const sections = useMemo(() => StorageSectionOrder.map((section) => ({
@@ -70,6 +74,7 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
     const label = (kind: StorageDistributionKind): string => {
       if (kind === 'workspace') return t('工作产出', 'Workspace Output')
       if (kind === 'sessions') return t('会话记录', 'Sessions')
+      if (kind === 'generatedAssets') return t('生成资产', 'Generated Assets')
       if (kind === 'other') return t('其他 Codex 数据', 'Other Codex Data')
       return m(message(`section.${kind}`))
     }
@@ -80,7 +85,7 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
         label: label(item.kind),
         fraction: item.bytes / Math.max(result.total, 1),
         details: item.kind === 'other'
-          ? [t('未被扫描器归入缓存、日志、插件、会话或工作产出的 Codex 文件', 'Codex files not classified as caches, logs, plugins, sessions, or workspace output')]
+          ? [t('未被扫描器归入缓存、日志、插件、会话、生成资产或工作产出的 Codex 文件', 'Codex files not classified as caches, logs, plugins, sessions, generated assets, or workspace output')]
           : undefined
       }))
     }
@@ -116,6 +121,8 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
       onCleanup({ kind: 'storage', ids: selectedEntries.map((entry) => entry.id) })
     } else if (manualSelectionTarget === 'sessions') {
       suggestedSessionCount > 0 ? onOpenSuggestedSessions() : onOpenSessions()
+    } else if (manualSelectionTarget === 'generatedAssets') {
+      onOpenGeneratedAssets()
     } else if (manualSelectionTarget === 'workspace') {
       onOpenWorkspace()
     }
@@ -146,8 +153,10 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
                   ? suggestedSessionCount > 0
                     ? t(`找到 ${suggestedSessionCount} 个建议检查的旧归档会话`, `${suggestedSessionCount} old archived conversations suggested for review`)
                     : t(`${sessionCount} 个会话需要手动确认`, `${sessionCount} conversations require your review`)
-                  : manualSelectionTarget === 'workspace'
-                    ? t('工作产出需要手动确认', 'Workspace output requires your review')
+                  : manualSelectionTarget === 'generatedAssets'
+                    ? t('生成资产需要手动确认', 'Generated assets require your review')
+                    : manualSelectionTarget === 'workspace'
+                      ? t('工作产出需要手动确认', 'Workspace output requires your review')
                     : t('没有发现建议清理项', 'No recommended cleanup found')}</span>
             </div>
           </div>
@@ -164,8 +173,10 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
                   ? suggestedSessionCount > 0
                     ? t('查看建议清理的会话', 'Review Suggested Conversations')
                     : t('选择要清理的会话', 'Choose Conversations')
-                  : manualSelectionTarget === 'workspace'
-                    ? t('选择要清理的工作产出', 'Choose Workspace Output')
+                  : manualSelectionTarget === 'generatedAssets'
+                    ? t('选择要清理的生成资产', 'Choose Generated Assets')
+                    : manualSelectionTarget === 'workspace'
+                      ? t('选择要清理的工作产出', 'Choose Workspace Output')
                     : t('暂无建议清理项', 'Nothing Recommended')}
           </button>
         </div>
@@ -224,6 +235,17 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
           : t('尚未完成统计，重新扫描后可查看', 'Not measured yet; scan again to see it')}
         value={snapshot.workspace.isScanned ? formatBytes(workspaceTotalBytes) : '—'}
         onOpen={onOpenWorkspace}
+      />
+
+      <PageSection
+        glyph="generatedAssets"
+        title={t('生成资产', 'Generated Assets')}
+        bytes={generatedAssetTotalBytes}
+        rowDetail={generatedAssetCount
+          ? t(`${generatedAssetCount} 项 ImageGen 与 Visualization 资产，在生成资产页管理`, `${generatedAssetCount} ImageGen and Visualization assets, managed on the Generated Assets page`)
+          : t('没有扫描到本地生成资产', 'No local generated assets found')}
+        value={generatedAssetCount ? formatBytes(generatedAssetTotalBytes) : '—'}
+        onOpen={onOpenGeneratedAssets}
       />
 
       {sections.map(({ section, categories }) => {

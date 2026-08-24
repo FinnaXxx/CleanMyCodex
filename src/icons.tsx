@@ -33,11 +33,12 @@ export function StopIcon() {
 }
 
 /** The one glyph set the sidebar navigation is drawn from. */
-export type NavGlyphName = 'overview' | 'sessions' | 'workspace' | 'plugins' | 'settings'
+export type NavGlyphName = 'overview' | 'sessions' | 'generatedAssets' | 'workspace' | 'plugins' | 'settings'
 
 const NavGlyph: Record<NavGlyphName, string> = {
   overview: 'M12 4a8 8 0 1 0 8 8h-8V4Z M14.6 3.6A8 8 0 0 1 20.4 9.4h-5.8V3.6Z',
   sessions: 'M4 6.4A2.4 2.4 0 0 1 6.4 4h11.2A2.4 2.4 0 0 1 20 6.4v7.2a2.4 2.4 0 0 1-2.4 2.4H10l-4.4 3.4a.6.6 0 0 1-1-.5V16H6.4A2.4 2.4 0 0 1 4 13.6Z',
+  generatedAssets: 'M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5Z M7 16l3.3-3.6 2.5 2.4 1.8-1.8L18 16 M15.8 8.2h.01',
   workspace: 'M3.5 6.2A1.7 1.7 0 0 1 5.2 4.5h3.3l1.9 2.4h8.4a1.7 1.7 0 0 1 1.7 1.7v9.2a1.7 1.7 0 0 1-1.7 1.7H5.2a1.7 1.7 0 0 1-1.7-1.7Z',
   plugins: 'M9.4 3.4h4.2v2a2 2 0 1 0 4 0v2.2h2.1v4h-2.4a2 2 0 1 0 0 4h2.4v4.9H9.4v-2.4a2 2 0 1 0-4 0v-4.9h2.4a2 2 0 1 0 0-4H5.4V7.6h4V3.4Z',
   settings: 'M9.7 3.4h4.6l.6 2.2c.5.2.9.4 1.3.7l2.2-.7 2.3 4-1.7 1.5a7 7 0 0 1 0 1.8l1.7 1.5-2.3 4-2.2-.7c-.4.3-.8.5-1.3.7l-.6 2.2H9.7l-.6-2.2c-.5-.2-.9-.4-1.3-.7l-2.2.7-2.3-4L5 12.9a7 7 0 0 1 0-1.8L3.3 9.6l2.3-4 2.2.7c.4-.3.8-.5 1.3-.7l.6-2.2Z'

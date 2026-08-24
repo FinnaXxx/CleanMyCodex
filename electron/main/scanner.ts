@@ -3,10 +3,11 @@ import { join, basename, relative } from 'node:path'
 import { CodexLocations } from './locations'
 import { directoryAllocatedSize, fileAllocatedSize } from './fs-size'
 import { scanSessions } from './sessions'
+import { scanGeneratedAssets } from './generated-assets'
 import { pluginStorageCategories, scanPluginVersions } from './plugins'
 import { ProtectedPaths } from './guard'
 import type { InstalledPlugin } from './app-server'
-import { pluginStatusIsRemovable, sessionDisplayName, type ScanProgress, type ScanSnapshot, type SessionItem, type StorageCategory, type StorageEntry } from '../../shared/types'
+import { pluginStatusIsRemovable, type ScanProgress, type ScanSnapshot, type StorageCategory, type StorageEntry } from '../../shared/types'
 import { SCAN_STOPPED, message, type Message, type MessageKey } from '../../shared/messages'
 
 const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
@@ -266,15 +267,16 @@ export async function scanSnapshot(
   const sessions = await scanSessions(locations, (path, fraction) => progress('stage.sessions', path, 0.43 + fraction * 0.49), signal)
   if (sessions.length && !sessions.some((session) => session.title)) notes.push(message('scanNote.noSessionTitles'))
   throwIfAborted(signal)
+  const generatedAssets = scanGeneratedAssets(locations, sessions, (path, fraction) => progress('stage.assets', path, 0.92 + fraction * 0.03))
   const sessionDatabases = databaseFiles(locations.home, 'thread_history_').map((db) =>
     entry(basename(db.path), 'note.sessionProjection', db.path, db.bytes, 'shielded'))
   categories.push(category('sessionDatabase', 'protectedData', 'shielded', sessionDatabases))
-  categories.push(...assetCategories(locations, sessions, (path) => measure(path, 'stage.assets', 0.93)))
+  categories.push(...componentCategories(locations, (path) => measure(path, 'stage.assets', 0.95)))
 
   const marketplaceSources = new Set(guards.localMarketplaceSources)
   const protectedConfigEntries: StorageEntry[] = []
   for (const path of guards.protectedURLs) {
-    if (path === locations.codexCache || path === locations.generatedImages) continue // represented by dedicated categories
+    if (path === locations.codexCache || path === locations.generatedImages) continue // represented by dedicated scan results
     if ((!ProtectedPaths.contains(locations.home, path) && !marketplaceSources.has(path)) || !entryExists(path)) continue
     protectedConfigEntries.push(entry(
       // Nested protected entries (plugins/data, …) need their path to stay unambiguous.
@@ -319,6 +321,7 @@ export async function scanSnapshot(
     externalBytes,
     categories: categories.filter((c) => c.entries.length > 0),
     sessions,
+    generatedAssets,
     pluginVersions,
     workspace: { root: locations.workspace, isScanned: false, entries: [] },
     notes
@@ -346,44 +349,16 @@ function relativeTo(root: string, path: string): string {
   return value && !value.startsWith('..') ? value : basename(path)
 }
 
-function assetCategories(
+function componentCategories(
   locations: CodexLocations,
-  sessions: SessionItem[],
   measure: (path: string) => number
 ): StorageCategory[] {
-  const byThread = new Map(sessions.map((session) => [session.threadID.toLowerCase(), session]))
-  let imageDirectories: Array<{ name: string; path: string }> = []
-  try {
-    imageDirectories = readdirSync(locations.generatedImages, { withFileTypes: true })
-      .filter((item) => item.isDirectory() && !item.name.startsWith('.'))
-      .map((item) => ({ name: item.name, path: join(locations.generatedImages, item.name) }))
-  } catch { /* missing generated_images */ }
-  const generatedImages = imageDirectories.flatMap(({ name, path }): StorageEntry[] => {
-    const bytes = measure(path)
-    if (!bytes) return []
-    const session = byThread.get(name.toLowerCase())
-    return [entry(
-      session ? sessionDisplayName(session) : name,
-      session ? null : 'note.imageGenOrphanCopy',
-      path,
-      bytes,
-      session ? 'caution' : 'shielded',
-      {
-        requiresCodexStopped: true,
-        tags: session
-          ? [{ label: message(`location.${session.location}`), tone: session.location === 'active' ? 'info' : 'neutral' }]
-          : [{ label: message('tag.sessionMissing'), tone: 'caution' }]
-      }
-    )]
-  }).sort((a, b) => b.bytes - a.bytes || a.title.localeCompare(b.title))
-
   const computerUse = entryExists(locations.computerUse)
     ? [entry('computer-use', 'note.computerUseComponent', locations.computerUse, measure(locations.computerUse), 'shielded', {
         requiresCodexStopped: true
       })]
     : []
   return [
-    category('generatedImages', 'review', 'caution', generatedImages),
     category('computerUse', 'protectedData', 'shielded', computerUse)
   ]
 }

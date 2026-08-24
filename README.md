@@ -32,11 +32,11 @@ Pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) before startin
 
 Codex accumulates: a rollout file for every conversation you have ever had, plugin versions it never got around to deleting, staging folders abandoned by an interrupted update, and whatever your sessions wrote to disk. Clean My Codex measures all of it in one pass and shows where the space actually went.
 
-- **One scan, four areas.** The Codex data directory, sessions, plugins and workspace output, each with its own page and its own rules.
+- **One scan, five areas.** The Codex data directory, sessions, generated assets, plugins and workspace output, each with its own page and its own rules.
 - **Honest numbers.** A SQLite database contributes what it really occupies; its reusable free pages are never presented as space you can reclaim.
 - **Conservative by default.** Nothing is recommended without positive evidence that it is disposable, so a scan that recommends nothing is a normal result rather than a failure. Everything that is only counted is labelled that way in the interface.
 - **Whole conversations.** A session that spans several rollout segments and several layers of subagents is one row in the list and one deletion, with every derived database and every desktop-side copy cleaned up alongside it.
-- **Scheduled cleanup.** Runs on an interval over stale temporary folders, confirmed old plugin versions and aged-out conversations only. It skips pinned conversations, unfinished goals and queued work, and never touches caches, configuration or workspace output.
+- **Scheduled cleanup.** Runs on an interval over stale temporary folders, confirmed old plugin versions and aged-out conversations only. It skips pinned conversations, unfinished goals and queued work, and never touches caches, configuration, standalone generated assets or workspace output.
 
 ### What it will not delete
 
@@ -65,10 +65,11 @@ Scanning and cleanup run locally. Clean My Codex has no analytics or telemetry a
 
 ## How scanning works
 
-Scanning is scheduled by the Electron main process, and the expensive traversal runs in a worker so the interface never blocks. The result comes back in four parts:
+Scanning is scheduled by the Electron main process, and the expensive traversal runs in a worker so the interface never blocks. The result comes back in five parts:
 
 - **Codex data directory** — caches, logs and temporary files. A SQLite database only contributes its actual footprint; reusable free pages are never listed as cleanable.
 - **Sessions** — rollouts are read as a stream rather than loaded whole, session information is collected, and generated assets are linked back to the conversation that produced them.
+- **Generated assets** — ImageGen and Visualization results are scanned for file count, usage, modification time and source conversation; a Visualization source and its Viewer are grouped as one item.
 - **Plugins** — the directories on disk are combined with what `codex app-server` reports, separating the current version from older versions and uninstall leftovers.
 - **Workspace output** — scanned only once you open that page. Each output is matched with the source session title recorded in SQLite, and flagged when git has uncommitted or unpushed work.
 
@@ -87,9 +88,9 @@ Each source is scanned as what it actually is:
 - **`thread_history_*.sqlite`** — the session-history projection Codex derives from the rollouts. The scanner counts it as a session projection database; deleting a session clears the matching rows directly instead of waiting for Codex to rebuild them.
 - **`~/.codex/sqlite/*.db`** — the ChatGPT/Codex desktop's own storage. `local_thread_catalog` is the conversation list in the left sidebar, and the same directory holds session summaries and history snapshots. Rows are deleted by thread ID when a session is deleted; the files themselves never are.
 - **`.codex-global-state.json`** — the desktop's persisted state, keyed by thread ID: pins, project membership, queued tasks. Only the keys and list items of deleted sessions are removed; `electron-persisted-atom-state` (drafts, panel layout and other interface state) is left alone as a whole.
-- **`generated_images/<thread-id>`** — standalone image directories produced by a conversation.
-- **`visualizations/YYYY/MM/DD/<thread-id>`** — the rich visual results Codex generates, such as JPG/PNG comparisons or HTML visualization previews. The date levels are walked recursively and attributed to the conversation they belong to.
-- **`visualization-viewers/<thread-id>`** — the rendered viewers Codex materializes from those fragments, which its own code calls the viewer caches. Keyed by thread, so they are counted with their conversation and removed with it rather than outliving it.
+- **`generated_images/<thread-id>`** — standalone image directories produced by a conversation and listed on the Generated Assets page.
+- **`visualizations/YYYY/MM/DD/<thread-id>`** — the rich visual results Codex generates, such as JPG/PNG comparisons or HTML visualization previews. The date levels are walked recursively, listed as generated assets and attributed to their source conversation.
+- **`visualization-viewers/<thread-id>`** — the rendered viewers Codex materializes from those fragments, which its own code calls the viewer caches. A Viewer is grouped and deleted with the Visualization source for the same thread, avoiding a half-broken result.
 - **`~/.codex/cache`** — the remote plugin catalog (`remote_plugin_catalog`), the Apps server and tool definitions (`codex_apps_server_info`, `codex_apps_tools`), the connector directory (`codex_app_directory`) and the terminal pet packs (`tui-pets`). Every one of them is rebuildable, but a future release may put live state beside them, so the whole directory is counted as protected data with no way to delete it.
 - **`~/Library/Logs/com.openai.codex/YYYY/MM/DD`** — the desktop application's own logs, one file per session per process. The application rotates them itself, keeping only the last few days, so they are counted towards the totals and never offered: cleaning them would reclaim only what is about to be reclaimed anyway, and would take the recent sessions its own diagnostics read with it. Deletion is refused for the whole log tree.
 - **`~/Library/Caches/Codex`, `~/Library/Caches/com.openai.codex`** — the desktop application's runtime caches. The container and every leaf directory inside it are counted as protected data, with no way to delete them.
@@ -106,7 +107,7 @@ Each source is scanned as what it actually is:
 
 One conversation can be spread across several rollout files, and can recursively spawn several layers of subagents. The interface shows a single top-level conversation, but every total and every action uses the full closure: all continuation segments of the main conversation, the segments of subagents at every level, and the generated images and Visualization directories belonging to each of them.
 
-The current v0.1.x releases do not scan, count, deduplicate or rewrite images embedded in a conversation, and offer no separate way to delete generated images. Session data can only be deleted whole, which keeps the rollouts, the derived SQLite databases and the interface caches from drifting out of step.
+The current release does not scan, count, deduplicate or rewrite images embedded directly in conversation content; it manages only the ImageGen and Visualization directories Codex writes to disk, treating each Viewer as part of its Visualization. Generated assets can be deleted on their own page, while deleting a conversation still removes every asset linked to that conversation and its subagents.
 
 ### What deleting a session actually does
 

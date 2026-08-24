@@ -32,11 +32,11 @@
 
 Codex 会不断堆积：每一次会话留下的 rollout 文件、一直没被删掉的插件旧版本、更新中断留下的 staging 目录，以及会话写到磁盘上的各种产出。Clean My Codex 一次扫清全部，告诉你空间到底去了哪里。
 
-- **一次扫描，四个方向。** Codex 数据目录、会话、插件和工作产出，各有各的页面和各自的规则。
+- **一次扫描，五个方向。** Codex 数据目录、会话、生成资产、插件和工作产出，各有各的页面和各自的规则。
 - **数字如实。** SQLite 数据库只统计实际占用，可复用的空闲页不会被算成可释放空间。
 - **默认保守。** 没有正面证据表明可以删的东西一律不推荐，所以扫描结果里推荐项为 0 是正常结果，不是扫描失败。只统计、不删除的内容在界面上都会标出来。
 - **会话按整体处理。** 跨多个 rollout 分段、带多层子代理的会话在列表里是一行，删除也是一次，连带派生数据库和桌面端自己的那份副本一起清理。
-- **定时清理。** 按周期运行，范围只有过期临时目录、已确认的插件旧版本和超过保留期的会话；跳过置顶会话、未完成的 goal 和排队中的任务，不碰缓存、配置和工作产出。
+- **定时清理。** 按周期运行，范围只有过期临时目录、已确认的插件旧版本和超过保留期的会话；跳过置顶会话、未完成的 goal 和排队中的任务，不碰缓存、配置、独立生成资产和工作产出。
 
 ### 不会被删除的东西
 
@@ -65,10 +65,11 @@ Clean My Codex 跟随当前 Codex Desktop 的存储布局，建议同时使用�
 
 ## 扫描设计
 
-扫描由 Electron 主进程统一调度，耗时的文件遍历放在 worker 中执行，避免阻塞界面。扫描结果分为四部分：
+扫描由 Electron 主进程统一调度，耗时的文件遍历放在 worker 中执行，避免阻塞界面。扫描结果分为五部分：
 
 - **Codex 数据目录**：识别缓存、日志和临时文件；SQLite 数据库仅统计实际占用，不把可复用空闲页列为清理项。
 - **会话**：流式读取 rollout，统计会话信息并关联生成资产，避免一次加载大文件。
+- **生成资产**：扫描 ImageGen 与 Visualization，记录文件数、占用、修改时间和来源会话；同一会话的 Visualization 源目录与 Viewer 合并为一项。
 - **插件**：结合磁盘目录和 `codex app-server` 返回的信息，区分当前版本、旧版本和卸载残留。
 - **工作产出**：仅在用户打开对应页面后扫描，优先关联 SQLite 中的来源会话标题，并标记 git 未提交或未推送状态。
 
@@ -87,9 +88,9 @@ Clean My Codex 跟随当前 Codex Desktop 的存储布局，建议同时使用�
 - **`thread_history_*.sqlite`**：Codex 从 rollout 派生出的会话历史投影。扫描器把它作为“会话投影数据库”统计；删除会话时会直接清理相应行，不等待 Codex 重建。
 - **`~/.codex/sqlite/*.db`**：ChatGPT/Codex 桌面端自己的存储，`local_thread_catalog` 是左侧边栏的会话列表，同目录还有会话摘要和历史快照。只在删除会话时按 thread ID 定向删行，从不删文件。
 - **`.codex-global-state.json`**：桌面端的持久化状态，按 thread ID 存置顶、项目归属、排队任务等。只剔除被删会话的键和列表项；`electron-persisted-atom-state`（草稿、面板布局等界面状态）整块保持不动。
-- **`generated_images/<thread-id>`**：会话生成的独立图片目录。
-- **`visualizations/YYYY/MM/DD/<thread-id>`**：Codex 生成的富视觉结果，例如 JPG/PNG 对比图或 HTML 可视化预览。扫描时会递归识别日期层级并归到对应会话。
-- **`visualization-viewers/<thread-id>`**：Codex 从上述片段渲染出的查看器，其源码自己称之为 viewer cache。按 thread 组织，因此随所属会话一起统计、一起删除，不会比会话活得更久。
+- **`generated_images/<thread-id>`**：会话生成的独立图片目录，在「生成资产」页单独列出。
+- **`visualizations/YYYY/MM/DD/<thread-id>`**：Codex 生成的富视觉结果，例如 JPG/PNG 对比图或 HTML 可视化预览。扫描时会递归识别日期层级，在「生成资产」页列出并关联来源会话。
+- **`visualization-viewers/<thread-id>`**：Codex 从上述片段渲染出的查看器，其源码自己称之为 viewer cache。扫描时与同一 thread 的 Visualization 源目录合并展示和删除，避免留下无法完整使用的半套结果。
 - **`~/.codex/cache`**：远程插件目录（`remote_plugin_catalog`）、Apps server 与工具定义（`codex_apps_server_info`、`codex_apps_tools`）、connector 目录（`codex_app_directory`）和终端宠物素材（`tui-pets`）。它们都可重建，但后续版本可能在旁边放置实时状态，因此整个目录作为受保护数据统计，不提供删除。
 - **`~/Library/Logs/com.openai.codex/YYYY/MM/DD`**：桌面应用自己的日志，每个会话每个进程一个文件。应用自己会轮转，只保留最近几天，所以这里只统计、不清理——清它省下的正是它自己马上就要省的，还会连带删掉它自己诊断要读的那几天。整棵日志树都禁止删除。
 - **`~/Library/Caches/Codex`、`~/Library/Caches/com.openai.codex`**：桌面应用运行缓存，容器及其所有叶子目录都作为受保护数据统计，不提供删除。
@@ -106,7 +107,7 @@ Clean My Codex 跟随当前 Codex Desktop 的存储布局，建议同时使用�
 
 同一个会话可能分散在多个 rollout 文件中，也可能递归生成多层子代理。界面只显示一个顶层会话，但统计与操作使用完整会话闭包：主会话的所有续写分段、所有层级子代理的分段，以及各自关联的生成图片和 Visualization 目录。
 
-当前 v0.1.x 版本不扫描、统计、去重或改写会话内嵌图片，也不提供单独删除生成图片的入口。会话数据只支持整段删除，避免出现 rollout、派生 SQLite 和界面缓存之间状态不一致。
+当前版本不扫描、统计、去重或改写会话内容中内嵌的图片；只管理 Codex 落盘的 ImageGen 与 Visualization 资产目录，其中 Viewer 作为 Visualization 的配套目录处理。生成资产可以在独立页面删除，删除会话时仍会联动清理该会话及其子代理的全部关联资产。
 
 ### 删除会话实际执行的操作
 

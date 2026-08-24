@@ -11,6 +11,7 @@ import {
   reportFreedBytes,
   cleanupStatusReason,
   snapshotSessionBytes,
+  snapshotGeneratedAssetBytes,
   snapshotPluginBytes,
   listableSessions,
   workspaceBytes,
@@ -21,6 +22,7 @@ import type { Message } from '../shared/messages'
 import OverviewView from './views/OverviewView'
 import { storageDistribution } from './storage-distribution'
 import SessionsView, { type SessionInitialSelection } from './views/SessionsView'
+import GeneratedAssetsView from './views/GeneratedAssetsView'
 import PluginsView from './views/PluginsView'
 import WorkspaceView from './views/WorkspaceView'
 import AutomationView from './views/AutomationView'
@@ -29,7 +31,7 @@ import { BackIcon, BrandMark, NavIcon, RescanIcon, StopIcon, type NavGlyphName }
 import { usePreferences } from './preferences'
 import './App.css'
 
-type Page = 'overview' | 'sessions' | 'workspace' | 'plugins' | 'settings' | 'automation'
+type Page = 'overview' | 'sessions' | 'generatedAssets' | 'workspace' | 'plugins' | 'settings' | 'automation'
 
 function App() {
   const { t, e } = usePreferences()
@@ -155,6 +157,7 @@ function App() {
   const titles: Record<Page, string> = {
     overview: t('总览', 'Overview'),
     sessions: t('会话记录', 'Sessions'),
+    generatedAssets: t('生成资产', 'Generated Assets'),
     workspace: t('工作产出', 'Workspace Output'),
     plugins: t('插件版本', 'Plugin Versions'),
     settings: t('设置', 'Settings'),
@@ -187,9 +190,11 @@ function App() {
         {page === 'overview' && <OverviewView snapshot={snapshot} appInfo={appInfo} cleaning={cleaning}
           actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup}
           onOpenSessions={() => navigate('sessions')} onOpenSuggestedSessions={openSuggestedSessions}
-          onOpenWorkspace={() => navigate('workspace')} onRescan={runScan} />}
+          onOpenGeneratedAssets={() => navigate('generatedAssets')} onOpenWorkspace={() => navigate('workspace')} onRescan={runScan} />}
         {page === 'sessions' && <SessionsView snapshot={snapshot} cleaning={cleaning} actionsDisabled={!!progress}
           cleanProgress={cleanProgress} onCleanup={requestCleanup} initialSelection={sessionInitialSelection} />}
+        {page === 'generatedAssets' && <GeneratedAssetsView snapshot={snapshot} cleaning={cleaning} actionsDisabled={!!progress}
+          cleanProgress={cleanProgress} onCleanup={requestCleanup} />}
         {page === 'plugins' && <PluginsView snapshot={snapshot} cleaning={cleaning} actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup} />}
         {page === 'workspace' && workspace && <WorkspaceView snapshot={workspace} cleaning={cleaning} actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup} />}
         {page === 'settings' && <SettingsView onOpenScheduledCleanup={() => setPage('automation')} />}
@@ -212,6 +217,7 @@ function Sidebar({ page, snapshot, workspace, onNavigate }: {
     { page: 'overview', glyph: 'overview', label: t('总览', 'Overview'), value: formatBytes(storageDistribution(workspace ? { ...snapshot, workspace } : snapshot).total) },
     { page: 'sessions', glyph: 'sessions', label: t('会话记录', 'Sessions'), value: sessionCount ? formatBytes(snapshotSessionBytes(snapshot)) : '—' },
     { page: 'workspace', glyph: 'workspace', label: t('工作产出', 'Workspace'), value: workspace?.isScanned ? formatBytes(workspaceBytes(workspace)) : '—' },
+    { page: 'generatedAssets', glyph: 'generatedAssets', label: t('生成资产', 'Generated Assets'), value: snapshot.generatedAssets.length ? formatBytes(snapshotGeneratedAssetBytes(snapshot)) : '—' },
     { page: 'plugins', glyph: 'plugins', label: t('插件版本', 'Plugins'), value: formatBytes(snapshotPluginBytes(snapshot)) }
   ]
   return <aside className="sidebar">

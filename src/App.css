@@ -53,6 +53,7 @@
   --tone-5: #db668c;
   --tone-6: #758095;
   --tone-7: #b4bac7;
+  --tone-8: #d75b50;
   --radius-lg: 16px;
   --radius: 11px;
   --radius-sm: 7px;
@@ -118,6 +119,7 @@
     --tone-5: #e982a4;
     --tone-6: #929caf;
     --tone-7: #656d7c;
+    --tone-8: #ee7d72;
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.34);
     --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 28px -20px rgba(0, 0, 0, 0.9);
     --shadow-md: 0 10px 30px -14px rgba(0, 0, 0, 0.7);
@@ -178,6 +180,7 @@
   --tone-5: #e982a4;
   --tone-6: #929caf;
   --tone-7: #656d7c;
+  --tone-8: #ee7d72;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.34);
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 28px -20px rgba(0, 0, 0, 0.9);
   --shadow-md: 0 10px 30px -14px rgba(0, 0, 0, 0.7);
@@ -447,6 +450,7 @@ progress { width: 100%; height: 5px; border-radius: 3px; overflow: hidden; }
 .distribution-segment:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 .distribution-tone-workspace { background: var(--tone-1); }
 .distribution-tone-sessions { background: var(--tone-2); }
+.distribution-tone-generatedAssets { background: var(--tone-8); }
 .distribution-tone-caches { background: var(--tone-3); }
 .distribution-tone-logs { background: var(--tone-4); }
 .distribution-tone-plugins { background: var(--tone-5); }
@@ -511,6 +515,7 @@ progress { width: 100%; height: 5px; border-radius: 3px; overflow: hidden; }
 .section-plugins { --section-tone: var(--teal); }
 .section-protectedData { --section-tone: var(--text-tertiary); }
 .section-sessions { --section-tone: var(--tone-2); }
+.section-generatedAssets { --section-tone: var(--tone-8); }
 .section-workspace { --section-tone: var(--tone-1); }
 /* The sidebar glyph reused as a section icon takes the section's tone, not the sidebar's grey. */
 .section-icon .nav-glyph { width: 16px; height: 16px; color: inherit; }
@@ -765,6 +770,32 @@ label.entry-label { cursor: pointer; }
 .workspace-row .grow strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-row .repo { margin-right: 4px; }
 .folder-icon { display: block; width: 16px; height: 16px; }
+
+/* --- generated assets --- */
+.asset-metrics { display: grid; grid-template-columns: repeat(3, 1fr); margin-bottom: 14px; }
+.asset-metrics > div { display: flex; flex-direction: column; gap: 3px; padding: 16px 20px; border-left: 1px solid var(--line-soft); }
+.asset-metrics > div:first-child { border-left: 0; }
+.asset-metrics small { color: var(--text-tertiary); font-size: 11.5px; }
+.asset-metrics strong { font-size: 21px; font-weight: 640; letter-spacing: -0.5px; font-variant-numeric: tabular-nums; }
+.asset-head, .asset-row {
+  display: grid;
+  grid-template-columns: 15px minmax(0, 1fr) 106px 54px 116px 88px 30px;
+  gap: 12px;
+  align-items: center;
+  padding: 0 16px;
+}
+.asset-list { margin: 0; padding: 0; list-style: none; }
+.asset-row { min-height: 52px; padding-top: 9px; padding-bottom: 9px; border-top: 1px solid var(--line-soft); font-size: 12.5px; }
+.asset-list > .asset-row:first-child { border-top: 0; }
+.asset-row:hover { background: var(--surface-sunken); }
+.asset-title { display: grid; gap: 2px; min-width: 0; }
+.asset-name, .asset-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asset-name { font-weight: 500; }
+.asset-path { color: var(--text-tertiary); font-size: 11px; }
+.asset-type { display: grid; gap: 3px; min-width: 0; }
+.asset-type small { overflow: hidden; color: var(--text-tertiary); font-size: 9.5px; text-overflow: ellipsis; white-space: nowrap; }
+.asset-kind-imageGen { background: var(--caution-soft); color: var(--caution); }
+.asset-kind-visualization { background: var(--violet-soft); color: var(--violet); }
 
 /* --- forms --- */
 .form-card { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 18px 20px; margin-bottom: 14px; }
@@ -1151,6 +1182,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 
 @media (max-width: 1120px) {
   .table-head, .session-row { grid-template-columns: 15px minmax(0, 1fr) 60px 96px 84px 92px 30px; }
+  .asset-head, .asset-row { grid-template-columns: 15px minmax(0, 1fr) 88px 48px 96px 76px 30px; }
 }
 
 @media (max-width: 940px) {
