@@ -311,10 +311,6 @@ export interface WorktreeItem {
   project: string
   /** Repository this worktree is linked to, or null when the link no longer resolves. */
   repositoryPath: string | null
-  /** Branch checked out here, or null when detached or unreadable. */
-  branch: string | null
-  /** Short commit a detached HEAD sits on, which is how Codex checks a worktree out. */
-  headCommit: string | null
   status: WorktreeStatus
   state: WorkspaceRepositoryState
   /** True when the `.git` pointer no longer resolves to a repository. */
@@ -430,7 +426,7 @@ export type CleanupSelection =
   | { kind: 'generated-assets'; ids: string[] }
   | { kind: 'plugins'; ids: string[] }
   | { kind: 'workspace'; ids: string[] }
-  | { kind: 'worktrees'; ids: string[] }
+  | { kind: 'worktrees'; ids: string[]; deleteRelatedSessions: boolean }
 
 export interface CleanupRequest {
   selection: CleanupSelection
@@ -527,7 +523,9 @@ export function tasksForWorkspace(entries: WorkspaceFolder[]): CleanupTask[] {
 export function tasksForWorktrees(worktrees: WorktreeItem[]): CleanupTask[] {
   return worktrees.filter(worktreeIsRemovable).map((worktree) => ({
     id: `worktree:${worktree.id}`,
-    title: worktreeDisplayName(worktree),
+    title: worktreeDisplayName(worktree) === worktree.project
+      ? worktree.project
+      : `${worktree.project} · ${worktreeDisplayName(worktree)}`,
     detail: worktree.path,
     url: worktree.path,
     expectedBytes: worktree.bytes,

@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { discoverWorktreeRoots, isCodexManagedWorktree, readWorktreeAdmin, scanWorktrees } from '../electron/main/worktrees'
+import { discoverWorktreeRoots, isCodexManagedWorktree, isWorktreeRoot, readWorktreeAdmin, scanWorktrees } from '../electron/main/worktrees'
 import type { CodexWorkspaceThread } from '../electron/main/thread-index'
 
 const roots: string[] = []
@@ -27,9 +27,6 @@ function buildWorktree(base: string, options: {
   id: string
   project: string
   managed?: boolean
-  branch?: string
-  /** Writes a bare sha into HEAD, which is how Codex leaves a worktree it checked out. */
-  detachedAt?: string
   threadID?: string
   /** Leaves the repository out, as if the user deleted or moved it. */
   withoutRepository?: boolean
@@ -39,9 +36,7 @@ function buildWorktree(base: string, options: {
   const checkout = join(options.root, options.id, options.project)
   mkdirSync(checkout, { recursive: true })
   mkdirSync(admin, { recursive: true })
-  writeFileSync(join(admin, 'HEAD'), options.detachedAt
-    ? `${options.detachedAt}\n`
-    : `ref: refs/heads/${options.branch ?? 'main'}\n`)
+  writeFileSync(join(admin, 'HEAD'), 'ref: refs/heads/main\n')
   writeFileSync(join(admin, 'commondir'), '../..\n')
   writeFileSync(join(admin, 'gitdir'), `${join(checkout, '.git')}\n`)
   if (options.managed !== false) {
@@ -59,36 +54,15 @@ function thread(cwd: string, id = 'thread-1', title = 'Fix the parser'): CodexWo
 }
 
 describe('Codex worktrees', () => {
-  it('resolves the checkout back to its repository, branch and owning thread', () => {
+  it('resolves the checkout back to its repository and owning thread', () => {
     const base = temporaryRoot()
     const root = join(base, '.codex', 'worktrees')
-    const built = buildWorktree(base, { root, id: '44af', project: 'CleanMyCodex', branch: 'feature/x', threadID: 'thread-9' })
+    const built = buildWorktree(base, { root, id: '44af', project: 'CleanMyCodex', threadID: 'thread-9' })
     const admin = readWorktreeAdmin(built.checkout)
     expect(admin?.adminPath).toBe(built.admin)
     expect(admin?.repositoryPath).toBe(built.repository)
-    expect(admin?.branch).toBe('feature/x')
     expect(admin?.ownerThreadID).toBe('thread-9')
     expect(admin?.isCodexManaged).toBe(true)
-  })
-
-  it('names the commit a detached worktree sits on, since that is all it has', () => {
-    const base = temporaryRoot()
-    const root = join(base, '.codex', 'worktrees')
-    const sha = 'e4594860f1a2b3c4d5e6f70819a2b3c4d5e6f708'
-    const built = buildWorktree(base, { root, id: 'a072', project: 'CleanMyCodex', detachedAt: sha })
-    const admin = readWorktreeAdmin(built.checkout)
-    expect(admin?.branch).toBeNull()
-    expect(admin?.headCommit).toBe('e459486')
-    expect(scanWorktrees([root])[0].headCommit).toBe('e459486')
-  })
-
-  it('leaves the commit out once a branch is checked out', () => {
-    const base = temporaryRoot()
-    const root = join(base, '.codex', 'worktrees')
-    const built = buildWorktree(base, { root, id: 'b073', project: 'on-branch', branch: 'work' })
-    const admin = readWorktreeAdmin(built.checkout)
-    expect(admin?.branch).toBe('work')
-    expect(admin?.headCommit).toBeNull()
   })
 
   it('reads an ordinary repository as no worktree at all', () => {
@@ -96,6 +70,25 @@ describe('Codex worktrees', () => {
     const project = join(base, 'plain')
     mkdirSync(join(project, '.git'), { recursive: true })
     expect(readWorktreeAdmin(project)).toBeNull()
+  })
+
+  it('validates a configured root from linked worktree evidence, not its name alone', () => {
+    const base = temporaryRoot()
+    const real = join(base, 'real-root')
+    buildWorktree(base, { root: real, id: 'a101', project: 'linked' })
+    expect(isWorktreeRoot(real)).toBe(true)
+
+    const ordinary = join(base, 'ordinary-project')
+    mkdirSync(join(ordinary, '.git'), { recursive: true })
+    expect(isWorktreeRoot(ordinary)).toBe(false)
+
+    const empty = join(base, 'empty')
+    mkdirSync(empty, { recursive: true })
+    expect(isWorktreeRoot(empty)).toBe(false)
+
+    const nonHex = join(base, 'non-hex')
+    buildWorktree(base, { root: nonHex, id: 'project-copy', project: 'linked' })
+    expect(isWorktreeRoot(nonHex)).toBe(false)
   })
 
   it('separates worktrees Codex created from ones the user made by hand', () => {
@@ -141,11 +134,32 @@ describe('Codex worktrees', () => {
     expect(item.bytes).toBeGreaterThan(item.artifactBytes)
   })
 
+  it('uses the latest nested activity for the displayed date', () => {
+    const base = temporaryRoot()
+    const root = join(base, '.codex', 'worktrees')
+    const built = buildWorktree(base, { root, id: 'ee06', project: 'active' })
+    const nested = join(built.checkout, 'src', 'recent.ts')
+    mkdirSync(join(nested, '..'), { recursive: true })
+    writeFileSync(nested, 'recent')
+    const recent = new Date(Date.now() + 60_000)
+    utimesSync(nested, recent, recent)
+    expect(scanWorktrees([root])[0].modifiedAt).toBe(recent.getTime())
+  })
+
   it('finds a root outside the default location from the conversations alone', () => {
     const base = temporaryRoot()
     const moved = join(base, 'dev', 'wt')
     const built = buildWorktree(base, { root: moved, id: 'ff06', project: 'moved' })
     expect(discoverWorktreeRoots([thread(built.checkout)])).toEqual([moved])
+  })
+
+  it('finds a moved root when the conversation cwd is nested inside the checkout', () => {
+    const base = temporaryRoot()
+    const moved = join(base, 'dev', 'wt')
+    const built = buildWorktree(base, { root: moved, id: 'ff07', project: 'moved' })
+    const nested = join(built.checkout, 'packages', 'web')
+    mkdirSync(nested, { recursive: true })
+    expect(discoverWorktreeRoots([thread(nested)])).toEqual([moved])
   })
 
   it('finds both roots after the setting moved, since the old worktrees stay where they were', () => {

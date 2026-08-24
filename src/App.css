@@ -981,6 +981,32 @@ label.entry-label { cursor: pointer; }
 }
 .cleanup-dialog .notice { margin-top: 14px; }
 .cleanup-dialog .notice label, .cleanup-dialog .notice small { display: flex; align-items: center; gap: 7px; margin-top: 10px; }
+.worktree-session-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--danger) 42%, transparent);
+  border-radius: var(--radius);
+  background: var(--danger-soft);
+  color: var(--danger);
+  cursor: pointer;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+.worktree-session-option:hover { border-color: var(--danger); }
+.worktree-session-option input[type='checkbox'] {
+  flex: 0 0 auto;
+  width: 17px;
+  height: 17px;
+  accent-color: var(--danger);
+}
+.worktree-session-option strong { font-size: 12.5px; line-height: 1.45; }
+.worktree-session-option.selected {
+  border-color: var(--danger);
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+.worktree-session-option:has(input:disabled) { cursor: default; opacity: 0.65; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 .confirm-dialog { width: min(430px, calc(100vw - 48px)); }
 .confirm-dialog .notice { margin: 14px 0 0; }

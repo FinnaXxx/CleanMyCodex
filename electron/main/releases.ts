@@ -1,5 +1,5 @@
-import { readdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { readdirSync, realpathSync, statSync } from 'node:fs'
+import { join, normalize } from 'node:path'
 import { directoryAllocatedSize } from './fs-size'
 
 /**
@@ -30,7 +30,10 @@ export interface ReleaseVersion {
 }
 
 export function scanStandaloneReleases(releasesRoot: string, inUse: string[]): ReleaseVersion[] {
-  const live = new Set(inUse)
+  const canonical = (path: string): string => {
+    try { return normalize(realpathSync(path)) } catch { return normalize(path) }
+  }
+  const live = new Set(inUse.map(canonical))
   let children: string[]
   try {
     children = readdirSync(releasesRoot, { withFileTypes: true })
@@ -42,6 +45,6 @@ export function scanStandaloneReleases(releasesRoot: string, inUse: string[]): R
     const path = join(releasesRoot, name)
     let modifiedAt = 0
     try { modifiedAt = statSync(path).mtimeMs } catch { /* missing */ }
-    return { path, name, bytes: directoryAllocatedSize(path), modifiedAt, isCurrent: live.has(path) }
+    return { path, name, bytes: directoryAllocatedSize(path), modifiedAt, isCurrent: live.has(canonical(path)) }
   }).sort((a, b) => b.modifiedAt - a.modifiedAt || a.name.localeCompare(b.name))
 }

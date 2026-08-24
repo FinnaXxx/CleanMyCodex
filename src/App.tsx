@@ -49,6 +49,7 @@ function App() {
   const [dialogReport, setDialogReport] = useState<CleanupReport | null>(null)
   const [restartCodex, setRestartCodex] = useState(false)
   const [forceQuitCodex, setForceQuitCodex] = useState(false)
+  const [updatingCleanupPreview, setUpdatingCleanupPreview] = useState(false)
   const [cleanupStage, setCleanupStage] = useState<Message | null>(null)
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null)
   const scanInFlight = useRef(false)
@@ -118,6 +119,25 @@ function App() {
     [cleaning, cleanupPreview, forceQuitCodex, restartCodex, runScan]
   )
 
+  const setDeleteRelatedSessions = useCallback(async (value: boolean) => {
+    if (!cleanupPreview || cleanupPreview.selection.kind !== 'worktrees' || updatingCleanupPreview) return
+    setUpdatingCleanupPreview(true)
+    setError(null)
+    try {
+      const preview = await window.cleanmycodex.prepareCleanup({
+        ...cleanupPreview.selection,
+        deleteRelatedSessions: value
+      })
+      setCleanupPreview(preview)
+      setRestartCodex(preview.canRestartCodex && preview.blockedTitles.length > 0)
+      setForceQuitCodex(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setUpdatingCleanupPreview(false)
+    }
+  }, [cleanupPreview, updatingCleanupPreview])
+
   useEffect(() => {
     const offScan = window.cleanmycodex.onScanProgress(setProgress)
     const offClean = window.cleanmycodex.onCleanupProgress(setCleanProgress)
@@ -134,20 +154,21 @@ function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || cleaning) return
+      if (event.key !== 'Escape' || cleaning || updatingCleanupPreview) return
       if (cleanupPreview) setCleanupPreview(null)
       else if (page === 'automation') setPage('settings')
       else if (page !== 'overview') setPage('overview')
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [cleaning, cleanupPreview, page])
+  }, [cleaning, cleanupPreview, page, updatingCleanupPreview])
 
   const dialogs = <>
     {cleanupPreview && (cleaning || dialogReport
       ? <CleanupExperience preview={cleanupPreview} report={dialogReport} progress={cleanProgress}
           scanProgress={progress} stage={cleanupStage} onDone={() => setCleanupPreview(null)} />
       : <CleanupDialog preview={cleanupPreview} restart={restartCodex} forceQuit={forceQuitCodex} onRestart={setRestartCodex} onForceQuit={setForceQuitCodex}
+          updating={updatingCleanupPreview} onDeleteRelatedSessions={setDeleteRelatedSessions}
           onConfirm={runCleanup} onClose={() => setCleanupPreview(null)} />)}
   </>
 
@@ -294,22 +315,27 @@ function InitialScanView({ progress, error, onRetry }: {
   </section>
 }
 
-function CleanupDialog({ preview, restart, forceQuit, onRestart, onForceQuit, onConfirm, onClose }: {
-  preview: CleanupPreview; restart: boolean; forceQuit: boolean; onRestart: (value: boolean) => void; onForceQuit: (value: boolean) => void; onConfirm: () => void; onClose: () => void
+function CleanupDialog({ preview, restart, forceQuit, updating, onRestart, onForceQuit, onDeleteRelatedSessions, onConfirm, onClose }: {
+  preview: CleanupPreview; restart: boolean; forceQuit: boolean; updating: boolean
+  onRestart: (value: boolean) => void; onForceQuit: (value: boolean) => void
+  onDeleteRelatedSessions: (value: boolean) => void; onConfirm: () => void; onClose: () => void
 }) {
   const { t, m } = usePreferences()
   return <div className="modal-backdrop"><section className="cleanup-dialog" role="dialog" aria-modal="true">
     <><h2>{t(`确认清理 ${preview.items.length} 项`, `Confirm cleanup of ${preview.items.length} items`)}</h2>
       <p className="dialog-lead">{t(`预计释放 ${formatBytes(preview.expectedBytes)}`, `About ${formatBytes(preview.expectedBytes)} will be freed.`)}</p>
       <ul className="preview-list">{preview.items.map((item) => <li key={item.id}><span><strong>{item.title} <em className="method-badge">{t('永久删除', 'Delete Permanently')}</em></strong><small>{item.detail}</small></span><b>{formatBytes(item.expectedBytes)}</b></li>)}</ul>
+      {preview.selection.kind === 'worktrees' && <label className={`worktree-session-option${preview.selection.deleteRelatedSessions ? ' selected' : ''}`}><input type="checkbox"
+        checked={preview.selection.deleteRelatedSessions} disabled={updating}
+        onChange={(event) => onDeleteRelatedSessions(event.target.checked)}/><strong>{m(message('warning.worktreeRelatedSessions'))}</strong></label>}
       {preview.warnings.map((warning) => <p className="notice warning" key={warning.key}>{m(warning)}</p>)}
       {!!preview.blockedTitles.length && <div className="notice warning"><strong>{t('需要 Codex 完全退出', 'Codex must quit completely')}</strong><br/>
         {preview.canRestartCodex ? <><label><input type="checkbox" checked={restart} onChange={(event) => { onRestart(event.target.checked); if (!event.target.checked) onForceQuit(false) }}/> {t('先退出 Codex，清理完成后重新打开', 'Quit Codex first, then reopen it after cleanup')}</label>
           {restart && <label><input type="checkbox" checked={forceQuit} onChange={(event) => onForceQuit(event.target.checked)}/> {t('正常退出超时后强制结束（可能丢失未保存内容）', 'Force quit after timeout (unsaved work may be lost)')}</label>}</>
           : <small>{preview.blockers.map(m).join(t('；', '; '))}{t('，这些项目本次不会执行；退出 Codex 后需重新清理。', '. These items will be skipped. Quit Codex and run cleanup again.')}</small>}</div>}
     </>
-    <div className="dialog-actions"><button className="btn" onClick={onClose}>{t('取消', 'Cancel')}</button>
-      <button className="btn danger" onClick={onConfirm}>{t('确认执行', 'Confirm')}</button></div>
+    <div className="dialog-actions"><button className="btn" disabled={updating} onClick={onClose}>{t('取消', 'Cancel')}</button>
+      <button className="btn danger" disabled={updating} onClick={onConfirm}>{updating ? t('更新中…', 'Updating…') : t('确认执行', 'Confirm')}</button></div>
   </section></div>
 }
 

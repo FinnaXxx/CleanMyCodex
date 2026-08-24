@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path'
 import type { WorkspaceThreadReference, WorktreeItem, WorktreeStatus } from '../../shared/types'
@@ -40,10 +40,6 @@ export interface WorktreeAdmin {
   adminPath: string
   /** Working tree root of the repository this worktree belongs to. */
   repositoryPath: string | null
-  branch: string | null
-  /** Short commit HEAD sits on when it is detached. Codex checks a worktree out that
-   *  way, so this is what identifies most of them; null once a branch is checked out. */
-  headCommit: string | null
   /** Thread that owns this worktree, from the marker file. */
   ownerThreadID: string | null
   isCodexManaged: boolean
@@ -55,6 +51,11 @@ function readFile(path: string): string | null {
 
 function isDirectory(path: string): boolean {
   try { return statSync(path).isDirectory() } catch { return false }
+}
+
+/** Resolve platform aliases such as macOS `/var` → `/private/var` before identity checks. */
+function canonicalExistingPath(path: string): string {
+  try { return normalize(realpathSync(path)) } catch { return normalize(path) }
 }
 
 /**
@@ -79,12 +80,6 @@ export function readWorktreeAdmin(projectPath: string): WorktreeAdmin | null {
   if (!adminPath) return null
   if (!isDirectory(adminPath) || basename(dirname(adminPath)) !== 'worktrees') return null
 
-  const head = readFile(join(adminPath, 'HEAD'))?.trim() ?? ''
-  const branch = head.startsWith('ref: refs/heads/') ? head.slice('ref: refs/heads/'.length) : null
-  // A detached HEAD holds the commit itself rather than a ref to a branch.
-  // 40 hex for a SHA-1 repository, 64 for a SHA-256 one.
-  const headCommit = !branch && /^([0-9a-f]{40}|[0-9a-f]{64})$/i.test(head) ? head.slice(0, 7) : null
-
   const marker = readFile(join(adminPath, CODEX_MARKER_FILE))
   let ownerThreadID: string | null = null
   if (marker) {
@@ -100,8 +95,6 @@ export function readWorktreeAdmin(projectPath: string): WorktreeAdmin | null {
   return {
     adminPath,
     repositoryPath: repositoryRoot(adminPath),
-    branch,
-    headCommit,
     ownerThreadID,
     isCodexManaged: marker !== null
   }
@@ -147,12 +140,13 @@ export function isCodexManagedWorktree(worktreeDirectory: string): boolean {
   return readWorktreeAdmin(checkout)?.isCodexManaged === true
 }
 
-interface Measured { bytes: number; artifactBytes: number }
+interface Measured { bytes: number; artifactBytes: number; modifiedAt: number }
 
 /** One pass over the checkout, splitting off the dependency and build directories.
  *  Symlinks are not followed, matching how every other tree in this app is measured. */
 function measure(path: string, insideArtifact = false): Measured {
-  const result: Measured = { bytes: 0, artifactBytes: 0 }
+  const result: Measured = { bytes: 0, artifactBytes: 0, modifiedAt: 0 }
+  try { result.modifiedAt = statSync(path).mtimeMs } catch { /* missing */ }
   let children
   try { children = readdirSync(path, { withFileTypes: true }) } catch { return result }
   for (const child of children) {
@@ -162,11 +156,13 @@ function measure(path: string, insideArtifact = false): Measured {
       const nested = measure(childPath, insideArtifact || ARTIFACT_DIRECTORY_NAMES.has(child.name))
       result.bytes += nested.bytes
       result.artifactBytes += nested.artifactBytes
+      result.modifiedAt = Math.max(result.modifiedAt, nested.modifiedAt)
       continue
     }
     const bytes = fileAllocatedSize(childPath)
     result.bytes += bytes
     if (insideArtifact) result.artifactBytes += bytes
+    try { result.modifiedAt = Math.max(result.modifiedAt, statSync(childPath).mtimeMs) } catch { /* missing */ }
   }
   return result
 }
@@ -184,21 +180,33 @@ function measure(path: string, insideArtifact = false): Measured {
 export function discoverWorktreeRoots(threads: CodexWorkspaceThread[]): string[] {
   const roots = new Set<string>()
   for (const thread of threads) {
-    const checkout = normalize(thread.cwd)
+    const checkout = managedCheckoutAtOrAbove(thread.cwd)
+    if (!checkout) continue
     const worktreeDirectory = dirname(checkout)
     const root = dirname(worktreeDirectory)
-    if (root === worktreeDirectory) continue
-    if (!WORKTREE_ID_RE.test(basename(worktreeDirectory))) continue
     if (roots.has(root)) continue
-    if (readWorktreeAdmin(checkout)?.isCodexManaged !== true) continue
     roots.add(root)
   }
   return [...roots]
 }
 
+/** A conversation may run in any project subdirectory, not just at the checkout root. */
+function managedCheckoutAtOrAbove(path: string): string | null {
+  let candidate = normalize(path)
+  while (true) {
+    const worktreeDirectory = dirname(candidate)
+    if (WORKTREE_ID_RE.test(basename(worktreeDirectory)) &&
+      readWorktreeAdmin(candidate)?.isCodexManaged === true) return candidate
+    const parent = dirname(candidate)
+    if (parent === candidate) return null
+    candidate = parent
+  }
+}
+
 /**
- * Every worktree root this machine has in play: the default one, the roots the scanned
- * conversations reveal, and whatever the desktop application is configured to use now.
+ * Every evidenced worktree root this machine has in play: the default one, roots the
+ * scanned conversations reveal, and a configured root that already contains a linked
+ * worktree. An empty configured directory adds nothing until Codex creates one there.
  */
 export function resolveWorktreeRoots(
   known: string[],
@@ -208,7 +216,7 @@ export function resolveWorktreeRoots(
   return [...new Set([
     ...known.map(normalize),
     ...discoverWorktreeRoots(threads),
-    ...(configured ? [normalize(configured)] : [])
+    ...(configured && isWorktreeRoot(configured) ? [normalize(configured)] : [])
   ])]
 }
 
@@ -247,6 +255,27 @@ function worktreeDirectories(root: string): string[] {
   } catch { return [] }
 }
 
+/**
+ * Whether a configured path has evidence of being a git worktree root. An empty setting
+ * is deliberately ignored: until at least one hex-named child resolves to git's
+ * `worktrees/` administration directory, a guessed desktop-state key is not trusted as
+ * a storage root.
+ */
+export function isWorktreeRoot(path: string): boolean {
+  return worktreeDirectories(path).some((directory) => {
+    const checkout = checkoutDirectory(directory)
+    return checkout !== null && readWorktreeAdmin(checkout) !== null
+  })
+}
+
+/** Recognised worktree container paths below the given roots, without measuring them. */
+export function worktreePaths(roots: string[]): string[] {
+  return roots.flatMap((root) => worktreeDirectories(root)).filter((directory) => {
+    const checkout = checkoutDirectory(directory)
+    return checkout !== null && readGitPointer(checkout) !== null
+  })
+}
+
 interface Described {
   item: WorktreeItem
   /** From the marker file; the fallback when no conversation names this directory. */
@@ -266,8 +295,6 @@ function describe(worktreeDirectory: string, budget: { value: number }): Describ
   const status: WorktreeStatus = admin?.isCodexManaged ? 'managed' : 'unmanaged'
   const measured = measure(checkout)
   const isOrphaned = !admin || admin.repositoryPath === null
-  let modifiedAt = 0
-  try { modifiedAt = statSync(checkout).mtimeMs } catch { /* missing */ }
 
   return {
     ownerThreadID: admin?.ownerThreadID ?? null,
@@ -277,8 +304,6 @@ function describe(worktreeDirectory: string, budget: { value: number }): Describ
       projectPath: checkout,
       project: basename(checkout),
       repositoryPath: admin?.repositoryPath ?? null,
-      branch: admin?.branch ?? null,
-      headCommit: admin?.headCommit ?? null,
       status,
       // A worktree whose repository is gone has no upstream to compare against, so asking
       // git about it would only ever answer `unknown` at the cost of a subprocess.
@@ -286,7 +311,7 @@ function describe(worktreeDirectory: string, budget: { value: number }): Describ
       isOrphaned,
       bytes: measured.bytes,
       artifactBytes: measured.artifactBytes,
-      modifiedAt,
+      modifiedAt: measured.modifiedAt,
       sourceThreads: []
     }
   }
@@ -341,10 +366,10 @@ function uniqueThreads(threads: WorkspaceThreadReference[]): WorkspaceThreadRefe
  * root this app may write to, which is exactly why deleting the checkout by hand is not
  * an option here.
  *
- * If git cannot do it — not installed, the repository gone, the worktree locked — the
- * directory is removed directly and `git worktree prune` is asked to tidy up whatever is
- * left. The container directory Codex wrapped the checkout in goes last, since git only
- * knows about the checkout inside it.
+ * A git failure is reported rather than bypassed with direct filesystem deletion. Only
+ * git can prove that both the checkout and the administrative record in the user's
+ * repository were removed consistently. The container directory Codex wrapped around
+ * the checkout goes last, after that consistency check succeeds.
  */
 export async function removeCodexWorktree(
   worktreeDirectory: string,
@@ -358,16 +383,20 @@ export async function removeCodexWorktree(
   }
   const checkout = checkoutDirectory(worktreeDirectory)
   if (!checkout) throw new MessageError(message('cleanup.worktreeNotManaged'))
-
-  let gitFailure: string | null = 'no repository'
-  if (repositoryPath) {
-    const result = git(repositoryPath, ['worktree', 'remove', '--force', checkout])
-    gitFailure = result.ok ? null : result.reason
+  const admin = readWorktreeAdmin(checkout)
+  if (!admin?.repositoryPath || !repositoryPath) {
+    throw new MessageError(message('cleanup.worktreeRemoveFailed', { reason: 'repository unavailable' }))
+  }
+  if (canonicalExistingPath(admin.repositoryPath) !== canonicalExistingPath(repositoryPath)) {
+    throw new MessageError(message('cleanup.worktreeRemoveFailed', { reason: 'repository changed since the last scan' }))
   }
 
-  if (gitFailure !== null && existsSync(checkout)) {
-    await remove(checkout)
-    if (repositoryPath) git(repositoryPath, ['worktree', 'prune'])
+  const result = git(admin.repositoryPath, ['worktree', 'remove', '--force', checkout])
+  if (!result.ok) {
+    throw new MessageError(message('cleanup.worktreeRemoveFailed', { reason: result.reason }))
+  }
+  if (existsSync(checkout) || existsSync(admin.adminPath)) {
+    throw new MessageError(message('cleanup.worktreeRemoveFailed', { reason: 'git left worktree metadata behind' }))
   }
   if (existsSync(worktreeDirectory)) await remove(worktreeDirectory)
 }

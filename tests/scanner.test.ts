@@ -5,6 +5,7 @@ import { join, win32 } from 'node:path'
 import { snapshotFoundNothing, type ScanProgress } from '../shared/types'
 import { CodexLocations, appCacheDirectories, codexCacheDirectories } from '../electron/main/locations'
 import { outermostStorageRoots, scanSnapshot } from '../electron/main/scanner'
+import { directoryAllocatedSize } from '../electron/main/fs-size'
 
 const roots: string[] = []
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
@@ -17,6 +18,18 @@ function write(path: string, bytes = 8192): void {
 function age(path: string, days: number): void {
   const date = new Date(Date.now() - days * 86_400_000)
   utimesSync(path, date, date)
+}
+
+function linkedWorktree(base: string, root: string, id = '44af', project = 'project'): string {
+  const checkout = join(root, id, project)
+  const admin = join(base, 'repos', project, '.git', 'worktrees', project)
+  write(join(checkout, 'source.ts'))
+  mkdirSync(admin, { recursive: true })
+  writeFileSync(join(admin, 'HEAD'), 'ref: refs/heads/main\n')
+  writeFileSync(join(admin, 'commondir'), '../..\n')
+  writeFileSync(join(admin, 'codex-thread.json'), '{"version":1,"ownerThreadId":"t"}')
+  writeFileSync(join(checkout, '.git'), `gitdir: ${admin}\n`)
+  return join(root, id)
 }
 
 describe('storage scanner semantics', () => {
@@ -178,6 +191,37 @@ describe('storage scanner semantics', () => {
     const snapshot = await scanSnapshot(locations, [])
     expect(snapshot.externalBytes).toBeGreaterThan(0)
     expect(snapshot.totalCodexBytes).toBeGreaterThan(snapshot.externalBytes)
+  })
+
+  it('does not count an unrelated directory guessed from desktop worktree settings', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-scan-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const ordinary = join(root, 'ordinary-projects')
+    write(join(ordinary, 'project', 'large.bin'), 2 * 1024 * 1024)
+    mkdirSync(locations.home, { recursive: true })
+    writeFileSync(join(locations.home, '.codex-global-state.json'),
+      JSON.stringify({ settings: { worktreeRootPath: ordinary } }))
+
+    const snapshot = await scanSnapshot(locations, [])
+    expect(snapshot.worktrees).toEqual([])
+    expect(snapshot.externalBytes).toBe(0)
+    expect(snapshot.totalCodexBytes).toBe(directoryAllocatedSize(locations.home))
+  })
+
+  it('counts only recognised worktrees inside a mixed external root', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-scan-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const mixed = join(root, 'dev')
+    const worktree = linkedWorktree(root, mixed)
+    write(join(mixed, 'ordinary-project', 'large.bin'), 2 * 1024 * 1024)
+    mkdirSync(locations.home, { recursive: true })
+    writeFileSync(join(locations.home, '.codex-global-state.json'),
+      JSON.stringify({ settings: { worktreeRootPath: mixed } }))
+
+    const snapshot = await scanSnapshot(locations, [])
+    expect(snapshot.worktrees.map((item) => item.path)).toEqual([worktree])
+    expect(snapshot.externalBytes).toBe(snapshot.worktrees[0].bytes)
+    expect(snapshot.totalCodexBytes).toBe(directoryAllocatedSize(locations.home) + snapshot.worktrees[0].bytes)
   })
 
   it('reports an unused machine as empty rather than as a scan that found nothing to clean', async () => {

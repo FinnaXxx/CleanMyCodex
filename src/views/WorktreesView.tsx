@@ -25,7 +25,9 @@ export default function WorktreesView({ snapshot, cleaning, actionsDisabled, cle
   const groups = useMemo(() => {
     const map = new Map<string, WorktreeItem[]>()
     for (const worktree of worktrees) {
-      const key = worktree.repositoryPath ?? worktree.project
+      // Without a repository path there is no evidence that two same-named orphaned
+      // checkouts came from the same project, so keep each one in its own group.
+      const key = worktree.repositoryPath ?? worktree.path
       map.set(key, [...(map.get(key) ?? []), worktree])
     }
     return [...map.entries()]
@@ -59,8 +61,8 @@ export default function WorktreesView({ snapshot, cleaning, actionsDisabled, cle
     <div className="card-stack">
       {groups.map((group) => <section className="card" key={group.key}>
         <div className="panel-title">
-          <strong>{group.items[0].project}</strong>
-          <span>{t(`${group.items.length} 个 worktree`, `${group.items.length} worktrees`)} · {formatBytes(total(group.items))}</span>
+          <strong>{group.items[0].project} <span className="muted">· {t(`${group.items.length} 个 worktree`, `${group.items.length} worktrees`)}</span></strong>
+          <span>{formatBytes(total(group.items))}</span>
         </div>
         {group.items.map((worktree) => <WorktreeRow key={worktree.id} worktree={worktree}
           checked={selected.has(worktree.id)} onToggle={() => toggle(worktree)} />)}
@@ -74,7 +76,7 @@ export default function WorktreesView({ snapshot, cleaning, actionsDisabled, cle
           ? t(`已选择 ${chosen.length} 个`, `${chosen.length} selected`)
           : t(`可清理 ${removable.length} 个`, `${removable.length} cleanable`)}</span>
       <button className="btn danger" disabled={!chosen.length || cleaning || actionsDisabled}
-        onClick={() => onCleanup({ kind: 'worktrees', ids: chosen.map((worktree) => worktree.id) })}>
+        onClick={() => onCleanup({ kind: 'worktrees', ids: chosen.map((worktree) => worktree.id), deleteRelatedSessions: false })}>
         {cleaning
           ? t(`处理中… ${cleanProgress?.completed ?? 0}/${chosen.length}`, `Processing… ${cleanProgress?.completed ?? 0}/${chosen.length}`)
           : t(`永久删除 · ${formatBytes(chosenBytes)}`, `Delete Permanently · ${formatBytes(chosenBytes)}`)}
@@ -88,17 +90,19 @@ const total = (items: WorktreeItem[]): number => items.reduce((sum, item) => sum
 function WorktreeRow({ worktree, checked, onToggle }: { worktree: WorktreeItem; checked: boolean; onToggle: () => void }) {
   const { t, m, locale } = usePreferences()
   const name = worktreeDisplayName(worktree)
-  const extraThreads = Math.max(0, worktree.sourceThreads.length - 1)
+  const worktreeID = worktree.id.split(/[\\/]/).filter(Boolean).at(-1) ?? worktree.id
+  const label = `${name} · Worktree ${worktreeID}`
   return <div className="worktree-row">
     {worktreeIsRemovable(worktree)
-      ? <input type="checkbox" aria-label={name} checked={checked} onChange={onToggle} />
+      ? <input type="checkbox" aria-label={label} checked={checked} onChange={onToggle} />
       : <span className="checkbox-space" />}
     <div className="grow">
-      <strong>{name}{extraThreads > 0 && <span className="muted"> {t(`+${extraThreads} 个会话`, `+${extraThreads} conversations`)}</span>}</strong>
+      <strong>{name} <span className="muted">· Worktree {worktreeID}</span></strong>
       <small>
-        <code>{worktree.branch ?? (worktree.headCommit
-          ? t(`游离 HEAD · ${worktree.headCommit}`, `detached at ${worktree.headCommit}`)
-          : t('游离 HEAD', 'detached HEAD'))}</code>
+        {t(
+          `${worktree.sourceThreads.length} 个关联会话`,
+          `${worktree.sourceThreads.length} related ${worktree.sourceThreads.length === 1 ? 'conversation' : 'conversations'}`
+        )}
         {worktree.artifactBytes > 0 && t(` · 构建产物 ${formatBytes(worktree.artifactBytes)}`, ` · ${formatBytes(worktree.artifactBytes)} build output`)}
         {worktree.status === 'unmanaged' && <span className="pill status-unconfirmed">{m(message('tag.unmanagedWorktree'))}</span>}
         {worktree.isOrphaned && <span className="pill status-orphaned">{m(message('tag.orphanedWorktree'))}</span>}

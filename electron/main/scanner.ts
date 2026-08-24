@@ -356,7 +356,9 @@ export async function scanSnapshot(
   // Worktree roots are found from the conversations themselves rather than from the
   // desktop setting: moving the root in Codex leaves the existing worktrees where they
   // were, so several can be live, and the setting would only ever name the newest. The
-  // setting is read too, so a root that has been chosen but not used yet still appears.
+  // The setting is read too when it already contains a recognisable worktree, covering
+  // roots whose conversations have since been deleted without trusting an empty or
+  // unrelated path found through the desktop-state heuristic.
   const worktreeRoots = resolveWorktreeRoots(
     locations.worktreeRoots, threadIndex.locatedThreads, desktopWorktreeRoot(locations.home))
   const worktrees = scanWorktrees(worktreeRoots, threadIndex.locatedThreads, {
@@ -409,14 +411,18 @@ export async function scanSnapshot(
   categories.push(category('unrecognized', 'protectedData', 'shielded',
     unrecognizedEntries(locations, guards, staleTemporary, worktreeRoots)))
 
-  // Worktree roots the user moved outside CODEX_HOME are not part of the home tree, so
-  // their bytes have to be added or the overview's slices would exceed their own total.
-  const externalRoots = [
-    locations.appSupport, ...locations.readOnlyAppSupport, ...locations.appCacheContainers, locations.appLogs,
-    ...worktreeRoots.filter((root) => !ProtectedPaths.contains(locations.home, root))
-  ].filter(entryExists)
-  const externalBytes = outermostStorageRoots(externalRoots)
-    .reduce((sum, path) => sum + directoryAllocatedSize(path), 0)
+  // A configured worktree root may be a mixed user directory. Only recognised worktree
+  // entries belong to Codex's footprint; measuring the whole root would silently charge
+  // unrelated projects to the overview's "Other" slice.
+  const externalRoots = outermostStorageRoots([
+    locations.appSupport, ...locations.readOnlyAppSupport, ...locations.appCacheContainers, locations.appLogs
+  ].filter(entryExists))
+  const externalWorktreeBytes = worktrees
+    .filter((worktree) => !ProtectedPaths.contains(locations.home, worktree.path))
+    // A worktree inside an already-counted platform root is already in the denominator.
+    .filter((worktree) => !externalRoots.some((root) => ProtectedPaths.contains(root, worktree.path)))
+    .reduce((sum, worktree) => sum + worktree.bytes, 0)
+  const externalBytes = externalRoots.reduce((sum, path) => sum + directoryAllocatedSize(path), 0) + externalWorktreeBytes
   const totalCodexBytes = directoryAllocatedSize(locations.home) + externalBytes
   progress('stage.done', '', 1)
 

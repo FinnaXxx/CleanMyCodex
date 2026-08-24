@@ -1,9 +1,8 @@
-import { dirname } from 'node:path'
 import { parentPort } from 'node:worker_threads'
 import { CodexLocations } from './locations'
 import { scanSnapshot } from './scanner'
 import { scanWorkspace } from './workspace'
-import { resolveWorktreeRoots } from './worktrees'
+import { resolveWorktreeRoots, worktreePaths } from './worktrees'
 import { desktopWorktreeRoot } from './desktop-store'
 import { CodexThreadIndex } from './thread-index'
 import type { InstalledPlugin } from './app-server'
@@ -23,12 +22,12 @@ parentPort?.on('message', async (request: Request) => {
         })
       })
       const workspaceThreads = CodexThreadIndex.load(locations.home).workspaceThreads(locations.workspace)
-      // Worktrees are measured by the scan above. A worktree root the user moved into the
-      // workspace is skipped here so the same bytes are not reported by both pages.
-      const worktreeRoots = result.worktrees.map((worktree) => dirname(worktree.path))
+      // Worktrees are measured by the scan above. Exclude only the recognised checkout
+      // containers: a configured root may also hold unrelated workspace output.
+      const excludedWorktrees = result.worktrees.map((worktree) => worktree.path)
       result.workspace = scanWorkspace(locations.workspace, (currentPath) => parentPort?.postMessage({
         type: 'progress', progress: { stage: message('stage.workspace'), currentPath, fraction: 0.95 }
-      }), workspaceThreads, worktreeRoots)
+      }), workspaceThreads, excludedWorktrees)
       parentPort?.postMessage({
         type: 'progress', progress: { stage: message('stage.done'), currentPath: '', fraction: 1 }
       })
@@ -40,7 +39,7 @@ parentPort?.on('message', async (request: Request) => {
         locations.worktreeRoots, threadIndex.locatedThreads, desktopWorktreeRoot(locations.home))
       const result = scanWorkspace(locations.workspace, (currentPath) => parentPort?.postMessage({
         type: 'progress', progress: { stage: message('stage.workspace'), currentPath, fraction: 0 }
-      }), workspaceThreads, worktreeRoots)
+      }), workspaceThreads, worktreePaths(worktreeRoots))
       parentPort?.postMessage({ type: 'result', result })
     }
   } catch (error) {

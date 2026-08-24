@@ -78,12 +78,22 @@ export function buildTrustedTasks(
       })))
     }
     case 'worktrees': {
+      if (typeof selection.deleteRelatedSessions !== 'boolean') throw new MessageError(message('error.invalidSelection'))
       // Only worktrees the latest scan proved Codex created; the guard checks the marker
       // again on disk before anything is removed.
       const index = new Map(snapshot.worktrees.map((worktree) => [worktree.id, worktree]))
       const selected = ids.map((id) => index.get(id))
         .filter((worktree): worktree is WorktreeItem => !!worktree && worktreeIsRemovable(worktree))
-      return tasksForWorktrees(selected)
+      const worktreeTasks = tasksForWorktrees(selected)
+      if (!selection.deleteRelatedSessions) return worktreeTasks
+
+      // Resolve references back to the latest trusted session snapshot. The renderer
+      // chooses only whether related conversations are included; it never supplies a
+      // rollout path or thread identity. Worktrees go first because thread/delete may
+      // itself alter Codex's worktree metadata.
+      const relatedSessions = snapshot.sessions.filter((session) =>
+        selected.some((worktree) => sessionBelongsToWorktree(session, worktree)))
+      return [...worktreeTasks, ...tasksForSessionDeletion(relatedSessions)]
     }
     case 'workspace': {
       const all = flattenWorkspace(workspace.entries)
@@ -122,14 +132,10 @@ export function makeCleanupPreview(
   // confirmation says so rather than letting a pin quietly disappear.
   const pinned = pinnedSelection(selection, tasks, snapshot)
   if (pinned) warnings.push(message('warning.pinnedSessions', { count: pinned }))
+  const items = cleanupPreviewItems(selection, tasks, snapshot)
   return {
     selection,
-    items: tasks.map((task) => ({
-      id: task.id,
-      title: task.title,
-      detail: task.detail,
-      expectedBytes: task.expectedBytes
-    })),
+    items,
     expectedBytes: tasks.reduce((sum, task) => sum + task.expectedBytes, 0),
     blockedTitles: blocked.map((task) => task.title),
     codexRunning: environment.running,
@@ -137,6 +143,49 @@ export function makeCleanupPreview(
     blockers: environment.blockers,
     warnings
   }
+}
+
+/**
+ * Related conversations are an option on a worktree deletion, not separate choices in
+ * the confirmation dialog. Keep one preview row per worktree and roll the bytes of each
+ * conversation deletion into the worktree that referenced it.
+ */
+function cleanupPreviewItems(
+  selection: CleanupSelection,
+  tasks: CleanupTask[],
+  snapshot: ScanSnapshot | null
+): CleanupPreview['items'] {
+  const item = (task: CleanupTask, expectedBytes = task.expectedBytes) => ({
+    id: task.id,
+    title: task.title,
+    detail: task.detail,
+    expectedBytes
+  })
+  if (selection.kind !== 'worktrees' || !selection.deleteRelatedSessions || !snapshot) {
+    return tasks.map((task) => item(task))
+  }
+
+  const worktrees = new Map(snapshot.worktrees.map((worktree) => [worktree.id, worktree]))
+  const sessions = new Map(snapshot.sessions.map((session) => [session.threadID, session]))
+  const conversationTasks = tasks.filter((task) => task.threadID !== null)
+  const claimed = new Set<string>()
+  return tasks.filter((task) => task.removal === 'gitWorktree').map((task) => {
+    const worktree = worktrees.get(task.url)
+    const relatedBytes = conversationTasks.reduce((sum, conversation) => {
+      const session = conversation.threadID ? sessions.get(conversation.threadID) : undefined
+      if (!worktree || !session || !sessionBelongsToWorktree(session, worktree) || claimed.has(conversation.id)) return sum
+      claimed.add(conversation.id)
+      return sum + conversation.expectedBytes
+    }, 0)
+    return item(task, task.expectedBytes + relatedBytes)
+  })
+}
+
+/** Match both indexes Codex gives us. The state database supplies thread IDs for labels,
+ * while the rollout is the authority for the working directory that will be deleted. */
+function sessionBelongsToWorktree(session: SessionItem, worktree: WorktreeItem): boolean {
+  if (worktree.sourceThreads.some((thread) => thread.id === session.threadID)) return true
+  return !!session.workingDirectory && ProtectedPaths.contains(worktree.path, session.workingDirectory)
 }
 
 export function buildAutomaticTasks(
@@ -172,9 +221,10 @@ function selectedWorktreesAreUnsafe(selection: CleanupSelection, snapshot: ScanS
 }
 
 function pinnedSelection(selection: CleanupSelection, tasks: CleanupTask[], snapshot: ScanSnapshot | null): number {
-  if (selection.kind !== 'sessions-delete' || !snapshot) return 0
-  const selected = new Set(tasks.map((task) => task.id))
-  return snapshot.sessions.filter((session) => session.isPinned && selected.has(session.id)).length
+  if (!snapshot || (selection.kind !== 'sessions-delete' &&
+    !(selection.kind === 'worktrees' && selection.deleteRelatedSessions))) return 0
+  const selected = new Set(tasks.flatMap((task) => task.threadID ? [task.threadID] : []))
+  return snapshot.sessions.filter((session) => session.isPinned && selected.has(session.threadID)).length
 }
 
 function safeIDs(value: unknown): string[] {

@@ -56,13 +56,14 @@ export function isSystemJunk(name: string): boolean {
  *  nested ones a recursive walk adds to `bytes` and `files`. */
 interface WalkResult { bytes: number; files: number; repositories: string[]; looseFiles: string[] }
 
-function walk(path: string, recursive: boolean): WalkResult {
+function walk(path: string, recursive: boolean, excluded: string[] = []): WalkResult {
   let children
   try { children = readdirSync(path, { withFileTypes: true }) } catch { return { bytes: 0, files: 0, repositories: [], looseFiles: [] } }
   const result: WalkResult = { bytes: 0, files: 0, repositories: [], looseFiles: [] }
   for (const child of children) {
     if (isSystemJunk(child.name)) continue
     const childPath = join(path, child.name)
+    if (excluded.some((other) => contains(other, childPath))) continue
     // A link contributes no bytes of its own and is never followed, matching how every
     // other directory in the app is measured. Counting the target instead would charge a
     // workspace for the same bytes twice over a tree like `node_modules`, whose links
@@ -80,7 +81,7 @@ function walk(path: string, recursive: boolean): WalkResult {
     }
     if (child.name === '.git') result.repositories.push(path)
     if (!recursive) continue
-    const nested = walk(childPath, true)
+    const nested = walk(childPath, true, excluded)
     result.bytes += nested.bytes
     result.files += nested.files
     result.repositories.push(...nested.repositories)
@@ -98,9 +99,9 @@ function childDirectories(path: string): string[] {
   try { return readdirSync(path, { withFileTypes: true }).filter((item) => item.isDirectory()).map((item) => join(path, item.name)) } catch { return [] }
 }
 
-function folder(path: string, budget: { value: number }, onProgress?: (path: string) => void): WorkspaceFolder | null {
+function folder(path: string, budget: { value: number }, onProgress?: (path: string) => void, excluded: string[] = []): WorkspaceFolder | null {
   onProgress?.(path)
-  const measured = walk(path, true)
+  const measured = walk(path, true, excluded)
   if (!measured.bytes && !measured.files) return null
   const repositories: WorkspaceRepository[] = measured.repositories.map((repository) => ({
     id: repository,
@@ -114,10 +115,9 @@ function folder(path: string, budget: { value: number }, onProgress?: (path: str
 }
 
 /**
- * `excluded` names trees another page already measures. Codex' worktree root is normally
- * outside the workspace, but the user can point it anywhere, and a root that lands in
- * here would otherwise have its bytes counted twice — once as workspace output and once
- * as worktrees.
+ * `excluded` names concrete trees another page already measures. A configured worktree
+ * root can be a mixed directory, so excluding the root itself would hide unrelated
+ * workspace output beside the recognised worktrees.
  */
 export function scanWorkspace(
   root: string,
@@ -128,14 +128,14 @@ export function scanWorkspace(
   if (!existsSync(root)) return { root, isScanned: true, entries: [] }
   const budget = { value: GIT_INSPECTION_BUDGET }
   const isExcluded = (path: string): boolean =>
-    excluded.some((other) => contains(other, path) || contains(path, other))
+    excluded.some((other) => contains(other, path))
   const entries = childDirectories(root).filter((path) => !isExcluded(path)).map((datePath): WorkspaceFolder | null => {
     onProgress?.(datePath)
-    const children = childDirectories(datePath).filter((path) => !isExcluded(path)).map((path) => folder(path, budget, onProgress)).filter((item): item is WorkspaceFolder => item !== null).sort((a, b) => b.bytes - a.bytes)
+    const children = childDirectories(datePath).filter((path) => !isExcluded(path)).map((path) => folder(path, budget, onProgress, excluded)).filter((item): item is WorkspaceFolder => item !== null).sort((a, b) => b.bytes - a.bytes)
     // A date folder measures only what it holds itself. It is listed beside its outputs
     // rather than above them, so counting theirs would show the same bytes twice and
     // would make ticking the date row look like it takes the outputs with it.
-    const own = walk(datePath, false)
+    const own = walk(datePath, false, excluded)
     if (!own.files && !children.length) return null
     let modifiedAt = 0
     try { modifiedAt = statSync(datePath).mtimeMs } catch { /* missing */ }

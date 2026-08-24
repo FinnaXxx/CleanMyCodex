@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CodexLocations } from '../electron/main/locations'
@@ -222,7 +222,7 @@ describe('cleanup path guard', () => {
     mkdirSync(old, { recursive: true })
     symlinkSync(live, locations.standaloneCurrent)
 
-    expect(guard.releasesInUse()).toEqual([live])
+    expect(guard.releasesInUse()).toEqual([realpathSync(live)])
     expect(guard.isProtected(old)).toBe(false)
     expect(() => guard.validate(old)).not.toThrow()
     expect(rejection(() => guard.validate(live))).toBe('guard.protectedPath')

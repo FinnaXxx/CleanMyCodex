@@ -44,6 +44,7 @@ import {
   type CleanupReport,
   type CleanupRequest,
   type CleanupSelection,
+  type CleanupTask,
   type ScanSnapshot,
   type WorkspaceSnapshot
 } from '../../shared/types'
@@ -233,7 +234,10 @@ ipcMain.handle('cleanup:run', async (_event, request: CleanupRequest) => {
   if (!request || typeof request !== 'object' || typeof request.restartCodex !== 'boolean' || typeof request.forceQuitCodex !== 'boolean') throw new MessageError(message('error.invalidRequest'))
   if (selectionTouchesPlugins(request.selection)) await refreshPluginsBeforeCleanup()
   const tasks = trustedTasks(request.selection)
-  logEnvironment(`cleanup:run ${request.selection.kind} tasks=${tasks.length} restart=${request.restartCodex} force=${request.forceQuitCodex}`)
+  const related = request.selection.kind === 'worktrees'
+    ? ` deleteRelatedSessions=${request.selection.deleteRelatedSessions} sessionTasks=${tasks.filter((task) => task.threadID).length}`
+    : ''
+  logEnvironment(`cleanup:run ${request.selection.kind} tasks=${tasks.length}${related} restart=${request.restartCodex} force=${request.forceQuitCodex}`)
   let reopen: string[] = []
   if (request.restartCodex && tasks.some((task) => task.requiresCodexStopped)) {
     mainWindow?.webContents.send('cleanup:stage', message('cleanup.quitting'))
@@ -243,7 +247,7 @@ ipcMain.handle('cleanup:run', async (_event, request: CleanupRequest) => {
     const report = await runCleanup(tasks, guards, cleanupDependencies(), (progress: CleanupProgress) => {
       mainWindow?.webContents.send('cleanup:progress', progress)
     })
-    logRemovals(request.selection, report)
+    logRemovals(request.selection, report, tasks)
     return report
   } finally {
     if (reopen.length) {
@@ -259,7 +263,7 @@ ipcMain.handle('cleanup:run', async (_event, request: CleanupRequest) => {
  * entries; this is the record for everything else, because a cache or leftover deletion
  * is permanent and the only way to answer "what did this remove" afterwards.
  */
-function logRemovals(selection: CleanupSelection, report: CleanupReport): void {
+function logRemovals(selection: CleanupSelection, report: CleanupReport, tasks: CleanupTask[]): void {
   const removed = report.outcomes.filter((outcome) => outcome.status.kind === 'succeeded')
   const failed = report.outcomes.filter((outcome) => outcome.status.kind === 'failed')
   logCleanup(`${selection.kind} cleanup: ${removed.length} removed, ${failed.length} failed, ${report.outcomes.length - removed.length - failed.length} skipped`)
@@ -270,6 +274,14 @@ function logRemovals(selection: CleanupSelection, report: CleanupReport): void {
     const reason = cleanupStatusReason(outcome.status)
     const why = reason ? `: ${describeMessage(reason)}` : ''
     logCleanup(`  ${outcome.status.kind} ${outcome.detail} (${outcome.freedBytes} bytes)${why}`)
+    if (selection.kind === 'worktrees') {
+      const task = tasks.find((candidate) => candidate.id === outcome.id)
+      if (task) {
+        const repository = task.repositoryPath ? ` repository=${task.repositoryPath}` : ''
+        logCleanup(`    task thread=${task.threadID ?? '-'} removal=${task.removal ?? 'filesystem'}${repository}`)
+        logCleanup(`    targets=${JSON.stringify([task.url, ...task.companionURLs])}`)
+      }
+    }
   }
 }
 

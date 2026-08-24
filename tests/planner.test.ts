@@ -23,7 +23,7 @@ function folder(path: string, children: WorkspaceFolder[] = []): WorkspaceFolder
 function worktree(id: string, overrides: Partial<WorktreeItem> = {}): WorktreeItem {
   return {
     id, path: id, projectPath: `${id}/app`, project: 'app', repositoryPath: '/repos/app',
-    branch: 'main', headCommit: null, status: 'managed', state: 'clean', isOrphaned: false,
+    status: 'managed', state: 'clean', isOrphaned: false,
     bytes: 500, artifactBytes: 400, modifiedAt: 0, sourceThreads: [], ...overrides
   }
 }
@@ -257,13 +257,73 @@ describe('automatic cleanup planner', () => {
   it('never lets a worktree selection reach one Codex did not create', () => {
     const snap = snapshot()
     const tasks = buildTrustedTasks(
-      { kind: 'worktrees', ids: ['/codex/worktrees/aa01', '/codex/worktrees/bb02', '/etc'] }, snap, snap.workspace)
+      { kind: 'worktrees', ids: ['/codex/worktrees/aa01', '/codex/worktrees/bb02', '/etc'], deleteRelatedSessions: false }, snap, snap.workspace)
     expect(tasks.map((task) => task.url)).toEqual(['/codex/worktrees/aa01'])
     // git has to take a worktree down, so the task says so and names the repository.
     expect(tasks[0].removal).toBe('gitWorktree')
     expect(tasks[0].repositoryPath).toBe('/repos/app')
     expect(tasks[0].companionURLs).toEqual([])
     expect(tasks[0].requiresCodexStopped).toBe(true)
+  })
+
+  it('optionally appends trusted related conversation deletions after the worktree', () => {
+    const snap = snapshot()
+    const parent = session('parent', {
+      childThreadCount: 1,
+      childBytes: 75,
+      childURLs: ['/codex/sessions/child.jsonl', '/codex/generated_images/child']
+    })
+    const child = session('child', { isSubagent: true, parentThreadID: 'parent', fileBytes: 50, assetBytes: 25 })
+    snap.sessions = [parent, child, session('unrelated')]
+    snap.worktrees[0].sourceThreads = [
+      { id: 'parent', title: 'Parent', archived: false, isSubagent: false, modifiedAt: 2 },
+      { id: 'child', title: 'Child', archived: false, isSubagent: true, modifiedAt: 1 }
+    ]
+
+    const tasks = buildTrustedTasks({
+      kind: 'worktrees', ids: [snap.worktrees[0].id], deleteRelatedSessions: true
+    }, snap, snap.workspace)
+
+    expect(tasks).toHaveLength(2)
+    expect(tasks[0].removal).toBe('gitWorktree')
+    expect(tasks[1]).toMatchObject({ threadID: 'parent', url: parent.fileURL })
+    expect(tasks[1].companionURLs).toEqual(parent.childURLs)
+    expect(tasks.some((task) => task.threadID === 'unrelated')).toBe(false)
+
+    const preview = makeCleanupPreview({
+      kind: 'worktrees', ids: [snap.worktrees[0].id], deleteRelatedSessions: true
+    }, tasks, {
+      running: false, detectionKnown: true, desktopRunning: false,
+      cliCommands: [], canRestart: false, blockers: []
+    }, snap)
+    expect(preview.items).toEqual([{
+      id: `worktree:${snap.worktrees[0].id}`,
+      title: 'app · Parent',
+      detail: snap.worktrees[0].path,
+      expectedBytes: snap.worktrees[0].bytes + 175
+    }])
+    expect(preview.expectedBytes).toBe(snap.worktrees[0].bytes + 175)
+  })
+
+  it('matches a related conversation by rollout cwd when the desktop index ID differs', () => {
+    const snap = snapshot()
+    const related = session('rollout-id', { workingDirectory: '/codex/worktrees/aa01/app' })
+    snap.sessions = [related]
+    snap.worktrees[0].sourceThreads = [
+      { id: 'desktop-catalog-id', title: 'Related', archived: false, isSubagent: false, modifiedAt: 1 }
+    ]
+    const selection: CleanupSelection = {
+      kind: 'worktrees', ids: [snap.worktrees[0].id], deleteRelatedSessions: true
+    }
+    const tasks = buildTrustedTasks(selection, snap, snap.workspace)
+    expect(tasks.map((task) => task.threadID)).toEqual([null, 'rollout-id'])
+
+    const preview = makeCleanupPreview(selection, tasks, {
+      running: false, detectionKnown: true, desktopRunning: false,
+      cliCommands: [], canRestart: false, blockers: []
+    }, snap)
+    expect(preview.items).toHaveLength(1)
+    expect(preview.items[0].expectedBytes).toBe(snap.worktrees[0].bytes + related.fileBytes)
   })
 
   it('keeps worktrees out of the scheduled run entirely', () => {
@@ -282,8 +342,8 @@ describe('automatic cleanup planner', () => {
       running: false, detectionKnown: true, desktopRunning: false,
       cliCommands: [], canRestart: false, blockers: []
     }
-    const clean: CleanupSelection = { kind: 'worktrees', ids: ['/codex/worktrees/aa01'] }
-    const dirty: CleanupSelection = { kind: 'worktrees', ids: ['/codex/worktrees/cc03'] }
+    const clean: CleanupSelection = { kind: 'worktrees', ids: ['/codex/worktrees/aa01'], deleteRelatedSessions: false }
+    const dirty: CleanupSelection = { kind: 'worktrees', ids: ['/codex/worktrees/cc03'], deleteRelatedSessions: false }
     const keys = (selection: CleanupSelection) =>
       makeCleanupPreview(selection, buildTrustedTasks(selection, snap, snap.workspace), environment, snap)
         .warnings.map((warning) => warning.key)
