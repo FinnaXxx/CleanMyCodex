@@ -9,9 +9,15 @@ permissions:
 
 jobs:
   release:
-    runs-on: macos-26
+    # GitHub's Xcode 27 preview runner provides the macOS 27 SDK.
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v4
+      - name: Show macOS build environment
+        run: |
+          sw_vers
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
       - uses: pnpm/action-setup@v4
         with:
           version: 11.19.0
