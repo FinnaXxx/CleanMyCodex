@@ -27,7 +27,9 @@ export function storageDistribution(snapshot: ScanSnapshot): StorageDistribution
   const sections: StorageDistributionItem[] = StorageSectionOrder.map((section) => ({
     kind: section,
     bytes: snapshot.categories
-      .filter((category) => category.kind !== 'sessionDatabase' && categorySection(category) === section)
+      // Session databases and ImageGen copies already belong to the session total. Their
+      // categories are cleanup/detail affordances, not additional physical storage.
+      .filter((category) => category.kind !== 'sessionDatabase' && category.kind !== 'generatedImages' && categorySection(category) === section)
       .reduce((sum, category) => sum + categoryBytes(category), 0)
   }))
   const classifiedCodexBytes = sessions + sections.reduce((sum, item) => sum + item.bytes, 0)

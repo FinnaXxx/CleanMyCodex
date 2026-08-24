@@ -75,6 +75,8 @@ describe('storage scanner semantics', () => {
     writeFileSync(join(locations.home, 'config.toml'), '[marketplaces.local]\nsource = ".tmp/custom-source"\n[marketplaces.shared]\nsource = "../shared-market"\n')
 
     write(join(locations.generatedImages, thread, 'active.png'))
+    const orphanImages = join(locations.generatedImages, '99999999-9999-9999-9999-999999999999')
+    write(join(orphanImages, 'only-copy.png'))
     write(join(locations.computerUse, 'helper.bin'))
     write(join(locations.pluginRuntime, 'codex'))
     const logDatabase = join(locations.home, 'logs_2.sqlite')
@@ -124,6 +126,17 @@ describe('storage scanner semantics', () => {
 
     expect(snapshot.sessions.find((session) => session.threadID === thread)?.assetURLs)
       .toContain(join(locations.generatedImages, thread))
+    expect(snapshot.sessions.find((session) => session.threadID === thread)?.tags).toContain('imageGen')
+    const generatedImages = snapshot.categories.find((category) => category.kind === 'generatedImages')
+    expect(generatedImages).toMatchObject({ group: 'review', risk: 'caution' })
+    expect(generatedImages?.entries.find((entry) => entry.url === join(locations.generatedImages, thread))).toMatchObject({
+      title: '活跃会话', risk: 'caution', requiresCodexStopped: true,
+      note: null, tags: [{ label: { key: 'location.active' }, tone: 'info' }]
+    })
+    expect(generatedImages?.entries.find((entry) => entry.url === orphanImages)).toMatchObject({
+      risk: 'shielded', note: { key: 'note.imageGenOrphanCopy' },
+      tags: [{ label: { key: 'tag.sessionMissing' }, tone: 'caution' }]
+    })
     const computerUse = snapshot.categories.find((category) => category.kind === 'computerUse')
     expect(computerUse).toMatchObject({ group: 'protectedData', risk: 'shielded' })
     expect(computerUse?.entries[0].requiresCodexStopped).toBe(true)
@@ -147,6 +160,7 @@ describe('storage scanner semantics', () => {
     expect(appCache).toMatchObject({ group: 'protectedData', risk: 'shielded' })
     expect(appCache?.entries.some((entry) => entry.url === locations.codexCache)).toBe(false)
     expect(snapshot.categories.find((category) => category.kind === 'protectedConfig')?.entries.some((entry) => entry.url === join(locations.home, 'attachments'))).toBe(true)
+    expect(snapshot.categories.find((category) => category.kind === 'protectedConfig')?.entries.some((entry) => entry.url === locations.generatedImages)).toBe(false)
     expect(snapshot.categories.find((category) => category.kind === 'protectedConfig')?.entries.some((entry) => entry.url === join(locations.home, 'goals_1.sqlite'))).toBe(true)
     expect(snapshot.categories.find((category) => category.kind === 'protectedUserData')?.entries.some((entry) => entry.url === join(locations.appSupport, 'WasmTtsEngine'))).toBe(true)
     const pluginRuntime = snapshot.categories.find((category) => category.kind === 'pluginRuntime')

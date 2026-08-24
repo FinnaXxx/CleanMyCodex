@@ -29,7 +29,8 @@ function snapshot(): ScanSnapshot {
       { kind: 'appLogs', group: 'recommended', risk: 'rebuildable', entries: [storage('app-log', 'rebuildable')] },
       { kind: 'protectedConfig', group: 'protectedData', risk: 'shielded', entries: [storage('shielded', 'shielded')] },
       { kind: 'pluginRemnants', group: 'recommended', risk: 'safe', entries: [storage('old-plugin')] },
-      { kind: 'pluginOrphans', group: 'review', risk: 'caution', entries: [storage('orphan-plugin', 'caution')] }
+      { kind: 'pluginOrphans', group: 'review', risk: 'caution', entries: [storage('orphan-plugin', 'caution')] },
+      { kind: 'generatedImages', group: 'review', risk: 'caution', entries: [storage('imagegen-copy', 'caution')] }
     ],
     sessions: [session('active'), session('unstable', { isUnstable: true }), session('compressed', { isCompressed: true })],
     pluginVersions: [
@@ -140,6 +141,18 @@ describe('trusted cleanup planner', () => {
     expect(preview.blockers.map((item) => item.key)).toEqual(['blocker.cliRunning'])
     expect(preview.blockedTitles).toEqual(['active'])
   })
+
+  it('warns that deleting an ImageGen local copy leaves a stale saved path', () => {
+    const snap = snapshot()
+    const image = snap.categories.find((category) => category.kind === 'generatedImages')!.entries[0]
+    const selection: CleanupSelection = { kind: 'storage', ids: [image.id] }
+    const tasks = buildTrustedTasks(selection, snap, snap.workspace)
+    const preview = makeCleanupPreview(selection, tasks, {
+      running: false, detectionKnown: true, desktopRunning: false,
+      cliCommands: [], canRestart: false, blockers: []
+    }, snap)
+    expect(preview.warnings).toContainEqual(message('warning.imageGenLocalCopy'))
+  })
 })
 
 describe('automatic cleanup planner', () => {
@@ -157,6 +170,7 @@ describe('automatic cleanup planner', () => {
     expect(tasks.map((task) => task.id)).not.toContain('orphan-plugin')
     expect(tasks.map((task) => task.id)).not.toContain('app-cache')
     expect(tasks.map((task) => task.id)).not.toContain('app-log')
+    expect(tasks.map((task) => task.id)).not.toContain('imagegen-copy')
     expect(tasks.map((task) => task.threadID)).toContain('active')
     expect(tasks.map((task) => task.threadID)).not.toContain('unstable')
   })

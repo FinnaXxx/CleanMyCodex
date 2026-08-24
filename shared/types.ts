@@ -24,6 +24,7 @@ export type StorageKind =
   | 'codexCache'
   | 'appCache'
   | 'appLogs'
+  | 'generatedImages'
   | 'computerUse'
   | 'protectedConfig'
   | 'protectedUserData'
@@ -43,6 +44,7 @@ export const StorageKindSection: Record<StorageKind, StorageSection> = {
   codexCache: 'caches',
   appCache: 'protectedData',
   appLogs: 'logs',
+  generatedImages: 'caches',
   computerUse: 'plugins',
   protectedConfig: 'protectedData',
   protectedUserData: 'protectedData'
@@ -92,12 +94,13 @@ export const categorySection = (c: StorageCategory): StorageSection => StorageKi
 
 export type SessionLocation = 'active' | 'archived'
 
-export type SessionTag = 'browser' | 'computerUse'
+export type SessionTag = 'browser' | 'computerUse' | 'imageGen'
 
 /** Codex' own feature names; identical in both languages. */
 export const SessionTagLabel: Record<SessionTag, string> = {
   browser: 'Browser',
-  computerUse: 'Computer Use'
+  computerUse: 'Computer Use',
+  imageGen: 'ImageGen'
 }
 
 export interface SessionItem {

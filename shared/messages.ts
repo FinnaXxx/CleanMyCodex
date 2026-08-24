@@ -28,6 +28,7 @@ export type MessageKey =
   | 'category.codexCache.title' | 'category.codexCache.detail'
   | 'category.appCache.title' | 'category.appCache.detail'
   | 'category.appLogs.title' | 'category.appLogs.detail'
+  | 'category.generatedImages.title' | 'category.generatedImages.detail'
   | 'category.computerUse.title' | 'category.computerUse.detail'
   | 'category.protectedConfig.title' | 'category.protectedConfig.detail'
   | 'category.protectedUserData.title' | 'category.protectedUserData.detail'
@@ -36,10 +37,11 @@ export type MessageKey =
   | 'note.codexOperationalCache' | 'note.remotePluginCatalogCache' | 'note.codexAppsToolsCache'
   | 'note.codexAppDirectoryCache' | 'note.codexAppsServerInfoCache' | 'note.tuiPetsCache' | 'note.platformCache'
   | 'note.applicationLog' | 'note.logDatabase' | 'note.sessionProjection'
+  | 'note.imageGenOrphanCopy'
   | 'note.localMarketplace' | 'note.configOrCredentials' | 'note.stateDatabase' | 'note.browserProfile'
   | 'note.computerUseComponent' | 'note.builtinPlugin' | 'note.currentPlugin' | 'note.unconfirmedPlugin' | 'note.pluginRuntime'
   // Entry tags
-  | 'tag.builtin' | 'tag.current' | 'tag.unconfirmed' | 'tag.runtime' | 'tag.outdated' | 'tag.orphaned'
+  | 'tag.builtin' | 'tag.current' | 'tag.unconfirmed' | 'tag.runtime' | 'tag.outdated' | 'tag.orphaned' | 'tag.sessionMissing'
   // Enumerations
   | 'group.recommended' | 'group.review' | 'group.protectedData'
   | 'location.active' | 'location.archived'
@@ -56,7 +58,7 @@ export type MessageKey =
   // Scan notes
   | 'scanNote.appServerUnavailable' | 'scanNote.noSessionTitles'
   // Cleanup preview warnings
-  | 'warning.permanent' | 'warning.workspaceGit' | 'warning.pinnedSessions'
+  | 'warning.permanent' | 'warning.workspaceGit' | 'warning.pinnedSessions' | 'warning.imageGenLocalCopy'
   // Codex runtime blockers
   | 'blocker.detectionFailed' | 'blocker.desktopRunning' | 'blocker.cliRunning'
   // Guard rejections
@@ -113,6 +115,8 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'category.appCache.detail': ['桌面应用运行缓存', 'Desktop application runtime cache'],
   'category.appLogs.title': ['应用日志', 'Application Logs'],
   'category.appLogs.detail': ['桌面应用自己轮转，只统计不清理', 'Rotated by the desktop application; counted, never cleaned'],
+  'category.generatedImages.title': ['ImageGen 本地图片', 'ImageGen Local Images'],
+  'category.generatedImages.detail': ['保留会话，只删除落盘 PNG；历史图片通常仍可显示，但本地路径随后失效', 'Keep conversations and remove only saved PNGs; historical images normally remain visible, but local paths stop working'],
   'category.computerUse.title': ['Computer Use 组件', 'Computer Use Component'],
   'category.computerUse.detail': ['Computer Use 运行所需的本地组件', 'Local component Computer Use needs in order to run'],
   'category.protectedConfig.title': ['受保护的配置', 'Protected Configuration'],
@@ -134,6 +138,7 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'note.applicationLog': ['桌面应用日志，由应用自行轮转', 'Desktop application log, rotated by the application itself'],
   'note.logDatabase': ['Codex 诊断日志数据库（含 WAL/SHM）', 'Codex diagnostic log database (including WAL/SHM)'],
   'note.sessionProjection': ['会话内容投影数据库（含 WAL/SHM）', 'Session content projection database (including WAL/SHM)'],
+  'note.imageGenOrphanCopy': ['未找到对应会话，可能是这张图片仅存的副本', 'No matching conversation found; this may be the only remaining copy'],
   'note.localMarketplace': ['config.toml 注册的本地插件市场', 'Local marketplace registered in config.toml'],
   'note.configOrCredentials': ['配置、凭据或用户规则', 'Configuration, credentials, or user rules'],
   'note.stateDatabase': ['Codex 状态数据库', 'Codex state database'],
@@ -150,6 +155,7 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'tag.runtime': ['运行组件', 'Runtime'],
   'tag.outdated': ['旧版本', 'Old version'],
   'tag.orphaned': ['卸载残留', 'Uninstall leftover'],
+  'tag.sessionMissing': ['会话不存在', 'Conversation missing'],
 
   'group.recommended': ['建议清理', 'Recommended'],
   'group.review': ['谨慎清理', 'Review'],
@@ -195,6 +201,7 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'warning.permanent': ['清理的内容会被永久删除，无法恢复。', 'Everything cleaned is deleted permanently and cannot be recovered.'],
   'warning.workspaceGit': ['请确认未提交或未推送的内容已经保存。', 'Make sure anything uncommitted or unpushed has been saved.'],
   'warning.pinnedSessions': ['所选会话中有 {count} 个是置顶会话，删除后不会恢复', '{count} of the selected conversations are pinned; deleting them is permanent'],
+  'warning.imageGenLocalCopy': ['会话会保留，但已保存的 ImageGen 本地路径将失效；依赖该路径的复制、打开或继续编辑操作可能失败。', 'Conversations remain, but saved ImageGen paths will stop working; copy, open, or edit operations that rely on those paths may fail.'],
 
   'blocker.detectionFailed': ['无法确认 Codex 是否正在运行', 'Cannot determine whether Codex is running'],
   'blocker.desktopRunning': ['ChatGPT/Codex 桌面应用或会话服务正在运行', 'The ChatGPT/Codex desktop app or its session service is running'],

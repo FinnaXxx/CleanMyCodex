@@ -314,6 +314,7 @@ export async function scanSessions(
     const threadID = content.threadID ?? threadIDFromName(name)
     const assets = assetBytesForThread(locations, threadID, visualizationIndex)
     const tags = [...content.tags]
+    if (assets.urls.includes(join(locations.generatedImages, threadID))) tags.push('imageGen')
     items.push({
       id: file.url, threadID, fileURL: file.url, segmentURLs: [], location: file.location, modifiedAt: before.modifiedAt,
       fileBytes: before.bytes, assetBytes: assets.bytes, assetURLs: assets.urls,

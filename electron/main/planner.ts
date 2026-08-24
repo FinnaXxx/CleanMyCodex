@@ -94,6 +94,7 @@ export function makeCleanupPreview(
   // Deletion is permanent for every selection, so the preview always says so first.
   const warnings: Message[] = [message('warning.permanent')]
   if (selection.kind === 'workspace') warnings.push(message('warning.workspaceGit'))
+  if (selectionIncludesCategory(selection, snapshot, 'generatedImages')) warnings.push(message('warning.imageGenLocalCopy'))
   // Pinning only holds off the scheduled run. Deleting one by hand is allowed, but the
   // confirmation says so rather than letting a pin quietly disappear.
   const pinned = pinnedSelection(selection, tasks, snapshot)
@@ -113,6 +114,18 @@ export function makeCleanupPreview(
     blockers: environment.blockers,
     warnings
   }
+}
+
+function selectionIncludesCategory(
+  selection: CleanupSelection,
+  snapshot: ScanSnapshot | null,
+  kind: ScanSnapshot['categories'][number]['kind']
+): boolean {
+  if (selection.kind !== 'storage' || !snapshot) return false
+  const categoryIDs = new Set(snapshot.categories
+    .filter((category) => category.kind === kind)
+    .flatMap((category) => category.entries.map((entry) => entry.id)))
+  return selection.ids.some((id) => categoryIDs.has(id))
 }
 
 export function buildAutomaticTasks(

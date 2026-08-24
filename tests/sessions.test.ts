@@ -50,7 +50,7 @@ describe('session scanning', () => {
     })
     expect(sessions[0].assetBytes).toBeGreaterThan(0)
     expect(sessions[0].assetURLs).toEqual(expect.arrayContaining([join(locations.generatedImages, id), visualization, viewers]))
-    expect(sessions[0].tags).toEqual(expect.arrayContaining(['browser', 'computerUse']))
+    expect(sessions[0].tags).toEqual(expect.arrayContaining(['browser', 'computerUse', 'imageGen']))
     expect(sessions[0].parseWarnings).toBe(1)
     expect(existsSync(join(locations.scanCache, 'session-scan.json'))).toBe(true)
   })

@@ -114,6 +114,20 @@ describe('cleanup path guard', () => {
     expect(rejection(() => guard.validate(locations.appSupport))).toBe('guard.wholeDataRoot')
   })
 
+  it('allows one scanned ImageGen thread directory but protects its container and nested targets', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const copy = join(locations.generatedImages, '11111111-1111-1111-1111-111111111111')
+    const image = join(copy, 'ig_123.png')
+    mkdirSync(copy, { recursive: true })
+    writeFileSync(image, 'image')
+    const guard = new ProtectedPaths(locations)
+
+    expect(() => guard.validate(copy)).not.toThrow()
+    expect(rejection(() => guard.validate(locations.generatedImages))).toBe('guard.protectedPath')
+    expect(rejection(() => guard.validate(image))).toBe('guard.protectedPath')
+  })
+
   it('rejects every unnamed path inside desktop data roots', () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
     const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })

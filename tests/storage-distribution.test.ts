@@ -17,7 +17,7 @@ describe('overview storage distribution', () => {
   it('separates workspace and sessions while reserving other for unclassified Codex data', () => {
     const snapshot = {
       totalCodexBytes: 1_000,
-      categories: [category('appCache', 100), category('sessionDatabase', 50)],
+      categories: [category('appCache', 100), category('sessionDatabase', 50), category('generatedImages', 20)],
       sessions: [{ fileBytes: 300, assetBytes: 20, childBytes: 30, isSubagent: false, parentThreadID: null }],
       workspace: { root: '/workspace', isScanned: true, entries: [{ bytes: 500, children: [] }] }
     } as unknown as ScanSnapshot

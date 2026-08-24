@@ -77,6 +77,9 @@ export class ProtectedPaths {
     'hook_outputs',
     'bin',
     'log',
+    // Container only. A scanner-confirmed direct child is an optional ImageGen PNG copy;
+    // the root and any deeper forged target stay protected.
+    'generated_images',
     // Plugin data Codex persists on a plugin's behalf, and the marketplace registry.
     'plugins/data',
     'plugins/known_marketplaces.json',
@@ -214,6 +217,9 @@ export class ProtectedPaths {
     const knownCodexCaches = this.locations.codexCaches.map((path) => this.canonical(path))
     if (knownCodexCaches.includes(target)) return false
     if (ProtectedPaths.contains(codexCache, target) || ProtectedPaths.contains(target, codexCache)) return true
+    const generatedImages = this.canonical(this.locations.generatedImages)
+    if (dirname(target) === generatedImages) return false
+    if (ProtectedPaths.contains(generatedImages, target) || ProtectedPaths.contains(target, generatedImages)) return true
     if (this.protectedURLs.map((path) => this.canonical(path)).some((p) => ProtectedPaths.contains(p, target) || ProtectedPaths.contains(target, p))) return true
     // state_*.sqlite, history.jsonl … directly inside ~/.codex.
     const parent = normalize(target + '/..')
