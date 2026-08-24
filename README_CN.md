@@ -9,7 +9,7 @@
 [![Release](https://img.shields.io/github/v/release/FinnaXxx/CleanMyCodex)](https://github.com/FinnaXxx/CleanMyCodex/releases)
 [![CI](https://github.com/FinnaXxx/CleanMyCodex/actions/workflows/ci.yml/badge.svg)](https://github.com/FinnaXxx/CleanMyCodex/actions/workflows/ci.yml)
 ![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
-![License](https://img.shields.io/badge/license-MIT-blue)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/overview-zh-dark.png">
@@ -22,10 +22,11 @@
 ## 注意事项
 
 > [!IMPORTANT]
-> **当前是测试阶段，请提前备份。** 清理是永久删除，且不能保证在所有 Codex 版本、所有电脑上都能
-> 正常工作。第一次清理前请先备份。
+> **当前是测试阶段，请提前备份。** 清理是永久删除，且不能保证在所有 Codex 版本、所有电脑上都能正常工作。第一次清理前请先备份。
 
-欢迎提 PR 共建。
+清理前请退出 ChatGPT/Codex，并对 Codex 数据目录（通常是 `~/.codex`）和 `~/Library/Application Support/Codex` 做一份可恢复的副本。重新打开 Codex 确认清理结果无误前请保留备份；当前的 Time Machine 备份也可以。
+
+欢迎提 PR 共建，开始修改前请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 这是什么
 
@@ -46,6 +47,21 @@ Codex 会不断堆积：每一次会话留下的 rollout 文件、一直没被�
 从 [Releases](https://github.com/FinnaXxx/CleanMyCodex/releases) 下载最新的 `.dmg`，提供 Apple Silicon（`arm64`）和 Intel（`x64`）两个安装包。
 
 安装包做了 ad-hoc 签名但未做公证，首次打开需要在 **系统设置 → 隐私与安全性 → 仍要打开** 里放行一次。
+
+## 兼容性
+
+| 平台 | 分发方式 | 验证情况 | 状态 |
+| --- | --- | --- | --- |
+| macOS，Apple Silicon | `.dmg` 正式包 | CI 与打包验证 | 支持 |
+| macOS，Intel | `.dmg` 正式包 | CI 与打包验证 | 支持 |
+| Windows | 未发布安装包 | CI 构建与测试 | 实验性支持；可用定时清理 |
+| Linux | 未发布安装包 | 未进入 CI | 尚未验证；不可用定时清理 |
+
+Clean My Codex 跟随当前 Codex Desktop 的存储布局，建议同时使用最新版 Clean My Codex 与 Codex。桌面端部分存储格式并未公开且可能变化，因此测试阶段不承诺固定的 Codex 版本兼容范围。
+
+## 隐私与网络访问
+
+扫描和清理均在本机执行。Clean My Codex 不包含分析或遥测，也不会上传凭据、会话内容或文件元数据。打包后的 macOS 应用会在启动时请求一次 GitHub Releases 元数据以检查新版本，下载和升级仍需手动完成；对 `codex app-server` 的调用使用本机 Codex 进程。
 
 ## 扫描设计
 
@@ -72,7 +88,7 @@ Codex 会不断堆积：每一次会话留下的 rollout 文件、一直没被�
 - **`~/.codex/sqlite/*.db`**：ChatGPT/Codex 桌面端自己的存储，`local_thread_catalog` 是左侧边栏的会话列表，同目录还有会话摘要和历史快照。只在删除会话时按 thread ID 定向删行，从不删文件。
 - **`.codex-global-state.json`**：桌面端的持久化状态，按 thread ID 存置顶、项目归属、排队任务等。只剔除被删会话的键和列表项；`electron-persisted-atom-state`（草稿、面板布局等界面状态）整块保持不动。
 - **`generated_images/<thread-id>`**：会话生成的独立图片目录。
-- **`visualizations/YYYY/MM/DD/<thread-id>`**：Codex 生成的富视觉结果，例如 JPG/PNG 对比图或 HTML可视化预览。扫描时会递归识别日期层级并归到对应会话。
+- **`visualizations/YYYY/MM/DD/<thread-id>`**：Codex 生成的富视觉结果，例如 JPG/PNG 对比图或 HTML 可视化预览。扫描时会递归识别日期层级并归到对应会话。
 - **`visualization-viewers/<thread-id>`**：Codex 从上述片段渲染出的查看器，其源码自己称之为 viewer cache。按 thread 组织，因此随所属会话一起统计、一起删除，不会比会话活得更久。
 - **`~/.codex/cache`**：远程插件目录（`remote_plugin_catalog`）、Apps server 与工具定义（`codex_apps_server_info`、`codex_apps_tools`）、connector 目录（`codex_app_directory`）和终端宠物素材（`tui-pets`）。它们都可重建，但后续版本可能在旁边放置实时状态，因此整个目录作为受保护数据统计，不提供删除。
 - **`~/Library/Logs/com.openai.codex/YYYY/MM/DD`**：桌面应用自己的日志，每个会话每个进程一个文件。应用自己会轮转，只保留最近几天，所以这里只统计、不清理——清它省下的正是它自己马上就要省的，还会连带删掉它自己诊断要读的那几天。整棵日志树都禁止删除。
@@ -90,7 +106,7 @@ Codex 会不断堆积：每一次会话留下的 rollout 文件、一直没被�
 
 同一个会话可能分散在多个 rollout 文件中，也可能递归生成多层子代理。界面只显示一个顶层会话，但统计与操作使用完整会话闭包：主会话的所有续写分段、所有层级子代理的分段，以及各自关联的生成图片和 Visualization 目录。
 
-第一版不扫描、统计、去重或改写会话内嵌图片，也不提供单独删除生成图片的入口。会话数据只支持整段删除，避免出现 rollout、派生 SQLite 和界面缓存之间状态不一致。
+当前 v0.1.x 版本不扫描、统计、去重或改写会话内嵌图片，也不提供单独删除生成图片的入口。会话数据只支持整段删除，避免出现 rollout、派生 SQLite 和界面缓存之间状态不一致。
 
 ### 删除会话实际执行的操作
 
@@ -101,13 +117,13 @@ Codex 会不断堆积：每一次会话留下的 rollout 文件、一直没被�
 3. 旧版本不支持协议或任一请求失败时，回退到本地兼容清理，并永久删除协议未处理的 rollout。
 4. 永久删除协议不管理的 `generated_images`、Visualization 目录。
 5. 无论走协议还是回退，最后都用同一组 thread ID 复查一次 `thread_history_*.sqlite`、`state_*.sqlite` 和 `session_index.jsonl`，删除仍指向已删除 rollout 的记录。
-6. 最后清理桌面端自己的那份副本：`~/.codex/sqlite/*.db`（`local_thread_catalog` 就是左侧边栏的会话列表，同目录还有摘要库和历史快照库）按 thread ID 删行；`~/.codex/.codex-global-state.json` 及其`.bak` 剔除对应的映射键、列表项和 `…threadId` 字段。`thread/delete` 不管这两处 —— 协议报成功、内核数据也确实清干净了，会话照样留在侧边栏，点开报 `no rollout found for thread id`，就是这里没删。
+6. 最后清理桌面端自己的那份副本：`~/.codex/sqlite/*.db`（`local_thread_catalog` 就是左侧边栏的会话列表，同目录还有摘要库和历史快照库）按 thread ID 删行；`~/.codex/.codex-global-state.json` 及其 `.bak` 剔除对应的映射键、列表项和 `…threadId` 字段。`thread/delete` 不管这两处 —— 协议报成功、内核数据也确实清干净了，会话照样留在侧边栏，点开报 `no rollout found for thread id`，就是这里没删。
 
 每一步删掉多少行都会记进清理日志。
 
 配置、凭据、当前插件和工作产出不会随会话删除；与目标会话直接关联的 `session_index.jsonl` 行会一并删除。
 
-自动会话清理会跳过置顶会话、存在未完成 goal 的会话和仍有 queued item 的会话；任一子代理满足这些条件时，整个顶层会话都会跳过。置顶同时取自 `state_*.sqlite` 的 `is_pinned` 列和 `.codex-global-state.json` 的 `pinned-thread-ids` —— 桌面端把置顶记在后者，只看列会漏。手动删除不受这些条件限制：明确选中并确过的会话就按用户的意思删，会话列表会给置顶会话标出「置顶」，确认弹窗也会说明所选会话里有几个是置顶的手动删除前会先检查 SQLite 完整性、受支持的核心表和写锁，避免会话文件已经删除后才发现数据库无法修改插件删除则会在真正执行前重新向 `codex app-server` 查询当前版本，防止扫描后升级造成误删。
+自动会话清理会跳过置顶会话、存在未完成 goal 的会话和仍有 queued item 的会话；任一子代理满足这些条件时，整个顶层会话都会跳过。置顶同时取自 `state_*.sqlite` 的 `is_pinned` 列和 `.codex-global-state.json` 的 `pinned-thread-ids` —— 桌面端把置顶记在后者，只看列会漏。手动删除不受这些条件限制：明确选中并确认过的会话就按用户的意思删；会话列表会给置顶会话标出「置顶」，确认弹窗也会说明所选会话里有几个是置顶的。手动删除前会先检查 SQLite 完整性、受支持的核心表和写锁，避免会话文件已经删除后才发现数据库无法修改。插件删除则会在真正执行前重新向 `codex app-server` 查询当前版本，防止扫描后升级造成误删。
 
 ### 日志
 
@@ -136,6 +152,14 @@ pnpm build:win
 pnpm build:linux
 ```
 
+## 贡献与支持
+
+开发流程和清理安全要求见 [CONTRIBUTING.md](CONTRIBUTING.md)。Bug 与功能建议请提交到 [GitHub Issues](https://github.com/FinnaXxx/CleanMyCodex/issues)，分享日志前请阅读 [SUPPORT.md](SUPPORT.md)。
+
+安全漏洞不要提交到公开 Issue，请按照 [SECURITY.md](SECURITY.md) 私下报告。参与项目时请遵守 [行为准则](CODE_OF_CONDUCT.md)。
+
 ## 许可
 
-MIT
+[MIT](LICENSE)
+
+Clean My Codex 是独立的社区项目，与 OpenAI 无隶属、背书或赞助关系。Codex 与 OpenAI 是 OpenAI 的商标。

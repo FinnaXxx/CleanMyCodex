@@ -9,7 +9,7 @@ English · [简体中文](README_CN.md)
 [![Release](https://img.shields.io/github/v/release/FinnaXxx/CleanMyCodex)](https://github.com/FinnaXxx/CleanMyCodex/releases)
 [![CI](https://github.com/FinnaXxx/CleanMyCodex/actions/workflows/ci.yml/badge.svg)](https://github.com/FinnaXxx/CleanMyCodex/actions/workflows/ci.yml)
 ![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
-![License](https://img.shields.io/badge/license-MIT-blue)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/overview-en-dark.png">
@@ -22,15 +22,15 @@ English · [简体中文](README_CN.md)
 ## Before you start
 
 > [!IMPORTANT]
-> **This is a testing-stage release — back up first.** Cleanup deletes permanently,
-> and correct behaviour cannot be guaranteed for every Codex version on every machine.
-> Take a backup before your first cleanup.
+> **This is a testing-stage release — back up first.** Cleanup deletes permanently, and correct behaviour cannot be guaranteed for every Codex version on every machine. Take a backup before your first cleanup.
 
-Pull requests are welcome.
+Before cleaning, quit ChatGPT/Codex and make a recoverable copy of the Codex data directory (normally `~/.codex`) and `~/Library/Application Support/Codex`. Keep the backup until you have reopened Codex and verified the result. A current Time Machine backup is also suitable.
+
+Pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) before starting a change.
 
 ## What it does
 
-Codex accumulates: a rollout file for every conversation you have ever had, plugin versions it never got around to deleting, staging folders abandoned by an interrupted update, and whatever your sessions wrote to disk. Clean My Codex measures all of it in one pass, shows where the space actually went.
+Codex accumulates: a rollout file for every conversation you have ever had, plugin versions it never got around to deleting, staging folders abandoned by an interrupted update, and whatever your sessions wrote to disk. Clean My Codex measures all of it in one pass and shows where the space actually went.
 
 - **One scan, four areas.** The Codex data directory, sessions, plugins and workspace output, each with its own page and its own rules.
 - **Honest numbers.** A SQLite database contributes what it really occupies; its reusable free pages are never presented as space you can reclaim.
@@ -47,6 +47,21 @@ Configuration and credentials — `config.toml`, `auth.json`, the age-encrypted 
 Download the latest `.dmg` from [Releases](https://github.com/FinnaXxx/CleanMyCodex/releases). Builds are published for Apple Silicon (`arm64`) and Intel (`x64`).
 
 The bundle is ad-hoc signed but not notarized, so the first launch goes through **System Settings → Privacy & Security → Open Anyway**.
+
+## Compatibility
+
+| Platform | Distribution | Verification | Status |
+| --- | --- | --- | --- |
+| macOS, Apple Silicon | `.dmg` release | CI and packaging | Supported |
+| macOS, Intel | `.dmg` release | CI and packaging | Supported |
+| Windows | No release package | CI build and tests | Experimental; scheduled cleanup is available |
+| Linux | No release package | Not run in CI | Unverified; scheduled cleanup is unavailable |
+
+Clean My Codex follows the current Codex Desktop storage layout. The latest Clean My Codex and Codex releases are recommended; because parts of the desktop storage format are private and may change, no fixed range of Codex versions is guaranteed during the testing stage.
+
+## Privacy and network access
+
+Scanning and cleanup run locally. Clean My Codex has no analytics or telemetry and does not upload credentials, session contents or file metadata. A packaged macOS build makes one request to GitHub Releases on startup to check whether a newer version exists; downloads and upgrades remain manual. Calls to `codex app-server` use the local Codex process.
 
 ## How scanning works
 
@@ -71,7 +86,7 @@ Each source is scanned as what it actually is:
 - **`session_index.jsonl`** — a supplementary index behind generated titles and the desktop session list. Deleting a session removes the index lines for exactly the same set of threads.
 - **`thread_history_*.sqlite`** — the session-history projection Codex derives from the rollouts. The scanner counts it as a session projection database; deleting a session clears the matching rows directly instead of waiting for Codex to rebuild them.
 - **`~/.codex/sqlite/*.db`** — the ChatGPT/Codex desktop's own storage. `local_thread_catalog` is the conversation list in the left sidebar, and the same directory holds session summaries and history snapshots. Rows are deleted by thread ID when a session is deleted; the files themselves never are.
-- **`.codex-global-state.json`** — the desktop's persisted state, keyed by thread ID:pins, project membership, queued tasks. Only the keys and list items of deleted sessions are removed; `electron-persisted-atom-state` (drafts, panel layout and other interface state) is left alone as a whole.
+- **`.codex-global-state.json`** — the desktop's persisted state, keyed by thread ID: pins, project membership, queued tasks. Only the keys and list items of deleted sessions are removed; `electron-persisted-atom-state` (drafts, panel layout and other interface state) is left alone as a whole.
 - **`generated_images/<thread-id>`** — standalone image directories produced by a conversation.
 - **`visualizations/YYYY/MM/DD/<thread-id>`** — the rich visual results Codex generates, such as JPG/PNG comparisons or HTML visualization previews. The date levels are walked recursively and attributed to the conversation they belong to.
 - **`visualization-viewers/<thread-id>`** — the rendered viewers Codex materializes from those fragments, which its own code calls the viewer caches. Keyed by thread, so they are counted with their conversation and removed with it rather than outliving it.
@@ -91,7 +106,7 @@ Each source is scanned as what it actually is:
 
 One conversation can be spread across several rollout files, and can recursively spawn several layers of subagents. The interface shows a single top-level conversation, but every total and every action uses the full closure: all continuation segments of the main conversation, the segments of subagents at every level, and the generated images and Visualization directories belonging to each of them.
 
-The first version does not scan, count, deduplicate or rewrite images embedded in a conversation, and offers no separate way to delete generated images. Session data can only be deleted whole, which keeps the rollouts, the derived SQLite databases and the interface caches from drifting out of step.
+The current v0.1.x releases do not scan, count, deduplicate or rewrite images embedded in a conversation, and offer no separate way to delete generated images. Session data can only be deleted whole, which keeps the rollouts, the derived SQLite databases and the interface caches from drifting out of step.
 
 ### What deleting a session actually does
 
@@ -137,6 +152,14 @@ pnpm build:win
 pnpm build:linux
 ```
 
+## Contributing and support
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow and cleanup-safety expectations. Use [GitHub Issues](https://github.com/FinnaXxx/CleanMyCodex/issues) for bugs and feature proposals, and read [SUPPORT.md](SUPPORT.md) before sharing logs.
+
+Security vulnerabilities must not be reported in a public issue. Follow the private reporting process in [SECURITY.md](SECURITY.md). Participation in the project is governed by the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## License
 
-MIT
+[MIT](LICENSE)
+
+Clean My Codex is an independent community project. It is not affiliated with, endorsed by or sponsored by OpenAI. Codex and OpenAI are trademarks of OpenAI.
