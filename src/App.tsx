@@ -167,7 +167,8 @@ function App() {
     {cleanupPreview && (cleaning || dialogReport
       ? <CleanupExperience preview={cleanupPreview} report={dialogReport} progress={cleanProgress}
           scanProgress={progress} stage={cleanupStage} onDone={() => setCleanupPreview(null)} />
-      : <CleanupDialog preview={cleanupPreview} quitCodex={quitCodex} forceQuit={forceQuitCodex} onQuitCodex={setQuitCodex} onForceQuit={setForceQuitCodex}
+      : <CleanupDialog preview={cleanupPreview} quitCodex={quitCodex} forceQuit={forceQuitCodex} requireQuitConfirmation={page !== 'overview'}
+          onQuitCodex={setQuitCodex} onForceQuit={setForceQuitCodex}
           updating={updatingCleanupPreview} onDeleteRelatedSessions={setDeleteRelatedSessions}
           onConfirm={runCleanup} onClose={() => setCleanupPreview(null)} />)}
   </>
@@ -317,12 +318,13 @@ function InitialScanView({ progress, error, onRetry }: {
   </section>
 }
 
-function CleanupDialog({ preview, quitCodex, forceQuit, updating, onQuitCodex, onForceQuit, onDeleteRelatedSessions, onConfirm, onClose }: {
-  preview: CleanupPreview; quitCodex: boolean; forceQuit: boolean; updating: boolean
+function CleanupDialog({ preview, quitCodex, forceQuit, requireQuitConfirmation, updating, onQuitCodex, onForceQuit, onDeleteRelatedSessions, onConfirm, onClose }: {
+  preview: CleanupPreview; quitCodex: boolean; forceQuit: boolean; requireQuitConfirmation: boolean; updating: boolean
   onQuitCodex: (value: boolean) => void; onForceQuit: (value: boolean) => void
   onDeleteRelatedSessions: (value: boolean) => void; onConfirm: () => void; onClose: () => void
 }) {
   const { t, m } = usePreferences()
+  const quitRequiredButUnchecked = requireQuitConfirmation && preview.blockedTitles.length > 0 && !quitCodex
   return <div className="modal-backdrop"><section className="cleanup-dialog" role="dialog" aria-modal="true">
     <><h2>{t(`确认清理 ${preview.items.length} 项`, `Confirm cleanup of ${preview.items.length} items`)}</h2>
       <p className="dialog-lead">{t(`预计释放 ${formatBytes(preview.expectedBytes)}`, `About ${formatBytes(preview.expectedBytes)} will be freed.`)}</p>
@@ -337,7 +339,7 @@ function CleanupDialog({ preview, quitCodex, forceQuit, updating, onQuitCodex, o
           : <small>{preview.blockers.map(m).join(t('；', '; '))}{t('，这些项目本次不会执行；退出 Codex 后需重新清理。', '. These items will be skipped. Quit Codex and run cleanup again.')}</small>}</div>}
     </>
     <div className="dialog-actions"><button className="btn" disabled={updating} onClick={onClose}>{t('取消', 'Cancel')}</button>
-      <button className="btn danger" disabled={updating} onClick={onConfirm}>{updating ? t('更新中…', 'Updating…') : t('确认执行', 'Confirm')}</button></div>
+      <button className="btn danger" disabled={updating || quitRequiredButUnchecked} onClick={onConfirm}>{updating ? t('更新中…', 'Updating…') : t('确认执行', 'Confirm')}</button></div>
   </section></div>
 }
 
