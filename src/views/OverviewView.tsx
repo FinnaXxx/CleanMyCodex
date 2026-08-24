@@ -75,6 +75,7 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
       if (kind === 'workspace') return t('工作产出', 'Workspace Output')
       if (kind === 'sessions') return t('会话记录', 'Sessions')
       if (kind === 'generatedAssets') return t('生成资产', 'Generated Assets')
+      if (kind === 'worktrees') return t('Worktree', 'Worktrees')
       if (kind === 'other') return t('其他 Codex 数据', 'Other Codex Data')
       return m(message(`section.${kind}`))
     }

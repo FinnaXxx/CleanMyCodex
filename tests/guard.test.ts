@@ -20,7 +20,6 @@ describe('cleanup path guard', () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
     const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
     const guard = new ProtectedPaths(locations)
-    // Names taken from the Codex sources rather than from one machine's ~/.codex.
     const locked = [
       'secrets/codex_auth.age', 'secrets/mcp_oauth.age', '.credentials.json', '.env',
       'logs_2.sqlite', 'state_5.sqlite', 'goals_1.sqlite', 'queue_1.sqlite',
@@ -174,6 +173,84 @@ describe('cleanup path guard', () => {
     for (const path of locations.appCaches) {
       mkdirSync(path, { recursive: true })
       expect(rejection(() => guard.validate(path)), path).toBe('guard.protectedPath')
+    }
+  })
+
+  it('releases only the worktrees Codex created, and never their root or their insides', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const guard = new ProtectedPaths(locations)
+    const worktreeRoot = locations.defaultWorktrees
+
+    const build = (id: string, project: string, managed: boolean): string => {
+      const checkout = join(worktreeRoot, id, project)
+      const admin = join(root, 'repos', project, '.git', 'worktrees', project)
+      mkdirSync(checkout, { recursive: true })
+      mkdirSync(admin, { recursive: true })
+      writeFileSync(join(admin, 'commondir'), '../..\n')
+      if (managed) writeFileSync(join(admin, 'codex-thread.json'), '{"version":1,"ownerThreadId":"t"}')
+      writeFileSync(join(checkout, '.git'), `gitdir: ${admin}\n`)
+      return join(worktreeRoot, id)
+    }
+
+    const mine = build('aa01', 'codex-made', true)
+    const theirs = build('bb02', 'hand-made', false)
+
+    // The one Codex created is the only thing here a cleanup may name.
+    expect(guard.isProtected(mine)).toBe(false)
+    expect(() => guard.validate(mine)).not.toThrow()
+    // A worktree without Codex' marker is someone else's work, wherever it happens to sit.
+    expect(guard.isProtected(theirs)).toBe(true)
+    expect(rejection(() => guard.validate(theirs))).toBe('guard.protectedPath')
+    // Neither the root itself nor anything below a worktree is ever a target.
+    expect(rejection(() => guard.validate(worktreeRoot))).toBe('guard.protectedPath')
+    expect(rejection(() => guard.validate(join(mine, 'codex-made')))).toBe('guard.protectedPath')
+    expect(rejection(() => guard.validate(join(mine, 'codex-made', 'node_modules')))).toBe('guard.protectedPath')
+    // A directory that is not a worktree at all stays locked too.
+    const stray = join(worktreeRoot, 'cc03')
+    mkdirSync(stray, { recursive: true })
+    expect(rejection(() => guard.validate(stray))).toBe('guard.protectedPath')
+  })
+
+  it('releases superseded Codex releases but never the one current points at', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const guard = new ProtectedPaths(locations)
+    const live = join(locations.standaloneReleases, '0.2.0-aarch64-apple-darwin')
+    const old = join(locations.standaloneReleases, '0.1.0-aarch64-apple-darwin')
+    mkdirSync(join(live, 'bin'), { recursive: true })
+    mkdirSync(old, { recursive: true })
+    symlinkSync(live, locations.standaloneCurrent)
+
+    expect(guard.releasesInUse()).toEqual([live])
+    expect(guard.isProtected(old)).toBe(false)
+    expect(() => guard.validate(old)).not.toThrow()
+    expect(rejection(() => guard.validate(live))).toBe('guard.protectedPath')
+    expect(rejection(() => guard.validate(join(old, 'bin')))).toBe('guard.protectedPath')
+    expect(rejection(() => guard.validate(locations.standaloneReleases))).toBe('guard.protectedPath')
+    expect(rejection(() => guard.validate(locations.standalonePackages))).toBe('guard.protectedPath')
+  })
+
+  it('locks every release when nothing says which one is in use', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const guard = new ProtectedPaths(locations)
+    const release = join(locations.standaloneReleases, '0.1.0-aarch64-apple-darwin')
+    mkdirSync(release, { recursive: true })
+    expect(guard.releasesInUse()).toEqual([])
+    expect(rejection(() => guard.validate(release))).toBe('guard.protectedPath')
+  })
+
+  it('locks the small state files a Codex release adds beside the ones already known', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const guard = new ProtectedPaths(locations)
+    for (const name of ['pets', 'plugins/cache', 'mcp-oauth-locks', 'thread-writer-locks',
+      'models_cache.json', 'cloud-config-bundle-cache.json', '.personality_migration']) {
+      const path = join(locations.home, name)
+      mkdirSync(join(path, '..'), { recursive: true })
+      writeFileSync(path, 'x')
+      expect(guard.isProtected(path), name).toBe(true)
     }
   })
 

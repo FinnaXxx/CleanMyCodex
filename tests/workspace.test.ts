@@ -102,4 +102,22 @@ describe('workspace scanner', () => {
     expect(date.sourceThreads).toEqual([])
     expect(unmatchedFolder?.sourceThreads).toEqual([])
   })
+
+  it('skips a worktree root the user moved inside the workspace, so its bytes are not counted twice', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-workspace-')); roots.push(root)
+    const output = join(root, '2026-08-22', 'session-a')
+    mkdirSync(output, { recursive: true })
+    writeFileSync(join(output, 'result.txt'), 'result')
+    const worktreeRoot = join(root, 'worktrees')
+    mkdirSync(join(worktreeRoot, '44af', 'project'), { recursive: true })
+    writeFileSync(join(worktreeRoot, '44af', 'project', 'source.ts'), 'x'.repeat(4096))
+
+    const including = scanWorkspace(root)
+    expect(including.entries.map((entry) => entry.name).sort()).toEqual(['2026-08-22', 'worktrees'])
+
+    // The worktrees page measures that tree, so the workspace must not measure it too.
+    const excluding = scanWorkspace(root, undefined, [], [worktreeRoot])
+    expect(excluding.entries.map((entry) => entry.name)).toEqual(['2026-08-22'])
+    expect(workspaceBytes(excluding)).toBeLessThan(workspaceBytes(including))
+  })
 })

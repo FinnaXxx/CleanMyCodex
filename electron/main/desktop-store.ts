@@ -107,6 +107,49 @@ export function deleteDesktopThreadRows(home: string, threadIDs: string[]): Desk
 
 function basenameOf(path: string): string { return path.split(/[\\/]/).pop() ?? path }
 
+/**
+ * The worktree root the desktop application is configured to use, or null when it is on
+ * the default. The setting is nested somewhere inside the persisted interface state
+ * rather than at the top level, so this walks the whole document looking for a key that
+ * names a worktree location and holds an absolute path. Read-only: the state file is
+ * rewritten only by `pruneDesktopState`, and never for this.
+ */
+export function desktopWorktreeRoot(home: string): string | null {
+  for (const name of DESKTOP_STATE_FILES) {
+    const path = join(home, name)
+    if (!existsSync(path)) continue
+    try {
+      const found = findWorktreeRoot(JSON.parse(readFileSync(path, 'utf8')) as unknown, 0)
+      if (found) return found
+    } catch { /* an unreadable or reshaped state file simply reports nothing */ }
+  }
+  return null
+}
+
+const WORKTREE_ROOT_KEY_RE = /worktree.*(root|path|dir|directory|location)/i
+
+function findWorktreeRoot(value: unknown, depth: number): string | null {
+  if (depth > 12 || !value || typeof value !== 'object') return null
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findWorktreeRoot(item, depth + 1)
+      if (found) return found
+    }
+    return null
+  }
+  for (const [key, inner] of Object.entries(value as Record<string, unknown>)) {
+    if (WORKTREE_ROOT_KEY_RE.test(key) && typeof inner === 'string' && isAbsolutePath(inner)) return inner
+    const found = findWorktreeRoot(inner, depth + 1)
+    if (found) return found
+  }
+  return null
+}
+
+/** Absolute on either platform, so a Windows state file read on macOS is still rejected. */
+function isAbsolutePath(value: string): boolean {
+  return value.startsWith('/') || /^[A-Za-z]:[\\/]/.test(value)
+}
+
 /** The desktop's own conversation list — what the sidebar shows. */
 export function desktopThreadRows(home: string): DesktopThreadRow[] {
   const rows: DesktopThreadRow[] = []

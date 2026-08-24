@@ -13,6 +13,13 @@ import { decodeMessage, message, type Message } from '../../shared/messages'
 export interface CleanupDeps {
   /** Permanently delete a file or directory. Injected so the engine stays testable. */
   remove: (path: string) => Promise<void>
+  /**
+   * Take down a git worktree through git itself. The checkout cannot simply be deleted:
+   * git keeps its administrative data inside the user's own repository, outside every
+   * root this app may write to, so removing the directory alone would leave the
+   * repository listing a worktree that is no longer there.
+   */
+  removeWorktree?: (path: string, repositoryPath: string | null) => Promise<void>
   /** Whether Codex is currently running — gates work that needs it fully stopped. */
   isCodexRunning: () => boolean
   sessionDatabase?: {
@@ -124,7 +131,11 @@ async function runRemoval(
       continue
     }
     try {
-      await deps.remove(target)
+      if (task.removal === 'gitWorktree' && deps.removeWorktree) {
+        await deps.removeWorktree(target, task.repositoryPath ?? null)
+      } else {
+        await deps.remove(target)
+      }
       removed += 1
       freed += bytesBefore.get(target) ?? 0
     } catch (err) {

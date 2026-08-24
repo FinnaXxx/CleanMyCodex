@@ -5,7 +5,7 @@ import type { WorkspaceFolder, WorkspaceRepository, WorkspaceRepositoryState, Wo
 import type { CodexWorkspaceThread } from './thread-index'
 import { fileAllocatedSize } from './fs-size'
 
-function gitState(path: string): WorkspaceRepositoryState {
+export function gitState(path: string): WorkspaceRepositoryState {
   const env = { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' }
   const run = (args: string[]) => spawnSync('git', args, { cwd: path, env, encoding: 'utf8', timeout: 5_000 })
   const status = run(['status', '--porcelain', '--untracked-files=normal'])
@@ -20,7 +20,7 @@ function gitState(path: string): WorkspaceRepositoryState {
 
 /** Each repository costs up to three git subprocesses, so a scan inspects at most this
  *  many and marks the rest `unchecked` rather than stalling on a huge workspace. */
-const GIT_INSPECTION_BUDGET = 32
+export const GIT_INSPECTION_BUDGET = 32
 
 /**
  * Names the desktop environment writes behind the user's back — never work product, and
@@ -77,6 +77,12 @@ function walk(path: string, recursive: boolean): WalkResult {
   return result
 }
 
+/** `root` itself, or anything below it. */
+function contains(root: string, candidate: string): boolean {
+  const rel = relative(normalize(root), normalize(candidate))
+  return rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel))
+}
+
 function childDirectories(path: string): string[] {
   try { return readdirSync(path, { withFileTypes: true }).filter((item) => item.isDirectory()).map((item) => join(path, item.name)) } catch { return [] }
 }
@@ -96,12 +102,25 @@ function folder(path: string, budget: { value: number }, onProgress?: (path: str
   return { id: path, path, name: basename(path), bytes: measured.bytes, fileCount: measured.files, modifiedAt, repositories, sourceThreads: [], looseFiles: measured.looseFiles, children: [] }
 }
 
-export function scanWorkspace(root: string, onProgress?: (path: string) => void, threads: CodexWorkspaceThread[] = []): WorkspaceSnapshot {
+/**
+ * `excluded` names trees another page already measures. Codex' worktree root is normally
+ * outside the workspace, but the user can point it anywhere, and a root that lands in
+ * here would otherwise have its bytes counted twice — once as workspace output and once
+ * as worktrees.
+ */
+export function scanWorkspace(
+  root: string,
+  onProgress?: (path: string) => void,
+  threads: CodexWorkspaceThread[] = [],
+  excluded: string[] = []
+): WorkspaceSnapshot {
   if (!existsSync(root)) return { root, isScanned: true, entries: [] }
   const budget = { value: GIT_INSPECTION_BUDGET }
-  const entries = childDirectories(root).map((datePath): WorkspaceFolder | null => {
+  const isExcluded = (path: string): boolean =>
+    excluded.some((other) => contains(other, path) || contains(path, other))
+  const entries = childDirectories(root).filter((path) => !isExcluded(path)).map((datePath): WorkspaceFolder | null => {
     onProgress?.(datePath)
-    const children = childDirectories(datePath).map((path) => folder(path, budget, onProgress)).filter((item): item is WorkspaceFolder => item !== null).sort((a, b) => b.bytes - a.bytes)
+    const children = childDirectories(datePath).filter((path) => !isExcluded(path)).map((path) => folder(path, budget, onProgress)).filter((item): item is WorkspaceFolder => item !== null).sort((a, b) => b.bytes - a.bytes)
     // A date folder measures only what it holds itself. It is listed beside its outputs
     // rather than above them, so counting theirs would show the same bytes twice and
     // would make ticking the date row look like it takes the outputs with it.

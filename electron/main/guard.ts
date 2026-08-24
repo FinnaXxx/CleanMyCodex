@@ -1,8 +1,17 @@
+import { homedir } from 'node:os'
 import { basename, dirname, join, normalize, sep } from 'node:path'
 import { realpathSync } from 'node:fs'
 import { CodexLocations } from './locations'
 import { loadCodexConfiguration, type CodexConfiguration } from './configuration'
+import { isCodexManagedWorktree } from './worktrees'
 import { MessageError, message, type Message } from '../../shared/messages'
+
+/** Where the standalone installer puts the `codex` command, so the release it resolves to
+ *  is recognised as in use even when the `current` symlink says otherwise. */
+function installedCodexCommands(): string[] {
+  const directory = process.env['CODEX_INSTALL_DIR']
+  return [join(directory && directory.length ? directory : join(homedir(), '.local', 'bin'), 'codex')]
+}
 
 function outermost(paths: string[]): string[] {
   const unique = [...new Set(paths.map(normalize))]
@@ -14,9 +23,10 @@ function outermost(paths: string[]): string[] {
 /**
  * The allow/deny list that every deletion goes through. Deny-by-default: a path must sit
  * inside one of the Codex data roots and must not match a protected entry. Writable roots
- * themselves are always denied. The only exception below a protected container is an
- * exact, source-known Codex cache leaf. Desktop data outside ~/.codex is stricter still:
- * both the App Support profile and platform cache containers are entirely read-only.
+ * themselves are always denied. The only exceptions below a protected container are the
+ * exact paths named here: a known Codex cache leaf, a superseded release, a Codex-created
+ * worktree. Desktop data outside ~/.codex is stricter still: both the App Support profile
+ * and platform cache containers are entirely read-only.
  */
 export class ProtectedPaths {
   private readonly locations: CodexLocations
@@ -24,12 +34,9 @@ export class ProtectedPaths {
   readonly localMarketplaceSources: string[]
 
   /**
-   * Relative names inside ~/.codex that hold credentials, configuration or user work.
-   *
-   * Cross-checked against the Codex sources (github.com/openai/codex): every name below
-   * either appears there as a path Codex reads live state from, or was observed on disk
-   * and is kept for builds this app cannot see into. Over-protection is cheap; the
-   * reverse is not, so an entry stays even when the current CLI no longer writes it.
+   * Relative names inside ~/.codex that hold credentials, configuration, user content, or
+   * live runtime state. A name stays on this list even once a Codex release stops writing
+   * it, so an older installation keeps its protection.
    */
   static readonly protectedHomeEntries = [
     // Credentials. `secrets/` is the age-encrypted store (codex_auth.age, local.age,
@@ -58,6 +65,7 @@ export class ProtectedPaths {
     'agents',
     'themes',
     'avatars',
+    'pets',
     'prompts',
     'vendor_imports',
     'ambient-suggestions',
@@ -66,6 +74,11 @@ export class ProtectedPaths {
     'cache',
     'sqlite',
     'db-backups',
+    'mcp-oauth-locks',
+    'thread-writer-locks',
+    'tui-thread-reference-capabilities',
+    'models_cache.json',
+    'cloud-config-bundle-cache.json',
     'session_index.jsonl',
     'external_agent_session_imports.json',
     'rollout-migrations',
@@ -77,18 +90,27 @@ export class ProtectedPaths {
     'hook_outputs',
     'bin',
     'log',
-    // Container only. A scanner-confirmed direct child is an optional ImageGen PNG copy;
-    // the root and any deeper forged target stay protected.
+    // Container only. A direct child is an optional ImageGen PNG copy the scan resolves
+    // to its conversation; the root and any deeper forged target stay protected.
     'generated_images',
-    // Plugin data Codex persists on a plugin's behalf, and the marketplace registry.
+    // Plugin data Codex persists on a plugin's behalf, its remote source cache, and the
+    // marketplace registry.
     'plugins/data',
+    'plugins/cache',
     'plugins/known_marketplaces.json',
+    // Container for the standalone installer's releases. The release currently in use is
+    // locked outright; a superseded one is released by `isProtected` below.
+    'packages',
     // Network proxy CA material, and the Windows sandbox identity/secret files.
     'proxy',
     '.sandbox',
     '.sandbox-bin',
     '.sandbox-secrets',
     'cap_sid',
+    '.sandbox_migration',
+    '.personality_migration',
+    'app-server.pid',
+    'app-server-updater.pid',
     '.codex-global-state.json',
     '.codex-global-state.json.bak'
   ]
@@ -209,10 +231,67 @@ export class ProtectedPaths {
     return r.every((part, i) => c[i] === part)
   }
 
+  /**
+   * Worktree roots hold user work: a checkout with uncommitted changes, and sometimes one
+   * the user made themselves rather than Codex. Only a directory Codex created, sitting
+   * directly under a root, is ever released — the root itself, anything deeper, and any
+   * worktree without Codex' marker file all stay protected. The marker is read from disk
+   * here rather than taken from the scan result, so a stale snapshot cannot widen this.
+   */
+  private worktreeProtection(target: string): boolean | null {
+    for (const root of this.locations.worktreeRoots) {
+      const canonicalRoot = this.canonical(root)
+      if (ProtectedPaths.contains(target, canonicalRoot) && target !== canonicalRoot) return true
+      if (!ProtectedPaths.contains(canonicalRoot, target)) continue
+      if (target === canonicalRoot) return true
+      if (dirname(target) !== canonicalRoot) return true
+      return !isCodexManagedWorktree(target)
+    }
+    return null
+  }
+
+  /**
+   * Release directories the standalone installer left behind. The `current` symlink and
+   * the command on PATH name the releases in use; everything else below `releases` is
+   * superseded. When neither can be resolved the whole tree stays protected, so an
+   * installation this app cannot read is never guessed at.
+   */
+  private releaseProtection(target: string): boolean | null {
+    const releases = this.canonical(this.locations.standaloneReleases)
+    if (ProtectedPaths.contains(target, releases) && target !== releases) return true
+    if (!ProtectedPaths.contains(releases, target)) return null
+    if (dirname(target) !== releases) return true
+    const inUse = this.releasesInUse()
+    if (!inUse.length) return true
+    return inUse.includes(target)
+  }
+
+  /** Canonical paths of the release directories something currently points at. */
+  releasesInUse(): string[] {
+    const candidates = [this.locations.standaloneCurrent, ...installedCodexCommands()]
+    const releases = this.canonical(this.locations.standaloneReleases)
+    const inUse: string[] = []
+    for (const candidate of candidates) {
+      let resolved: string
+      try { resolved = normalize(realpathSync(candidate)) } catch { continue }
+      // The command on PATH resolves to the binary inside a release, not to the release.
+      let directory = resolved
+      while (ProtectedPaths.contains(releases, directory) && dirname(directory) !== releases) {
+        directory = dirname(directory)
+      }
+      if (dirname(directory) === releases) inUse.push(directory)
+    }
+    return [...new Set(inUse)]
+  }
+
   isProtected(url: string): boolean {
     const target = this.canonical(url)
-    // `~/.codex/cache` is a protected container. Only exact, source-known cache leaves
-    // may be removed; unknown siblings and forged descendants remain deny-by-default.
+    const worktree = this.worktreeProtection(target)
+    if (worktree !== null) return worktree
+    const release = this.releaseProtection(target)
+    if (release !== null) return release
+    // `~/.codex/cache` is a protected container. Only the known rebuildable leaves may be
+    // removed; unknown siblings and forged descendants remain deny-by-default.
     const codexCache = this.canonical(this.locations.codexCache)
     const knownCodexCaches = this.locations.codexCaches.map((path) => this.canonical(path))
     if (knownCodexCaches.includes(target)) return false

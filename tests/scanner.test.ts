@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
 import { snapshotFoundNothing, type ScanProgress } from '../shared/types'
@@ -27,9 +27,9 @@ describe('storage scanner semantics', () => {
       write(join(path, 'payload')); age(join(path, 'payload'), 3); age(path, 3)
       return path
     }
-    // Codex' own scratch roots, taken from the sources: the arg0 shim directories it
-    // sweeps on launch, the curated-plugin backup its sweep misses, and the staging
-    // parents it renames finished trees out of.
+    // Codex' own scratch roots: the arg0 shim directories it sweeps on launch, the
+    // curated-plugin backup its sweep misses, and the staging parents it renames
+    // finished trees out of.
     const arg0 = stale(join(locations.arg0Temporary, 'codex-arg0ABC'))
     const backup = stale(join(locations.temporary, 'plugins-backup-XYZ'))
     const staged = locations.stagingParents.map((parent) => stale(join(parent, 'staged-1')))
@@ -235,5 +235,111 @@ describe('storage scanner semantics', () => {
       `${container}\\tui-pets`
     ])
     expect(codexCacheDirectories(container, win32)).not.toContain(container)
+  })
+
+  it('offers superseded Codex releases and locks the one current points at', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-scan-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const live = join(locations.standaloneReleases, '0.2.0-aarch64-apple-darwin')
+    const old = join(locations.standaloneReleases, '0.1.0-aarch64-apple-darwin')
+    write(join(live, 'bin', 'codex'))
+    write(join(old, 'bin', 'codex'))
+    symlinkSync(live, locations.standaloneCurrent)
+
+    const snapshot = await scanSnapshot(locations, [])
+    const superseded = snapshot.categories.find((category) => category.kind === 'releaseVersions')
+    const current = snapshot.categories.find((category) => category.kind === 'releaseRuntime')
+    expect(superseded?.entries.map((entry) => entry.url)).toEqual([old])
+    expect(superseded?.group).toBe('recommended')
+    expect(current?.entries.map((entry) => entry.url)).toEqual([live])
+    expect(current?.risk).toBe('shielded')
+  })
+
+  it('reports no releases at all on an installation that has no packages directory', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-scan-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    write(join(locations.home, 'config.toml'))
+
+    const snapshot = await scanSnapshot(locations, [])
+    expect(snapshot.categories.some((category) => category.kind === 'releaseVersions')).toBe(false)
+    expect(snapshot.categories.some((category) => category.kind === 'releaseRuntime')).toBe(false)
+  })
+
+  it('offers the desktop state files left behind, keeping the newest and the live ones', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-scan-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const leftover = (name: string, days: number): string => {
+      const path = join(locations.home, name)
+      write(path); age(path, days)
+      return path
+    }
+    const oldest = leftover('..codex-global-state.json.tmp-1784512834570-9a9a323b-5b53-4838-a6bf-d1f253d9149e', 30)
+    const middle = leftover('..codex-global-state.json.tmp-1785117131549-afc2646d-148d-47e8-9aea-aa1fb4040bea', 20)
+    const newest = leftover('..codex-global-state.json.tmp-1786003736128-cb973325-3953-4d1f-b4d8-a3d98d39174c', 10)
+    const backup = leftover('skills.bak.20260524214331', 30)
+    // The files Codex actually reads share the prefix and must never be touched.
+    write(join(locations.home, '.codex-global-state.json'))
+    write(join(locations.home, '.codex-global-state.json.bak'))
+
+    const snapshot = await scanSnapshot(locations, [])
+    const temporary = snapshot.categories.find((category) => category.kind === 'temporary')
+    const offered = temporary?.entries.map((entry) => entry.url) ?? []
+    expect(offered).toContain(oldest)
+    expect(offered).toContain(middle)
+    expect(offered).toContain(backup)
+    // One of each shape is held back in case something is in the middle of writing it.
+    expect(offered).not.toContain(newest)
+    expect(offered).not.toContain(join(locations.home, '.codex-global-state.json'))
+    expect(offered).not.toContain(join(locations.home, '.codex-global-state.json.bak'))
+  })
+
+  it('names the entries it does not recognise instead of letting them vanish into the total', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-scan-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    write(join(locations.home, 'config.toml'))
+    write(join(locations.home, 'something-a-future-release-added', 'data.bin'))
+    write(join(locations.appSupport, 'component_crx_cache', 'blob'))
+
+    const snapshot = await scanSnapshot(locations, [])
+    const unrecognized = snapshot.categories.find((category) => category.kind === 'unrecognized')
+    expect(unrecognized?.entries.map((entry) => entry.title).sort())
+      .toEqual(['component_crx_cache', 'something-a-future-release-added'])
+    // Shown so the numbers add up, never as something to remove.
+    expect(unrecognized?.risk).toBe('shielded')
+    expect(unrecognized?.group).toBe('protectedData')
+  })
+
+  it('measures Codex worktrees without letting them into a cleanup category', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-scan-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const checkout = join(locations.defaultWorktrees, '44af', 'project')
+    const admin = join(root, 'repos', 'project', '.git', 'worktrees', 'project')
+    write(join(checkout, 'source.ts'))
+    mkdirSync(admin, { recursive: true })
+    writeFileSync(join(admin, 'HEAD'), 'ref: refs/heads/main\n')
+    writeFileSync(join(admin, 'commondir'), '../..\n')
+    writeFileSync(join(admin, 'codex-thread.json'), '{"version":1,"ownerThreadId":"t"}')
+    writeFileSync(join(checkout, '.git'), `gitdir: ${admin}\n`)
+
+    // A conversation that ran in there, so the tag and the byte split can be checked.
+    const id = '33333333-3333-3333-3333-333333333333'
+    const rollout = join(locations.sessions, '2026', '08', `rollout-${id}.jsonl`)
+    mkdirSync(join(rollout, '..'), { recursive: true })
+    writeFileSync(rollout, `${JSON.stringify({ type: 'session_meta', payload: { id, cwd: checkout, title: 'In a worktree' } })}\n`)
+
+    const snapshot = await scanSnapshot(locations, [])
+    expect(snapshot.worktrees.map((worktree) => worktree.project)).toEqual(['project'])
+    expect(snapshot.worktrees[0].status).toBe('managed')
+    // Worktrees are their own list, so no storage category can pull one into a
+    // scheduled run or an overview checkbox.
+    const everyEntryURL = snapshot.categories.flatMap((category) => category.entries.map((entry) => entry.url))
+    expect(everyEntryURL.some((url) => url.includes('worktrees'))).toBe(false)
+
+    // The conversation stays in the session list, keeps its own rollout bytes, and only
+    // gains a tag saying where it ran. The checkout's bytes belong to the worktree alone.
+    const session = snapshot.sessions.find((item) => item.threadID === id)
+    expect(session?.tags).toContain('worktree')
+    expect(session?.fileBytes).toBeGreaterThan(0)
+    expect(session?.fileBytes).toBeLessThan(snapshot.worktrees[0].bytes)
   })
 })

@@ -1,5 +1,5 @@
 import { app, BrowserWindow, Menu, shell, ipcMain, nativeTheme, Notification, dialog, net, type MenuItemConstructorOptions } from 'electron'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { release } from 'node:os'
 import { rm } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
@@ -7,6 +7,7 @@ import { Worker } from 'node:worker_threads'
 import { CodexLocations } from './locations'
 import { scanSnapshot } from './scanner'
 import { ProtectedPaths } from './guard'
+import { removeCodexWorktree } from './worktrees'
 import { runCleanup, type CleanupDeps } from './cleanup'
 import { AppServerClient, locateCodexExecutable } from './app-server'
 import { buildAutomaticTasks, buildTrustedTasks, makeCleanupPreview } from './planner'
@@ -322,6 +323,13 @@ function logScan(snapshot: ScanSnapshot, elapsedMs: number): void {
     Object.entries(counts).map(([key, value]) => `${key}=${value}`).join(' ') || 'none'
   logCleanup(`scan: ${elapsedMs}ms total=${snapshot.totalCodexBytes} external=${snapshot.externalBytes} sessions=${snapshot.sessions.length}`)
   logCleanup(`  plugins ${describeCounts(pluginStatuses)}`)
+  const worktrees = snapshot.worktrees ?? []
+  if (worktrees.length) {
+    logCleanup(`  worktrees managed=${worktrees.filter((w) => w.status === 'managed').length}` +
+      ` unmanaged=${worktrees.filter((w) => w.status === 'unmanaged').length}` +
+      ` bytes=${worktrees.reduce((sum, w) => sum + w.bytes, 0)}` +
+      ` roots=${[...new Set(worktrees.map((w) => dirname(w.path)))].join(', ')}`)
+  }
   for (const category of snapshot.categories) {
     const bytes = category.entries.reduce((sum, entry) => sum + entry.bytes, 0)
     logCleanup(`  ${category.group}/${category.kind} entries=${category.entries.length} bytes=${bytes}`)
@@ -375,6 +383,10 @@ function trustedDisplayPaths(): Set<string> {
     }
     for (const asset of latestSnapshot.generatedAssets) result.add(asset.path)
     for (const plugin of latestSnapshot.pluginVersions) result.add(plugin.directoryURL)
+    for (const worktree of latestSnapshot.worktrees ?? []) {
+      result.add(worktree.path)
+      result.add(worktree.projectPath)
+    }
   }
   const visit = (entries: WorkspaceSnapshot['entries']): void => {
     for (const entry of entries) { result.add(entry.path); visit(entry.children) }
@@ -384,7 +396,10 @@ function trustedDisplayPaths(): Set<string> {
 }
 
 function guardsFor(snapshot: ScanSnapshot): ProtectedPaths {
-  return new ProtectedPaths(locations, snapshot.pluginVersions
+  // The scan is what establishes where worktrees live, so the guard is rebuilt with the
+  // roots it found. Only roots holding a worktree the scan recognised are carried over.
+  const worktreeRoots = (snapshot.worktrees ?? []).map((worktree) => dirname(worktree.path))
+  return new ProtectedPaths(locations.withWorktreeRoots(worktreeRoots), snapshot.pluginVersions
     .filter((plugin) => !pluginStatusIsRemovable(plugin.status))
     .map((plugin) => plugin.directoryURL))
 }
@@ -398,6 +413,8 @@ function cleanupDependencies(): CleanupDeps {
   return {
     // Permanent, so that the reported "freed" bytes are bytes the volume actually gained.
     remove: (path: string) => rm(path, { recursive: true, force: true }),
+    removeWorktree: (path: string, repositoryPath: string | null) =>
+      removeCodexWorktree(path, repositoryPath, (target) => rm(target, { recursive: true, force: true })),
     isCodexRunning: codexIsRunning,
     sessionDatabase: {
       preflightDelete: (threadID, relatedURLs) => preflightSessionRecords(locations.home, threadID, relatedURLs),

@@ -31,6 +31,9 @@ export type MessageKey =
   | 'category.computerUse.title' | 'category.computerUse.detail'
   | 'category.protectedConfig.title' | 'category.protectedConfig.detail'
   | 'category.protectedUserData.title' | 'category.protectedUserData.detail'
+  | 'category.releaseVersions.title' | 'category.releaseVersions.detail'
+  | 'category.releaseRuntime.title' | 'category.releaseRuntime.detail'
+  | 'category.unrecognized.title' | 'category.unrecognized.detail'
   // Storage entry notes
   | 'note.marketplaceStaging' | 'note.installLeftover' | 'note.idleThreeDays' | 'note.helperScratch'
   | 'note.codexOperationalCache' | 'note.remotePluginCatalogCache' | 'note.codexAppsToolsCache'
@@ -38,8 +41,11 @@ export type MessageKey =
   | 'note.applicationLog' | 'note.logDatabase' | 'note.sessionProjection'
   | 'note.localMarketplace' | 'note.configOrCredentials' | 'note.stateDatabase' | 'note.browserProfile'
   | 'note.computerUseComponent' | 'note.builtinPlugin' | 'note.currentPlugin' | 'note.unconfirmedPlugin' | 'note.pluginRuntime'
+  | 'note.desktopStateLeftover' | 'note.skillsBackup' | 'note.releaseVersion' | 'note.currentRelease'
+  | 'note.unconfirmedRelease' | 'note.unrecognizedEntry'
   // Entry tags
   | 'tag.builtin' | 'tag.current' | 'tag.unconfirmed' | 'tag.runtime' | 'tag.outdated' | 'tag.orphaned'
+  | 'tag.unmanagedWorktree' | 'tag.orphanedWorktree'
   // Enumerations
   | 'group.recommended' | 'group.review' | 'group.protectedData'
   | 'location.active' | 'location.archived'
@@ -48,11 +54,11 @@ export type MessageKey =
   | 'status.succeeded' | 'status.skipped' | 'status.failed'
   // Scan progress stages
   | 'stage.preparing' | 'stage.caches' | 'stage.plugins' | 'stage.sessions' | 'stage.assets'
-  | 'stage.workspace' | 'stage.done'
+  | 'stage.workspace' | 'stage.worktrees' | 'stage.done'
   // Cleanup stages and outcomes
   | 'cleanup.quitting' | 'cleanup.reopening'
   | 'cleanup.skipCodexRunning' | 'cleanup.skipRecentlyWritten' | 'cleanup.skipMissing'
-  | 'cleanup.localIndexFailed'
+  | 'cleanup.localIndexFailed' | 'cleanup.worktreeRemoveFailed' | 'cleanup.worktreeNotManaged'
   // Scan notes
   | 'scanNote.appServerUnavailable' | 'scanNote.noSessionTitles'
   // Cleanup preview warnings
@@ -119,6 +125,12 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'category.computerUse.detail': ['Computer Use 运行所需的本地组件', 'Local component Computer Use needs in order to run'],
   'category.protectedConfig.title': ['受保护的配置', 'Protected Configuration'],
   'category.protectedConfig.detail': ['凭据、配置和状态数据库', 'Credentials, configuration, and state databases'],
+  'category.releaseVersions.title': ['旧版本 Codex 安装包', 'Old Codex Releases'],
+  'category.releaseVersions.detail': ['已有明确当前版本，可清理的旧版本', 'Older releases with a confirmed current version'],
+  'category.releaseRuntime.title': ['当前 Codex 安装包', 'Current Codex Release'],
+  'category.releaseRuntime.detail': ['已统计但不会自动删除', 'Counted, but never removed automatically'],
+  'category.unrecognized.title': ['未识别的项目', 'Unrecognized Items'],
+  'category.unrecognized.detail': ['本工具尚不认识，仅统计占用', 'Not yet known to this app; usage only'],
   'category.protectedUserData.title': ['用户数据', 'User Data'],
   'category.protectedUserData.detail': ['浏览器登录状态与本地配置', 'Browser sign-in state and local configuration'],
 
@@ -145,6 +157,12 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'note.currentPlugin': ['当前使用的插件版本', 'Plugin version currently in use'],
   'note.unconfirmedPlugin': ['无法确认状态的插件版本', 'Plugin version whose status could not be confirmed'],
   'note.pluginRuntime': ['Codex 插件运行组件', 'Codex plugin runtime component'],
+  'note.desktopStateLeftover': ['桌面端写入状态时留下的临时文件', 'Temporary file left behind when the desktop app wrote its state'],
+  'note.skillsBackup': ['升级技能目录时留下的备份', 'Backup left behind when the skills directory was upgraded'],
+  'note.releaseVersion': ['已被 current 取代的旧安装包', 'Older release superseded by the one `current` points at'],
+  'note.currentRelease': ['current 指向的安装包，正在使用', 'The release `current` points at; in use'],
+  'note.unconfirmedRelease': ['无法确认当前版本，已锁定', 'The current release could not be confirmed; locked'],
+  'note.unrecognizedEntry': ['本工具尚不认识这一项，只统计不清理', 'Not yet known to this app; counted, never cleaned'],
 
   'tag.builtin': ['官方内置', 'Official built-in'],
   'tag.current': ['当前版本', 'Current'],
@@ -152,6 +170,8 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'tag.runtime': ['运行组件', 'Runtime'],
   'tag.outdated': ['旧版本', 'Old version'],
   'tag.orphaned': ['卸载残留', 'Uninstall leftover'],
+  'tag.unmanagedWorktree': ['非 Codex 创建', 'Not created by Codex'],
+  'tag.orphanedWorktree': ['仓库已不在', 'Repository is gone'],
 
   'group.recommended': ['建议清理', 'Recommended'],
   'group.review': ['谨慎清理', 'Review'],
@@ -182,6 +202,7 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'stage.sessions': ['会话', 'Sessions'],
   'stage.assets': ['资产目录', 'Asset folders'],
   'stage.workspace': ['工作产出', 'Workspace output'],
+  'stage.worktrees': ['Worktree', 'Worktrees'],
   'stage.done': ['完成', 'Done'],
 
   'cleanup.quitting': ['正在退出 Codex…', 'Quitting Codex…'],
@@ -190,6 +211,8 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'cleanup.skipRecentlyWritten': ['扫描后路径又有写入，请稍后重新扫描并清理', 'The path was written to after the scan. Scan again and retry.'],
   'cleanup.skipMissing': ['路径已不存在', 'The path no longer exists'],
   'cleanup.localIndexFailed': ['会话文件已处理，但本地索引清理失败：{reason}', 'Session files were handled, but clearing the local index failed: {reason}'],
+  'cleanup.worktreeRemoveFailed': ['git 无法移除该 worktree：{reason}', 'git could not remove this worktree: {reason}'],
+  'cleanup.worktreeNotManaged': ['不是 Codex 创建的 worktree，已跳过', 'Not a worktree created by Codex; skipped'],
 
   'scanNote.appServerUnavailable': ['未连接 codex app server，无法确认插件的当前版本，已全部锁定。', 'Not connected to the codex app server, so current plugin versions cannot be confirmed. All are locked.'],
   'scanNote.noSessionTitles': ['没有读到 Codex 的会话标题，列表改用会话首句或项目名显示。', 'No Codex session titles were found. The list falls back to the first message or the project name.'],

@@ -268,12 +268,13 @@ function mergeThreadSegments(items: SessionItem[]): SessionItem[] {
 export async function scanSessions(
   locations: CodexLocations,
   onProgress?: (path: string, fraction: number) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  /** Loading the index costs a SQLite read, so a caller that already has one passes it. */
+  titles: CodexThreadIndex = CodexThreadIndex.load(locations.home)
 ): Promise<SessionItem[]> {
   const files: Array<{ url: string; location: SessionLocation }> = []
   listRolloutFiles(locations.sessions, 'active', files)
   listRolloutFiles(locations.archivedSessions, 'archived', files)
-  const titles = CodexThreadIndex.load(locations.home)
   const cache = SessionScanCache.load(locations.scanCache)
   const items: SessionItem[] = []
   const visualizationIndex = visualizationDirectories(locations.visualizations)

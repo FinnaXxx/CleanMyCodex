@@ -1,5 +1,15 @@
 import { homedir, platform } from 'node:os'
-import { join, normalize } from 'node:path'
+import { join, normalize, sep } from 'node:path'
+
+/** `root` itself, or anything below it. The guard exposes the same test, but it imports
+ *  this module, so the check is repeated here rather than creating a cycle. */
+function containsPath(root: string, candidate: string): boolean {
+  const comparable = (value: string): string => process.platform === 'win32' ? value.toLowerCase() : value
+  const r = comparable(normalize(root)).split(sep).filter(Boolean)
+  const c = comparable(normalize(candidate)).split(sep).filter(Boolean)
+  if (c.length < r.length) return false
+  return r.every((part, i) => c[i] === part)
+}
 
 /** Chromium cache directory names observed across desktop app versions. */
 const CACHE_DIRECTORY_NAMES = [
@@ -64,11 +74,34 @@ export class CodexLocations {
   readonly caches: string
   readonly documents: string
 
-  constructor(opts: { home?: string; library?: string; caches?: string; documents?: string } = {}) {
+  /**
+   * Directories holding Codex-managed git worktrees. The desktop application lets the
+   * user move this root, and moving it leaves the existing worktrees where they are, so
+   * several roots can be live at once. The scan discovers them rather than assuming one;
+   * this field carries whatever it found, and always includes the default location.
+   */
+  readonly worktreeRoots: string[]
+
+  constructor(opts: { home?: string; library?: string; caches?: string; documents?: string; worktreeRoots?: string[] } = {}) {
     this.home = normalize(opts.home ?? CodexLocations.resolveHome())
     this.library = normalize(opts.library ?? CodexLocations.defaultLibrary())
     this.caches = normalize(opts.caches ?? CodexLocations.defaultCaches())
     this.documents = normalize(opts.documents ?? join(homedir(), 'Documents'))
+    this.worktreeRoots = [...new Set([
+      normalize(join(this.home, 'worktrees')),
+      ...(opts.worktreeRoots ?? []).map(normalize)
+    ])]
+  }
+
+  /** The same locations with an additional set of discovered worktree roots. */
+  withWorktreeRoots(roots: string[]): CodexLocations {
+    return new CodexLocations({
+      home: this.home,
+      library: this.library,
+      caches: this.caches,
+      documents: this.documents,
+      worktreeRoots: [...this.worktreeRoots, ...roots]
+    })
   }
 
   private static defaultLibrary(): string {
@@ -142,6 +175,15 @@ export class CodexLocations {
     ]
   }
 
+  /** Where the standalone installer keeps one directory per Codex release it has put on
+   *  this machine, with `current` a symlink to the one in use. */
+  get standalonePackages(): string { return join(this.home, 'packages', 'standalone') }
+  get standaloneReleases(): string { return join(this.standalonePackages, 'releases') }
+  get standaloneCurrent(): string { return join(this.standalonePackages, 'current') }
+
+  /** The default worktree root, kept separate from the discovered set for tests. */
+  get defaultWorktrees(): string { return join(this.home, 'worktrees') }
+
   get generatedImages(): string { return join(this.home, 'generated_images') }
   get visualizations(): string { return join(this.home, 'visualizations') }
   /** Rendered viewers Codex materializes from the fragments under `visualizations`, keyed
@@ -193,10 +235,21 @@ export class CodexLocations {
     return join(this.caches, 'CleanMyCodex')
   }
 
+  /**
+   * Application-support directories that are read for size accounting only. The
+   * bundle-identifier variant sits here rather than in `appSupport`: its contents are
+   * unknown, so it is counted and shown but is never part of `writableRoots`, which
+   * leaves path validation with nothing to allow below it.
+   */
+  get readOnlyAppSupport(): string[] {
+    return platform() === 'darwin' ? [join(this.library, 'Application Support/com.openai.codex')] : []
+  }
+
   /** Roots recognized by path validation. Anything outside is rejected; individual
    *  roots may be fully locked by `ProtectedPaths`. The log root is deliberately absent:
    *  the application rotates it, so nothing below it is ever a deletion target. */
   get writableRoots(): string[] {
-    return [this.home, this.appSupport, this.workspace, ...this.appCacheContainers]
+    return [this.home, this.appSupport, this.workspace, ...this.appCacheContainers,
+      ...this.worktreeRoots.filter((root) => !containsPath(this.home, root))]
   }
 }

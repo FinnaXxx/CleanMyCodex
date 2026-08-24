@@ -21,12 +21,15 @@ export type StorageKind =
   | 'pluginRemnants'
   | 'pluginOrphans'
   | 'pluginRuntime'
+  | 'releaseVersions'
+  | 'releaseRuntime'
   | 'codexCache'
   | 'appCache'
   | 'appLogs'
   | 'computerUse'
   | 'protectedConfig'
   | 'protectedUserData'
+  | 'unrecognized'
 
 /** Content type the category belongs to; drives how the overview groups rows. */
 export type StorageSection = 'caches' | 'logs' | 'plugins' | 'protectedData'
@@ -40,12 +43,15 @@ export const StorageKindSection: Record<StorageKind, StorageSection> = {
   pluginRemnants: 'plugins',
   pluginOrphans: 'plugins',
   pluginRuntime: 'plugins',
+  releaseVersions: 'plugins',
+  releaseRuntime: 'plugins',
   codexCache: 'caches',
   appCache: 'protectedData',
   appLogs: 'logs',
   computerUse: 'plugins',
   protectedConfig: 'protectedData',
-  protectedUserData: 'protectedData'
+  protectedUserData: 'protectedData',
+  unrecognized: 'protectedData'
 }
 
 /** Small status chip on a storage entry; states a fact the title cannot carry. */
@@ -92,13 +98,14 @@ export const categorySection = (c: StorageCategory): StorageSection => StorageKi
 
 export type SessionLocation = 'active' | 'archived'
 
-export type SessionTag = 'browser' | 'computerUse' | 'imageGen'
+export type SessionTag = 'browser' | 'computerUse' | 'imageGen' | 'worktree'
 
 /** Codex' own feature names; identical in both languages. */
 export const SessionTagLabel: Record<SessionTag, string> = {
   browser: 'Browser',
   computerUse: 'Computer Use',
-  imageGen: 'ImageGen'
+  imageGen: 'ImageGen',
+  worktree: 'Worktree'
 }
 
 export interface SessionItem {
@@ -286,6 +293,54 @@ const workspaceFolderTotalBytes = (entry: WorkspaceFolder): number =>
 export const workspaceBytes = (snapshot: WorkspaceSnapshot): number =>
   snapshot.entries.reduce((sum, entry) => sum + workspaceFolderTotalBytes(entry), 0)
 
+/**
+ * `managed` means Codex created and owns this worktree: its git admin directory carries
+ * the marker file Codex writes there. `unmanaged` is a linked worktree sitting in the
+ * same place without that marker — someone else's, so it is counted and shown but never
+ * offered for deletion.
+ */
+export type WorktreeStatus = 'managed' | 'unmanaged'
+
+export interface WorktreeItem {
+  /** `<root>/<id>`: the directory a deletion removes, and the stable selection id. */
+  id: string
+  path: string
+  /** The checkout itself, one level below `path`. */
+  projectPath: string
+  /** Directory name of the checkout, which is the repository's own name. */
+  project: string
+  /** Repository this worktree is linked to, or null when the link no longer resolves. */
+  repositoryPath: string | null
+  /** Branch checked out here, or null when detached or unreadable. */
+  branch: string | null
+  status: WorktreeStatus
+  state: WorkspaceRepositoryState
+  /** True when the `.git` pointer no longer resolves to a repository. */
+  isOrphaned: boolean
+  bytes: number
+  /** Part of `bytes` that is dependency and build output rather than source. */
+  artifactBytes: number
+  modifiedAt: number
+  /** Conversations that ran in here. References only: they carry no bytes of their own. */
+  sourceThreads: WorkspaceThreadReference[]
+}
+
+export const worktreeIsRemovable = (worktree: WorktreeItem): boolean =>
+  worktree.status === 'managed'
+
+export const worktreeIsUnsafe = (worktree: WorktreeItem): boolean =>
+  !repositoryStateIsSafe(worktree.state)
+
+/** The title shared by the worktree table and every cleanup surface. */
+export const worktreeDisplayName = (worktree: WorktreeItem): string => {
+  const main = worktree.sourceThreads.filter((thread) => !thread.isSubagent)
+  const thread = (main.length ? main : worktree.sourceThreads)[0]
+  return thread ? thread.title : worktree.project
+}
+
+export const worktreeBytes = (worktrees: WorktreeItem[]): number =>
+  worktrees.reduce((sum, worktree) => sum + worktree.bytes, 0)
+
 export interface ScanProgress {
   stage: Message | null
   currentPath: string
@@ -303,6 +358,7 @@ export interface ScanSnapshot {
   sessions: SessionItem[]
   generatedAssets: GeneratedAssetItem[]
   workspace: WorkspaceSnapshot
+  worktrees: WorktreeItem[]
   pluginVersions: PluginVersionItem[]
   notes: Message[]
 }
@@ -310,7 +366,8 @@ export interface ScanSnapshot {
 /** Nothing of Codex' was found anywhere the scan looks: no files, no sessions, no output. */
 export const snapshotFoundNothing = (s: ScanSnapshot): boolean =>
   s.totalCodexBytes === 0 && s.categories.length === 0 && s.sessions.length === 0 &&
-  s.pluginVersions.length === 0 && s.generatedAssets.length === 0 && s.workspace.entries.length === 0
+  s.pluginVersions.length === 0 && s.generatedAssets.length === 0 && s.workspace.entries.length === 0 &&
+  (s.worktrees ?? []).length === 0
 
 /** Sessions shown as top-level rows: subagents whose parent is present are rolled into the parent, so exclude them to avoid double-counting rows and bytes. */
 export const listableSessions = (s: ScanSnapshot): SessionItem[] => {
@@ -328,6 +385,9 @@ export const snapshotSessionBytes = (s: ScanSnapshot): number => {
 
 export const snapshotGeneratedAssetBytes = (s: ScanSnapshot): number =>
   generatedAssetBytes(s.generatedAssets ?? [])
+
+export const snapshotWorktreeBytes = (s: ScanSnapshot): number =>
+  worktreeBytes(s.worktrees ?? [])
 
 export const snapshotPluginBytes = (s: ScanSnapshot): number =>
   s.categories.filter((category) => category.kind === 'pluginRemnants' || category.kind === 'pluginOrphans' || category.kind === 'pluginRuntime')
@@ -347,6 +407,14 @@ export interface CleanupTask {
   companionURLs: string[]
   minimumIdleSeconds: number | null
   requiresCodexStopped: boolean
+  /**
+   * How the target is removed. A git worktree cannot be deleted as a directory: its
+   * administrative data lives inside the user's own repository, outside every root this
+   * app may write to, so git has to take it down and clean up after itself.
+   */
+  removal?: 'filesystem' | 'gitWorktree'
+  /** The repository `git worktree remove` is run from. Only set for `gitWorktree`. */
+  repositoryPath?: string | null
 }
 
 /**
@@ -360,6 +428,7 @@ export type CleanupSelection =
   | { kind: 'generated-assets'; ids: string[] }
   | { kind: 'plugins'; ids: string[] }
   | { kind: 'workspace'; ids: string[] }
+  | { kind: 'worktrees'; ids: string[] }
 
 export interface CleanupRequest {
   selection: CleanupSelection
@@ -447,6 +516,26 @@ export function tasksForWorkspace(entries: WorkspaceFolder[]): CleanupTask[] {
       minimumIdleSeconds: null,
       requiresCodexStopped: false
     }))
+}
+
+/**
+ * Worktree deletions never carry companions: the git administrative directory belongs to
+ * the user's repository and is taken down by `git worktree remove`, not by this app.
+ */
+export function tasksForWorktrees(worktrees: WorktreeItem[]): CleanupTask[] {
+  return worktrees.filter(worktreeIsRemovable).map((worktree) => ({
+    id: `worktree:${worktree.id}`,
+    title: worktreeDisplayName(worktree),
+    detail: worktree.path,
+    url: worktree.path,
+    expectedBytes: worktree.bytes,
+    threadID: null,
+    companionURLs: [],
+    minimumIdleSeconds: null,
+    requiresCodexStopped: true,
+    removal: 'gitWorktree' as const,
+    repositoryPath: worktree.repositoryPath
+  }))
 }
 
 export type CleanupStatus =

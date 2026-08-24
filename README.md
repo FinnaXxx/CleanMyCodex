@@ -32,15 +32,18 @@ Pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) before startin
 
 Codex accumulates: a rollout file for every conversation you have ever had, plugin versions it never got around to deleting, staging folders abandoned by an interrupted update, and whatever your sessions wrote to disk. Clean My Codex measures all of it in one pass and shows where the space actually went.
 
-- **One scan, five areas.** The Codex data directory, sessions, generated assets, plugins and workspace output, each with its own page and its own rules.
+- **One scan, six areas.** The Codex data directory, sessions, generated assets, plugins, worktrees and workspace output, each with its own page and its own rules.
 - **Honest numbers.** A SQLite database contributes what it really occupies; its reusable free pages are never presented as space you can reclaim.
 - **Conservative by default.** Nothing is recommended without positive evidence that it is disposable, so a scan that recommends nothing is a normal result rather than a failure. Everything that is only counted is labelled that way in the interface.
 - **Whole conversations.** A session that spans several rollout segments and several layers of subagents is one row in the list and one deletion, with every derived database and every desktop-side copy cleaned up alongside it.
-- **Scheduled cleanup.** Runs on an interval over stale temporary folders, confirmed old plugin versions and aged-out conversations only. It skips pinned conversations, unfinished goals and queued work, and never touches caches, configuration, standalone generated assets or workspace output.
+- **Worktrees, taken down by git.** Codex checks a repository out under `~/.codex/worktrees` for each conversation that needs one, and a checkout with its dependencies installed runs to hundreds of megabytes. They are listed with their branch, their state, how much of them is build output, and which conversations ran there. Removing one goes through `git worktree remove`, so the repository they came from stops listing a worktree that is no longer on disk.
+- **Scheduled cleanup.** Runs on an interval over stale temporary folders, confirmed old plugin versions and aged-out conversations only. It skips pinned conversations, unfinished goals and queued work, and never touches caches, configuration, standalone generated assets, worktrees or workspace output.
 
 ### What it will not delete
 
-Configuration and credentials — `config.toml`, `auth.json`, the age-encrypted secret store under `secrets/`, the MCP OAuth fallback `.credentials.json` and `.env` — along with all six of Codex's runtime SQLite databases and the crash-recovery copies it keeps in `db-backups/`, the managed proxy CA in `proxy/`, the Windows sandbox identity files, the data plugins persist under `plugins/data`, the plugin version Codex is currently using and its runtimes, the Chromium profile data your desktop sign-in lives in, the desktop application's own logs, and every cache — both Codex's own operational metadata cache and the desktop application's runtime caches. Workspace output is additionally out of scope for scheduled runs. All of it is counted so the totals add up, and shown as protected.
+A worktree is only ever offered when git's administrative directory for it still carries the marker file Codex writes there. One you created yourself — even sitting in the same folder — is counted and shown, never offered. So is one whose repository has been deleted or moved: the marker went with the repository, and nothing is left to say who made the checkout.
+
+Configuration and credentials — `config.toml`, `auth.json`, the age-encrypted secret store under `secrets/`, the MCP OAuth fallback `.credentials.json` and `.env` — along with all six of Codex's runtime SQLite databases and the crash-recovery copies it keeps in `db-backups/`, the managed proxy CA in `proxy/`, the Windows sandbox identity files, the data plugins persist under `plugins/data`, the plugin version Codex is currently using and its runtimes, the Chromium profile data your desktop sign-in lives in, the desktop application's own logs, and every cache — both Codex's own operational metadata cache and the desktop application's runtime caches. Worktrees and workspace output are additionally out of scope for scheduled runs. All of it is counted so the totals add up, and shown as protected.
 
 ## Install
 
@@ -73,7 +76,7 @@ Scanning is scheduled by the Electron main process, and the expensive traversal 
 - **Plugins** — the directories on disk are combined with what `codex app-server` reports, separating the current version from older versions and uninstall leftovers.
 - **Workspace output** — scanned only once you open that page. Each output is matched with the source session title recorded in SQLite, and flagged when git has uncommitted or unpushed work.
 
-A scan result is only a read-only snapshot. When cleanup runs, the main process rebuilds its task list from that snapshot and re-validates every path; caches, configuration, credentials, the state database, the current plugins and workspace output never enter scheduled cleanup.
+A scan result is only a read-only snapshot. When cleanup runs, the main process rebuilds its task list from that snapshot and re-validates every path; caches, configuration, credentials, the state database, the current plugins, worktrees and workspace output never enter scheduled cleanup.
 
 ### Where the data comes from
 
@@ -127,6 +130,8 @@ Configuration, credentials, the current plugins and workspace output are not rem
 Automatic session cleanup skips pinned conversations, conversations with an unfinished goal, and conversations that still have a queued item; if any subagent meets one of those conditions, the whole top-level conversation is skipped. Pinning is read both from the `is_pinned` column in `state_*.sqlite` and from `pinned-thread-ids` in `.codex-global-state.json` — the desktop records pins in the latter, so reading only the column misses them. Manual deletion is not bound by those conditions: a conversation you selected and confirmed is deleted as you asked. The list marks pinned conversations, and the confirmation dialog says how many of the selected conversations are pinned. Before a manual deletion, SQLite integrity, the supported core tables and the write lock are checked first, so a database that cannot be modified is not discovered after the session files are already gone. Plugin deletion re-asks `codex app-server` for the current version immediately before it runs, so an upgrade between scan and cleanup cannot cause the wrong version to be removed.
 
 ### Logs
+
+One thing worth knowing that this app does not manage: Codex records a checkpoint of every turn as a git ref in your own repository, under `refs/codex/turn-diffs/`. Those refs keep the objects they point at alive, so `git gc` cannot reclaim them and a long-running repository's `.git` keeps growing. They live in your repository rather than in Codex' data directory, so Clean My Codex counts nothing of them and touches nothing of them.
 
 Cleanup is written to a log — cache and leftover removals record the path and byte count of each deletion, including the ones that failed or were skipped: macOS `~/Library/Logs/CleanMyCodex/cleanup.log`, Windows `%APPDATA%\CleanMyCodex\logs\cleanup.log`, Linux `~/.config/CleanMyCodex/logs/cleanup.log`. Each deletion records the thread IDs that were resolved, whether `thread/delete` was available, how many rows the local re-check removed, and which desktop table and state file were cleaned of how many entries. Past 1 MB, one generation of history is kept. Scheduled cleanup writes its own `autoclean.log`. Settings → Diagnostics → Logs opens that folder.
 

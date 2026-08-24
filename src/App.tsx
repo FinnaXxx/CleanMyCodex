@@ -13,6 +13,7 @@ import {
   snapshotSessionBytes,
   snapshotGeneratedAssetBytes,
   snapshotPluginBytes,
+  snapshotWorktreeBytes,
   listableSessions,
   workspaceBytes,
   formatBytes
@@ -25,13 +26,14 @@ import SessionsView, { type SessionInitialSelection } from './views/SessionsView
 import GeneratedAssetsView from './views/GeneratedAssetsView'
 import PluginsView from './views/PluginsView'
 import WorkspaceView from './views/WorkspaceView'
+import WorktreesView from './views/WorktreesView'
 import AutomationView from './views/AutomationView'
 import SettingsView from './views/SettingsView'
 import { BackIcon, BrandMark, NavIcon, RescanIcon, StopIcon, type NavGlyphName } from './icons'
 import { usePreferences } from './preferences'
 import './App.css'
 
-type Page = 'overview' | 'sessions' | 'generatedAssets' | 'workspace' | 'plugins' | 'settings' | 'automation'
+type Page = 'overview' | 'sessions' | 'generatedAssets' | 'workspace' | 'worktrees' | 'plugins' | 'settings' | 'automation'
 
 function App() {
   const { t, e } = usePreferences()
@@ -159,6 +161,7 @@ function App() {
     sessions: t('会话记录', 'Sessions'),
     generatedAssets: t('生成资产', 'Generated Assets'),
     workspace: t('工作产出', 'Workspace Output'),
+    worktrees: t('Worktree', 'Worktrees'),
     plugins: t('插件版本', 'Plugin Versions'),
     settings: t('设置', 'Settings'),
     automation: t('定时清理', 'Scheduled Cleanup')
@@ -197,6 +200,7 @@ function App() {
           cleanProgress={cleanProgress} onCleanup={requestCleanup} />}
         {page === 'plugins' && <PluginsView snapshot={snapshot} cleaning={cleaning} actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup} />}
         {page === 'workspace' && workspace && <WorkspaceView snapshot={workspace} cleaning={cleaning} actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup} />}
+        {page === 'worktrees' && <WorktreesView snapshot={snapshot} cleaning={cleaning} actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup} />}
         {page === 'settings' && <SettingsView onOpenScheduledCleanup={() => setPage('automation')} />}
         {page === 'automation' && <AutomationView />}
       </div>
@@ -217,6 +221,7 @@ function Sidebar({ page, snapshot, workspace, onNavigate }: {
     { page: 'overview', glyph: 'overview', label: t('总览', 'Overview'), value: formatBytes(storageDistribution(workspace ? { ...snapshot, workspace } : snapshot).total) },
     { page: 'sessions', glyph: 'sessions', label: t('会话记录', 'Sessions'), value: sessionCount ? formatBytes(snapshotSessionBytes(snapshot)) : '—' },
     { page: 'workspace', glyph: 'workspace', label: t('工作产出', 'Workspace'), value: workspace?.isScanned ? formatBytes(workspaceBytes(workspace)) : '—' },
+    { page: 'worktrees', glyph: 'worktrees', label: t('Worktree', 'Worktrees'), value: (snapshot.worktrees ?? []).length ? formatBytes(snapshotWorktreeBytes(snapshot)) : '—' },
     { page: 'generatedAssets', glyph: 'generatedAssets', label: t('生成资产', 'Generated Assets'), value: snapshot.generatedAssets.length ? formatBytes(snapshotGeneratedAssetBytes(snapshot)) : '—' },
     { page: 'plugins', glyph: 'plugins', label: t('插件版本', 'Plugins'), value: formatBytes(snapshotPluginBytes(snapshot)) }
   ]

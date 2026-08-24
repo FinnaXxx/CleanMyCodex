@@ -34,4 +34,37 @@ describe('overview storage distribution', () => {
     expect(result.total).toBe(1_500)
     expect(result.items.reduce((sum, item) => sum + item.bytes / result.total, 0)).toBeCloseTo(1)
   })
+
+  it('gives worktrees a slice of their own instead of leaving them in other', () => {
+    const snapshot = {
+      totalCodexBytes: 1_000,
+      categories: [category('appCache', 100)],
+      sessions: [],
+      generatedAssets: [],
+      worktrees: [{ bytes: 600 }, { bytes: 200 }],
+      workspace: { root: '/workspace', isScanned: true, entries: [] }
+    } as unknown as ScanSnapshot
+
+    const result = storageDistribution(snapshot)
+    const byKind = Object.fromEntries(result.items.map((item) => [item.kind, item.bytes]))
+    expect(byKind['worktrees']).toBe(800)
+    // 800 of worktrees plus the 100 cache leaves 100 unaccounted for, not 900.
+    expect(byKind['other']).toBe(100)
+  })
+
+  it('keeps the slices inside the total when a worktree root sits outside CODEX_HOME', () => {
+    const snapshot = {
+      // Roots outside the home are counted in externalBytes, which is part of this total.
+      totalCodexBytes: 900,
+      categories: [],
+      sessions: [],
+      generatedAssets: [],
+      worktrees: [{ bytes: 900 }],
+      workspace: { root: '/workspace', isScanned: true, entries: [] }
+    } as unknown as ScanSnapshot
+
+    const result = storageDistribution(snapshot)
+    expect(result.total).toBe(900)
+    expect(result.items.some((item) => item.kind === 'other')).toBe(false)
+  })
 })

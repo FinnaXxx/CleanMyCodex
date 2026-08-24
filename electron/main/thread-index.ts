@@ -27,6 +27,12 @@ export class CodexThreadIndex {
     return this.byID.get(threadID) ?? this.byRollout.get(normalize(rolloutPath)) ?? null
   }
 
+  /** Every thread whose working directory is known, for callers that have to work out
+   *  which roots exist rather than filter against a root they already have. */
+  get locatedThreads(): CodexWorkspaceThread[] {
+    return this.workspaceRows
+  }
+
   workspaceThreads(root: string): CodexWorkspaceThread[] {
     const base = normalize(root)
     return this.workspaceRows.filter((thread) => {

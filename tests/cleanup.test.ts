@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { CleanupTask } from '../shared/types'
 import { runCleanup } from '../electron/main/cleanup'
 import { ProtectedPaths } from '../electron/main/guard'
 import { CodexLocations } from '../electron/main/locations'
+import { removeCodexWorktree } from '../electron/main/worktrees'
 
 const roots: string[] = []
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
@@ -250,5 +252,79 @@ describe('cleanup engine', () => {
     })
     expect(report.outcomes[0].status.kind).toBe('failed')
     expect(removed).toBe(false)
+  })
+
+  it('takes a worktree down through git, leaving the repository with nothing to prune', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-cleanup-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const repository = join(root, 'repo')
+    const worktree = join(locations.defaultWorktrees, '44af')
+    const checkout = join(worktree, 'repo')
+
+    // A real repository and a real worktree: git's own bookkeeping is the thing under
+    // test, so nothing here is faked.
+    const git = (cwd: string, ...args: string[]) => spawnSync('git', args, { cwd, encoding: 'utf8' })
+    mkdirSync(repository, { recursive: true })
+    git(repository, 'init', '--quiet', '--initial-branch=main')
+    git(repository, 'config', 'user.email', 'test@example.com')
+    git(repository, 'config', 'user.name', 'Test')
+    writeFileSync(join(repository, 'README.md'), 'hello')
+    git(repository, 'add', '.')
+    git(repository, 'commit', '--quiet', '-m', 'first')
+    mkdirSync(worktree, { recursive: true })
+    git(repository, 'worktree', 'add', '--quiet', '-b', 'work', checkout)
+    // Codex' marker, without which nothing here may be removed.
+    writeFileSync(join(repository, '.git', 'worktrees', 'repo', 'codex-thread.json'),
+      '{"version":1,"ownerThreadId":"t"}')
+    expect(git(repository, 'worktree', 'list').stdout).toContain(checkout)
+
+    const task: CleanupTask = {
+      id: worktree, title: 'work', detail: worktree, url: worktree, expectedBytes: 0,
+      threadID: null, companionURLs: [], minimumIdleSeconds: null, requiresCodexStopped: false,
+      removal: 'gitWorktree', repositoryPath: repository
+    }
+    const guards = new ProtectedPaths(locations)
+    const report = await runCleanup([task], guards, {
+      remove: async (path) => rmSync(path, { recursive: true, force: true }),
+      removeWorktree: (path, repositoryPath) =>
+        removeCodexWorktree(path, repositoryPath, async (target) => rmSync(target, { recursive: true, force: true })),
+      isCodexRunning: () => false
+    })
+
+    expect(report.outcomes[0].status.kind).toBe('succeeded')
+    expect(existsSync(worktree)).toBe(false)
+    // The point of going through git: the repository no longer lists it, and the
+    // administrative directory inside the repository is gone with it.
+    expect(git(repository, 'worktree', 'list').stdout).not.toContain(checkout)
+    expect(existsSync(join(repository, '.git', 'worktrees', 'repo'))).toBe(false)
+  })
+
+  it('refuses a worktree that carries no sign of having been created by Codex', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-cleanup-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const worktree = join(locations.defaultWorktrees, 'bb02')
+    const checkout = join(worktree, 'mine')
+    const admin = join(root, 'repo', '.git', 'worktrees', 'mine')
+    mkdirSync(checkout, { recursive: true })
+    mkdirSync(admin, { recursive: true })
+    writeFileSync(join(admin, 'commondir'), '../..\n')
+    writeFileSync(join(checkout, '.git'), `gitdir: ${admin}\n`)
+    writeFileSync(join(checkout, 'work.txt'), 'unsaved')
+
+    const task: CleanupTask = {
+      id: worktree, title: 'mine', detail: worktree, url: worktree, expectedBytes: 0,
+      threadID: null, companionURLs: [], minimumIdleSeconds: null, requiresCodexStopped: false,
+      removal: 'gitWorktree', repositoryPath: join(root, 'repo')
+    }
+    const report = await runCleanup([task], new ProtectedPaths(locations), {
+      remove: async (path) => rmSync(path, { recursive: true, force: true }),
+      removeWorktree: (path, repositoryPath) =>
+        removeCodexWorktree(path, repositoryPath, async (target) => rmSync(target, { recursive: true, force: true })),
+      isCodexRunning: () => false
+    })
+
+    // The guard turns it away before the removal runs, and the work is still there.
+    expect(report.outcomes[0].status.kind).toBe('failed')
+    expect(existsSync(join(checkout, 'work.txt'))).toBe(true)
   })
 })

@@ -1,13 +1,18 @@
 import { lstatSync, readdirSync, statSync } from 'node:fs'
-import { join, basename, relative } from 'node:path'
-import { CodexLocations } from './locations'
+import { join, basename, normalize, relative } from 'node:path'
+import { appCacheDirectories, CodexLocations } from './locations'
 import { directoryAllocatedSize, fileAllocatedSize } from './fs-size'
 import { scanSessions } from './sessions'
 import { scanGeneratedAssets } from './generated-assets'
 import { pluginStorageCategories, scanPluginVersions } from './plugins'
+import { scanStandaloneReleases } from './releases'
+import { resolveWorktreeRoots, scanWorktrees } from './worktrees'
+import { desktopWorktreeRoot } from './desktop-store'
+import { CodexThreadIndex } from './thread-index'
+import { GIT_INSPECTION_BUDGET, isSystemJunk } from './workspace'
 import { ProtectedPaths } from './guard'
 import type { InstalledPlugin } from './app-server'
-import { pluginStatusIsRemovable, type ScanProgress, type ScanSnapshot, type StorageCategory, type StorageEntry } from '../../shared/types'
+import { pluginStatusIsRemovable, type ScanProgress, type ScanSnapshot, type SessionItem, type StorageCategory, type StorageEntry, type WorktreeItem } from '../../shared/types'
 import { SCAN_STOPPED, message, type Message, type MessageKey } from '../../shared/messages'
 
 const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
@@ -21,6 +26,41 @@ const TEMPORARY_STAGING_PREFIXES = ['plugins-clone-', 'plugins-backup-']
 
 /** How long a staging directory must sit untouched before it counts as abandoned. */
 const STAGING_IDLE_SECONDS = 86_400
+
+/**
+ * Temporary files directly inside ~/.codex that outlived whatever wrote them.
+ *
+ * The desktop application writes its persisted state through a temporary file and, often
+ * enough, fails to remove it: a dozen of them accumulate over a few weeks, each holding a
+ * whole copy of that state. `skills.bak.<timestamp>` is what an upgrade leaves behind
+ * after moving the previous skills directory aside. Neither is ever cleaned by Codex.
+ *
+ * These are exact shapes rather than a `.bak` or `.tmp` catch-all, so nothing Codex still
+ * reads can match one — `.codex-global-state.json` and its `.bak` in particular.
+ *
+ * `keepNewest` holds back the most recent match of a shape that is written continuously:
+ * a file being written right now looks exactly like one abandoned a moment ago, and the
+ * idle threshold alone cannot tell them apart. A backup taken during an upgrade is a
+ * finished rename, so there is nothing to hold back there.
+ */
+const HOME_LEFTOVER_PATTERNS: Array<{ pattern: RegExp; note: MessageKey; keepNewest: boolean }> = [
+  { pattern: /^\.\.codex-global-state\.json\.tmp-\d+-[0-9a-f-]+$/i, note: 'note.desktopStateLeftover', keepNewest: true },
+  { pattern: /^skills\.bak\.\d{14}$/, note: 'note.skillsBackup', keepNewest: false }
+]
+
+/**
+ * Top-level names inside ~/.codex a category already accounts for. Anything here and not
+ * protected is reported as unrecognized: Codex' desktop side adds directories this app
+ * cannot learn about from the CLI sources, and an unnamed one would otherwise disappear
+ * into the overview's remainder.
+ */
+const SCANNED_HOME_ENTRIES = [
+  'sessions', 'archived_sessions', 'plugins', 'generated_images', 'visualizations',
+  'visualization-viewers', 'computer-use', '.tmp', 'tmp', 'worktrees', 'packages'
+]
+
+/** Same idea for the desktop application's own data directory. */
+const SCANNED_APP_SUPPORT_ENTRIES = ['Default']
 
 const CODEX_CACHE_NOTES: Record<string, MessageKey> = {
   remote_plugin_catalog: 'note.remotePluginCatalogCache',
@@ -202,6 +242,28 @@ export async function scanSnapshot(
     staleTemporary.push(...stagedEntry(join(locations.arg0Temporary, name), name, 'note.helperScratch'))
   }
 
+  // Leftovers lying directly in ~/.codex.
+  for (const { pattern, note, keepNewest } of HOME_LEFTOVER_PATTERNS) {
+    const matches = childrenOf(locations.home)
+      .filter((name) => pattern.test(name))
+      .map((name) => ({ name, path: join(locations.home, name) }))
+      .sort((a, b) => modifiedAt(b.path) - modifiedAt(a.path))
+    for (const match of keepNewest ? matches.slice(1) : matches) {
+      staleTemporary.push(...stagedEntry(match.path, match.name, note))
+    }
+  }
+
+  // The standalone installer sweeps these itself on its next run, so they are only ever
+  // seen when an install died partway through.
+  for (const name of childrenOf(locations.standaloneReleases)) {
+    if (!name.startsWith('.staging.')) continue
+    staleTemporary.push(...stagedEntry(join(locations.standaloneReleases, name), name, 'note.installLeftover'))
+  }
+  for (const name of childrenOf(locations.standalonePackages)) {
+    if (!name.startsWith('.current.')) continue
+    staleTemporary.push(...stagedEntry(join(locations.standalonePackages, name), name, 'note.installLeftover'))
+  }
+
   categories.push(category('temporary', 'recommended', 'safe', staleTemporary))
   await yieldToEventLoop()
 
@@ -262,16 +324,52 @@ export async function scanSnapshot(
   if (installedPlugins === null && pluginVersions.length) notes.push(message('scanNote.appServerUnavailable'))
   await yieldToEventLoop()
 
+  // Codex releases the standalone installer left on disk. `current` names the live one;
+  // without it nothing here is offered, only counted.
+  const releasesInUse = guards.releasesInUse()
+  const releases = scanStandaloneReleases(locations.standaloneReleases, releasesInUse)
+  const supersededReleases = releasesInUse.length ? releases.filter((release) => !release.isCurrent) : []
+  categories.push(category('releaseVersions', 'recommended', 'safe', supersededReleases.map((release) =>
+    entry(release.name, 'note.releaseVersion', release.path, release.bytes, 'safe', {
+      requiresCodexStopped: true,
+      tags: [{ label: message('tag.outdated'), tone: 'neutral' }]
+    }))))
+  categories.push(category('releaseRuntime', 'protectedData', 'shielded',
+    releases.filter((release) => !supersededReleases.includes(release)).map((release) =>
+      entry(release.name, releasesInUse.length ? 'note.currentRelease' : 'note.unconfirmedRelease',
+        release.path, release.bytes, 'shielded', {
+          tags: [{
+            label: message(releasesInUse.length ? 'tag.current' : 'tag.unconfirmed'),
+            tone: releasesInUse.length ? 'info' : 'neutral'
+          }]
+        }))))
+  await yieldToEventLoop()
+
   // --- Protected: shown for awareness, never selected ---
 
-  const sessions = await scanSessions(locations, (path, fraction) => progress('stage.sessions', path, 0.43 + fraction * 0.49), signal)
+  const threadIndex = CodexThreadIndex.load(locations.home)
+  const sessions = await scanSessions(locations,
+    (path, fraction) => progress('stage.sessions', path, 0.43 + fraction * 0.49), signal, threadIndex)
   if (sessions.length && !sessions.some((session) => session.title)) notes.push(message('scanNote.noSessionTitles'))
   throwIfAborted(signal)
-  const generatedAssets = scanGeneratedAssets(locations, sessions, (path, fraction) => progress('stage.assets', path, 0.92 + fraction * 0.03))
+
+  // Worktree roots are found from the conversations themselves rather than from the
+  // desktop setting: moving the root in Codex leaves the existing worktrees where they
+  // were, so several can be live, and the setting would only ever name the newest. The
+  // setting is read too, so a root that has been chosen but not used yet still appears.
+  const worktreeRoots = resolveWorktreeRoots(
+    locations.worktreeRoots, threadIndex.locatedThreads, desktopWorktreeRoot(locations.home))
+  const worktrees = scanWorktrees(worktreeRoots, threadIndex.locatedThreads, {
+    budget: { value: GIT_INSPECTION_BUDGET },
+    onProgress: (path, fraction) => progress('stage.worktrees', path, 0.92 + fraction * 0.02)
+  })
+  tagWorktreeSessions(sessions, worktrees)
+  throwIfAborted(signal)
+  const generatedAssets = scanGeneratedAssets(locations, sessions, (path, fraction) => progress('stage.assets', path, 0.94 + fraction * 0.03))
   const sessionDatabases = databaseFiles(locations.home, 'thread_history_').map((db) =>
     entry(basename(db.path), 'note.sessionProjection', db.path, db.bytes, 'shielded'))
   categories.push(category('sessionDatabase', 'protectedData', 'shielded', sessionDatabases))
-  categories.push(...componentCategories(locations, (path) => measure(path, 'stage.assets', 0.95)))
+  categories.push(...componentCategories(locations, (path) => measure(path, 'stage.assets', 0.97)))
 
   const marketplaceSources = new Set(guards.localMarketplaceSources)
   const protectedConfigEntries: StorageEntry[] = []
@@ -308,7 +406,16 @@ export async function scanSnapshot(
   })
   categories.push(category('protectedUserData', 'protectedData', 'shielded', protectedUserEntries))
 
-  const externalBytes = outermostStorageRoots([locations.appSupport, ...locations.appCacheContainers, locations.appLogs].filter(entryExists))
+  categories.push(category('unrecognized', 'protectedData', 'shielded',
+    unrecognizedEntries(locations, guards, staleTemporary, worktreeRoots)))
+
+  // Worktree roots the user moved outside CODEX_HOME are not part of the home tree, so
+  // their bytes have to be added or the overview's slices would exceed their own total.
+  const externalRoots = [
+    locations.appSupport, ...locations.readOnlyAppSupport, ...locations.appCacheContainers, locations.appLogs,
+    ...worktreeRoots.filter((root) => !ProtectedPaths.contains(locations.home, root))
+  ].filter(entryExists)
+  const externalBytes = outermostStorageRoots(externalRoots)
     .reduce((sum, path) => sum + directoryAllocatedSize(path), 0)
   const totalCodexBytes = directoryAllocatedSize(locations.home) + externalBytes
   progress('stage.done', '', 1)
@@ -323,9 +430,75 @@ export async function scanSnapshot(
     sessions,
     generatedAssets,
     pluginVersions,
+    worktrees,
     workspace: { root: locations.workspace, isScanned: false, entries: [] },
     notes
   }
+}
+
+function modifiedAt(path: string): number {
+  try { return statSync(path).mtimeMs } catch { return 0 }
+}
+
+/**
+ * Marks the conversations that ran inside a worktree. They stay in the session list and
+ * keep counting their own rollout bytes; the tag only says where the work happened, so a
+ * reader can tell why a checkout of theirs is sitting under CODEX_HOME.
+ */
+function tagWorktreeSessions(sessions: SessionItem[], worktrees: WorktreeItem[]): void {
+  if (!worktrees.length) return
+  for (const session of sessions) {
+    if (!session.workingDirectory) continue
+    const cwd = normalize(session.workingDirectory)
+    if (!worktrees.some((worktree) => ProtectedPaths.contains(worktree.path, cwd))) continue
+    if (!session.tags.includes('worktree')) session.tags.push('worktree')
+  }
+}
+
+/**
+ * Everything in the two data directories that no category above claimed and no protection
+ * rule names. Counted and shown, never selectable: this exists so a directory a future
+ * Codex release adds is visible as itself rather than swallowed by the overview's
+ * remainder, and so the next gap is found by the app rather than by hand.
+ */
+function unrecognizedEntries(
+  locations: CodexLocations,
+  guards: ProtectedPaths,
+  staleTemporary: StorageEntry[],
+  worktreeRoots: string[]
+): StorageEntry[] {
+  const claimedTemporary = new Set(staleTemporary.map((item) => normalize(item.url)))
+  const entries: StorageEntry[] = []
+
+  const collect = (root: string, claimedNames: string[]): void => {
+    const claimed = new Set(claimedNames)
+    let names: string[] = []
+    try { names = readdirSync(root) } catch { return }
+    for (const name of names) {
+      const path = join(root, name)
+      if (claimed.has(name)) continue
+      // What the desktop environment writes behind the user's back is not a gap in this
+      // app's knowledge of Codex, and listing it would only be noise.
+      if (isSystemJunk(name)) continue
+      if (claimedTemporary.has(normalize(path))) continue
+      if (HOME_LEFTOVER_PATTERNS.some(({ pattern }) => pattern.test(name))) continue
+      if (worktreeRoots.some((worktreeRoot) => ProtectedPaths.contains(worktreeRoot, path))) continue
+      if (guards.isProtected(path)) continue
+      if (ProtectedPaths.protectedHomePrefixes.some((prefix) => name.startsWith(prefix))) continue
+      entries.push(entry(name, 'note.unrecognizedEntry', path, pathAllocatedSize(path), 'shielded'))
+    }
+  }
+
+  collect(locations.home, [
+    ...ProtectedPaths.protectedHomeEntries.map((relativePath) => relativePath.split('/')[0]),
+    ...SCANNED_HOME_ENTRIES
+  ])
+  collect(locations.appSupport, [
+    ...ProtectedPaths.protectedAppSupportEntries.map((relativePath) => relativePath.split('/')[0]),
+    ...appCacheDirectories('').map((relativePath) => basename(relativePath)),
+    ...SCANNED_APP_SUPPORT_ENTRIES
+  ])
+  return entries
 }
 
 export function outermostStorageRoots(paths: string[]): string[] {

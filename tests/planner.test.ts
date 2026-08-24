@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { listableSessions, snapshotSessionBytes, type AutomationSettings, type CleanupRisk, type CleanupSelection, type ScanSnapshot, type SessionItem, type StorageEntry, type WorkspaceFolder } from '../shared/types'
+import { listableSessions, snapshotSessionBytes, type AutomationSettings, type CleanupRisk, type CleanupSelection, type ScanSnapshot, type SessionItem, type StorageEntry, type WorkspaceFolder, type WorktreeItem } from '../shared/types'
 import { buildAutomaticTasks, buildTrustedTasks, makeCleanupPreview } from '../electron/main/planner'
 import { message } from '../shared/messages'
 
@@ -18,6 +18,14 @@ function session(id: string, overrides: Partial<SessionItem> = {}): SessionItem 
 
 function folder(path: string, children: WorkspaceFolder[] = []): WorkspaceFolder {
   return { id: path, path, name: path.split('/').at(-1) ?? path, bytes: 100, fileCount: 1, modifiedAt: 0, repositories: [], sourceThreads: [], looseFiles: [`${path}/loose.txt`], children }
+}
+
+function worktree(id: string, overrides: Partial<WorktreeItem> = {}): WorktreeItem {
+  return {
+    id, path: id, projectPath: `${id}/app`, project: 'app', repositoryPath: '/repos/app',
+    branch: 'main', status: 'managed', state: 'clean', isOrphaned: false,
+    bytes: 500, artifactBytes: 400, modifiedAt: 0, sourceThreads: [], ...overrides
+  }
 }
 
 function snapshot(): ScanSnapshot {
@@ -40,6 +48,11 @@ function snapshot(): ScanSnapshot {
     pluginVersions: [
       { marketplace: 'm', plugin: 'p', version: '1', directoryURL: '/codex/plugins/current', bytes: 10, environmentBytes: 0, modifiedAt: 0, status: 'current' },
       { marketplace: 'm', plugin: 'p', version: '0', directoryURL: '/codex/plugins/old', bytes: 10, environmentBytes: 0, modifiedAt: 0, status: 'outdated' }
+    ],
+    worktrees: [
+      worktree('/codex/worktrees/aa01'),
+      worktree('/codex/worktrees/bb02', { status: 'unmanaged' }),
+      worktree('/codex/worktrees/cc03', { state: 'dirty' })
     ],
     workspace: { root: '/docs/Codex', isScanned: false, entries: [] }, notes: []
   }
@@ -239,5 +252,42 @@ describe('automatic cleanup planner', () => {
       cliCommands: [], canRestart: false, blockers: []
     }, snap)
     expect(preview.warnings).toContainEqual(message('warning.pinnedSessions', { count: 1 }))
+  })
+
+  it('never lets a worktree selection reach one Codex did not create', () => {
+    const snap = snapshot()
+    const tasks = buildTrustedTasks(
+      { kind: 'worktrees', ids: ['/codex/worktrees/aa01', '/codex/worktrees/bb02', '/etc'] }, snap, snap.workspace)
+    expect(tasks.map((task) => task.url)).toEqual(['/codex/worktrees/aa01'])
+    // git has to take a worktree down, so the task says so and names the repository.
+    expect(tasks[0].removal).toBe('gitWorktree')
+    expect(tasks[0].repositoryPath).toBe('/repos/app')
+    expect(tasks[0].companionURLs).toEqual([])
+    expect(tasks[0].requiresCodexStopped).toBe(true)
+  })
+
+  it('keeps worktrees out of the scheduled run entirely', () => {
+    const settings: AutomationSettings = {
+      enabled: true, intervalDays: 1, cleanCaches: true, cleanOldPlugins: true,
+      cleanArchivedSessions: true, archivedRetentionDays: 0, cleanActiveSessions: true,
+      activeRetentionDays: 0, skipRecentSessions: false, notifyWhenFinished: false, launchAtLogin: false
+    }
+    const tasks = buildAutomaticTasks(snapshot(), settings, 86_400_000 * 10)
+    expect(tasks.some((task) => task.url.includes('worktrees'))).toBe(false)
+  })
+
+  it('reminds the user to save uncommitted work only when a chosen worktree has some', () => {
+    const snap = snapshot()
+    const environment = {
+      running: false, detectionKnown: true, desktopRunning: false,
+      cliCommands: [], canRestart: false, blockers: []
+    }
+    const clean: CleanupSelection = { kind: 'worktrees', ids: ['/codex/worktrees/aa01'] }
+    const dirty: CleanupSelection = { kind: 'worktrees', ids: ['/codex/worktrees/cc03'] }
+    const keys = (selection: CleanupSelection) =>
+      makeCleanupPreview(selection, buildTrustedTasks(selection, snap, snap.workspace), environment, snap)
+        .warnings.map((warning) => warning.key)
+    expect(keys(clean)).toEqual(['warning.permanent'])
+    expect(keys(dirty)).toEqual(['warning.permanent', 'warning.workspaceGit'])
   })
 })

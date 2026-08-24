@@ -8,7 +8,8 @@ import type {
   SessionItem,
   StorageEntry,
   WorkspaceFolder,
-  WorkspaceSnapshot
+  WorkspaceSnapshot,
+  WorktreeItem
 } from '../../shared/types'
 import {
   isSelectable,
@@ -17,8 +18,11 @@ import {
   tasksForGeneratedAssets,
   tasksForSessionDeletion,
   tasksForWorkspace,
+  tasksForWorktrees,
   tasksFromEntries,
-  workspaceDeletionTargets
+  workspaceDeletionTargets,
+  worktreeIsRemovable,
+  worktreeIsUnsafe
 } from '../../shared/types'
 import { ProtectedPaths } from './guard'
 import type { CodexEnvironment } from './platform-services'
@@ -73,6 +77,14 @@ export function buildTrustedTasks(
         risk: 'safe' as const
       })))
     }
+    case 'worktrees': {
+      // Only worktrees the latest scan proved Codex created; the guard checks the marker
+      // again on disk before anything is removed.
+      const index = new Map(snapshot.worktrees.map((worktree) => [worktree.id, worktree]))
+      const selected = ids.map((id) => index.get(id))
+        .filter((worktree): worktree is WorktreeItem => !!worktree && worktreeIsRemovable(worktree))
+      return tasksForWorktrees(selected)
+    }
     case 'workspace': {
       const all = flattenWorkspace(workspace.entries)
       const selected = ids.map((id) => all.find((entry) => entry.id === id)).filter((entry): entry is WorkspaceFolder => !!entry)
@@ -99,6 +111,12 @@ export function makeCleanupPreview(
   // Deletion is permanent for every selection, so the preview always says so first.
   const warnings: Message[] = [message('warning.permanent')]
   if (selection.kind === 'workspace') warnings.push(message('warning.workspaceGit'))
+  // A worktree is a checkout like any other, so the same reminder applies. Nothing is
+  // said about Codex' own restore: whether it keeps a snapshot is unverified, and a
+  // recovery route this app has not seen work is not one to promise.
+  if (selection.kind === 'worktrees' && selectedWorktreesAreUnsafe(selection, snapshot)) {
+    warnings.push(message('warning.workspaceGit'))
+  }
   if (selection.kind === 'generated-assets') warnings.push(message('warning.generatedAssetLocalCopy'))
   // Pinning only holds off the scheduled run. Deleting one by hand is allowed, but the
   // confirmation says so rather than letting a pin quietly disappear.
@@ -145,6 +163,12 @@ export function buildAutomaticTasks(
     ...tasksFromEntries(entries.filter((entry) => isSelectable(entry.risk))),
     ...tasksForSessionDeletion(sessions)
   ]
+}
+
+function selectedWorktreesAreUnsafe(selection: CleanupSelection, snapshot: ScanSnapshot | null): boolean {
+  if (selection.kind !== 'worktrees' || !snapshot) return false
+  const ids = new Set(selection.ids)
+  return snapshot.worktrees.some((worktree) => ids.has(worktree.id) && worktreeIsUnsafe(worktree))
 }
 
 function pinnedSelection(selection: CleanupSelection, tasks: CleanupTask[], snapshot: ScanSnapshot | null): number {
