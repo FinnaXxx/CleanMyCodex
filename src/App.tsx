@@ -218,12 +218,13 @@ function App() {
           actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup}
           onOpenSessions={() => navigate('sessions')} onOpenSuggestedSessions={openSuggestedSessions}
           onOpenGeneratedAssets={() => navigate('generatedAssets')} onOpenWorkspace={() => navigate('workspace')}
-          onOpenWorktrees={() => navigate('worktrees')} onRescan={runScan} />}
+          onOpenWorktrees={() => navigate('worktrees')} onOpenPlugins={() => navigate('plugins')} onRescan={runScan} />}
         {page === 'sessions' && <SessionsView snapshot={snapshot} cleaning={cleaning} actionsDisabled={!!progress}
           cleanProgress={cleanProgress} onCleanup={requestCleanup} initialSelection={sessionInitialSelection} />}
         {page === 'generatedAssets' && <GeneratedAssetsView snapshot={snapshot} cleaning={cleaning} actionsDisabled={!!progress}
           cleanProgress={cleanProgress} onCleanup={requestCleanup} />}
-        {page === 'plugins' && <PluginsView snapshot={snapshot} cleaning={cleaning} actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup} />}
+        {page === 'plugins' && <PluginsView snapshot={snapshot} cleaning={cleaning} actionsDisabled={!!progress}
+          canUninstall={appInfo?.codexBinaryAvailable ?? false} cleanProgress={cleanProgress} onCleanup={requestCleanup} />}
         {page === 'workspace' && workspace && <WorkspaceView snapshot={workspace} cleaning={cleaning} actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup} />}
         {page === 'worktrees' && <WorktreesView snapshot={snapshot} cleaning={cleaning} actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup} />}
         {page === 'settings' && <SettingsView onOpenScheduledCleanup={() => setPage('automation')} />}

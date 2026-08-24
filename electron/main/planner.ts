@@ -15,6 +15,7 @@ import {
   isSelectable,
   listableSessions,
   pluginStatusIsRemovable,
+  pluginVersionCanUninstall,
   tasksForGeneratedAssets,
   tasksForSessionDeletion,
   tasksForWorkspace,
@@ -63,8 +64,17 @@ export function buildTrustedTasks(
     }
     case 'plugins': {
       const index = new Map(snapshot.pluginVersions.map((plugin) => [plugin.directoryURL, plugin]))
-      const selected = ids.map((id) => index.get(id)).filter((plugin): plugin is PluginVersionItem => !!plugin && pluginStatusIsRemovable(plugin.status))
-      return tasksFromEntries(selected.map((plugin) => ({
+      const selected = ids.map((id) => index.get(id)).filter((plugin): plugin is PluginVersionItem =>
+        !!plugin && (pluginStatusIsRemovable(plugin.status) || pluginVersionCanUninstall(plugin)))
+      const uninstall = new Map<string, PluginVersionItem>()
+      for (const plugin of selected.filter(pluginVersionCanUninstall)) {
+        uninstall.set(pluginIdentity(plugin), plugin)
+      }
+      // Uninstall operates on the plugin identity, not one version directory. Do not
+      // also schedule selected sibling versions for direct deletion: Codex owns the
+      // plugin's complete cache once an uninstall has been selected.
+      const versionTasks = tasksFromEntries(selected.filter((plugin) =>
+        pluginStatusIsRemovable(plugin.status) && !uninstall.has(pluginIdentity(plugin))).map((plugin) => ({
         id: `remove:${plugin.directoryURL}`,
         title: `${plugin.plugin} · ${plugin.version}`,
         note: message(`pluginStatus.${plugin.status}`),
@@ -76,6 +86,25 @@ export function buildTrustedTasks(
         requiresCodexStopped: true,
         risk: 'safe' as const
       })))
+      const uninstallTasks: CleanupTask[] = [...uninstall.values()].map((plugin) => ({
+        id: `uninstall:${plugin.marketplace}:${plugin.plugin}`,
+        title: plugin.plugin,
+        detail: plugin.marketplace ?? '',
+        url: plugin.directoryURL,
+        expectedBytes: snapshot.pluginVersions
+          .filter((candidate) => pluginIdentity(candidate) === pluginIdentity(plugin))
+          .reduce((sum, candidate) => sum + candidate.bytes, 0),
+        threadID: null,
+        companionURLs: snapshot.pluginVersions
+          .filter((candidate) => pluginIdentity(candidate) === pluginIdentity(plugin) && candidate.directoryURL !== plugin.directoryURL)
+          .map((candidate) => candidate.directoryURL),
+        minimumIdleSeconds: null,
+        requiresCodexStopped: true,
+        removal: 'codexPlugin',
+        pluginName: plugin.plugin,
+        pluginMarketplace: plugin.marketplace ?? undefined
+      }))
+      return [...versionTasks, ...uninstallTasks]
     }
     case 'worktrees': {
       if (typeof selection.deleteRelatedSessions !== 'boolean') throw new MessageError(message('error.invalidSelection'))
@@ -109,6 +138,10 @@ export function buildTrustedTasks(
   }
 }
 
+function pluginIdentity(plugin: PluginVersionItem): string {
+  return `${plugin.marketplace ?? ''}\0${plugin.plugin}`
+}
+
 export function makeCleanupPreview(
   selection: CleanupSelection,
   tasks: CleanupTask[],
@@ -119,9 +152,11 @@ export function makeCleanupPreview(
     ? tasks.filter((task) => task.requiresCodexStopped)
     : []
   const unsafeWorktree = selection.kind === 'worktrees' && selectedWorktreesAreUnsafe(selection, snapshot)
+  const uninstallsPlugin = selection.kind === 'plugins' && tasks.some((task) => task.removal === 'codexPlugin')
   // Keep the worktree's repository reminder in the permanent-deletion notice so the
   // confirmation reads as one warning rather than two competing lines.
-  const warnings: Message[] = [message(unsafeWorktree ? 'warning.permanentWorktreeGit' : 'warning.permanent')]
+  const warnings: Message[] = [message(unsafeWorktree ? 'warning.permanentWorktreeGit'
+    : uninstallsPlugin ? 'warning.pluginManagement' : 'warning.permanent')]
   if (selection.kind === 'workspace') warnings.push(message('warning.workspaceGit'))
   // A worktree is a checkout like any other, so the same reminder applies. Nothing is
   // said about Codex' own restore: whether it keeps a snapshot is unverified, and a

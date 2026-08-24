@@ -119,7 +119,7 @@ export default function GeneratedAssetsView({ snapshot, cleaning, actionsDisable
         onClick={() => onCleanup({ kind: 'generated-assets', ids: chosen.map((asset) => asset.id) })}>
         {cleaning
           ? t(`删除中… ${cleanProgress?.completed ?? 0}/${chosen.length}`, `Deleting… ${cleanProgress?.completed ?? 0}/${chosen.length}`)
-          : t('删除所选生成资产', 'Delete Selected Assets')}
+          : t('删除', 'Delete')}
       </button>
     </div>}
   </>

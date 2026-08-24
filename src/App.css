@@ -779,6 +779,7 @@ label.entry-label { cursor: pointer; }
 
 /* --- worktrees --- */
 .worktree-metrics { grid-template-columns: repeat(3, 1fr); }
+.plugin-metrics { grid-template-columns: repeat(2, 1fr); }
 .worktree-row {
   display: grid;
   grid-template-columns: 15px minmax(0, 1fr) 92px 116px 92px 30px;

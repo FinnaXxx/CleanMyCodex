@@ -67,11 +67,43 @@ describe('trusted cleanup planner', () => {
     expect(tasks[0].url).toBe('/codex/safe')
   })
 
-  it('never lets plugin IDs remove current or unknown versions', () => {
+  it('uses Codex to uninstall a current plugin and the filesystem only for old versions', () => {
     const snap = snapshot()
     const tasks = buildTrustedTasks({ kind: 'plugins', ids: ['/codex/plugins/current', '/codex/plugins/old', '/etc'] }, snap, snap.workspace)
-    expect(tasks.map((task) => task.url)).toEqual(['/codex/plugins/old'])
-    expect(tasks[0].requiresCodexStopped).toBe(true)
+    expect(tasks.map((task) => [task.url, task.removal ?? 'filesystem'])).toEqual([
+      ['/codex/plugins/current', 'codexPlugin']
+    ])
+    expect(tasks[0]).toMatchObject({
+      pluginName: 'p', pluginMarketplace: 'm', requiresCodexStopped: true,
+      expectedBytes: 20, companionURLs: ['/codex/plugins/old']
+    })
+    expect(makeCleanupPreview({ kind: 'plugins', ids: ['/codex/plugins/current'] }, [tasks[0]], {
+      running: false, detectionKnown: true, desktopRunning: false, cliCommands: [], canQuit: false, blockers: []
+    }, snap).warnings).toEqual([message('warning.pluginManagement')])
+  })
+
+  it('deduplicates multiple current versions into one whole-plugin uninstall', () => {
+    const snap = snapshot()
+    snap.pluginVersions.push({
+      ...snap.pluginVersions[0], version: 'local', directoryURL: '/codex/plugins/local', bytes: 15
+    })
+    const tasks = buildTrustedTasks({
+      kind: 'plugins', ids: ['/codex/plugins/current', '/codex/plugins/local']
+    }, snap, snap.workspace)
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0]).toMatchObject({
+      removal: 'codexPlugin', expectedBytes: 35,
+      companionURLs: ['/codex/plugins/current', '/codex/plugins/old']
+    })
+  })
+
+  it('never offers built-in or marketplace-unknown current plugins for uninstall', () => {
+    const snap = snapshot()
+    snap.pluginVersions.push(
+      { ...snap.pluginVersions[0], directoryURL: '/codex/plugins/builtin', status: 'builtin' },
+      { ...snap.pluginVersions[0], directoryURL: '/codex/plugins/unknown', marketplace: null }
+    )
+    expect(buildTrustedTasks({ kind: 'plugins', ids: ['/codex/plugins/builtin', '/codex/plugins/unknown'] }, snap, snap.workspace)).toEqual([])
   })
 
   it('revalidates overview plugin entries against the latest plugin versions', () => {

@@ -211,6 +211,9 @@ export type PluginStatus = 'builtin' | 'current' | 'outdated' | 'orphaned' | 'un
 export const pluginStatusIsRemovable = (status: PluginStatus): boolean =>
   status === 'outdated' || status === 'orphaned'
 
+export const pluginVersionCanUninstall = (plugin: PluginVersionItem): boolean =>
+  plugin.status === 'current' && plugin.marketplace !== null
+
 export interface PluginVersionItem {
   /** Marketplace directory name, or null when the plugin sits outside one. */
   marketplace: string | null
@@ -390,8 +393,7 @@ export const snapshotWorktreeBytes = (s: ScanSnapshot): number =>
   worktreeBytes(s.worktrees ?? [])
 
 export const snapshotPluginBytes = (s: ScanSnapshot): number =>
-  s.categories.filter((category) => categorySection(category) === 'plugins')
-    .reduce((sum, category) => sum + categoryBytes(category), 0)
+  s.pluginVersions.reduce((sum, plugin) => sum + plugin.bytes, 0)
 
 export interface CleanupTask {
   id: string
@@ -412,9 +414,12 @@ export interface CleanupTask {
    * administrative data lives inside the user's own repository, outside every root this
    * app may write to, so git has to take it down and clean up after itself.
    */
-  removal?: 'filesystem' | 'gitWorktree'
+  removal?: 'filesystem' | 'gitWorktree' | 'codexPlugin'
   /** The repository `git worktree remove` is run from. Only set for `gitWorktree`. */
   repositoryPath?: string | null
+  /** Trusted identity passed to `codex plugin remove`; never supplied by the renderer. */
+  pluginName?: string
+  pluginMarketplace?: string
 }
 
 /**
@@ -589,6 +594,7 @@ export interface AppInfo {
   version: string
   platform: string
   appServerAvailable: boolean
+  codexBinaryAvailable: boolean
   codexRunning: boolean
   /** Why Codex counts as running; empty when it is not. */
   blockers: Message[]

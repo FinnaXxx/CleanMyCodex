@@ -40,10 +40,11 @@ interface Props {
   onOpenGeneratedAssets: () => void
   onOpenWorkspace: () => void
   onOpenWorktrees: () => void
+  onOpenPlugins: () => void
   onRescan: () => void
 }
 
-export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisabled, cleanProgress, onCleanup, onOpenSessions, onOpenSuggestedSessions, onOpenGeneratedAssets, onOpenWorkspace, onOpenWorktrees, onRescan }: Props) {
+export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisabled, cleanProgress, onCleanup, onOpenSessions, onOpenSuggestedSessions, onOpenGeneratedAssets, onOpenWorkspace, onOpenWorktrees, onOpenPlugins, onRescan }: Props) {
   const { t, m, locale } = usePreferences()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [expanded, setExpanded] = useState<Set<StorageKind>>(new Set())
@@ -103,7 +104,9 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
 
   useEffect(() => {
     setSelected(new Set(snapshot.categories
-      .filter((category) => category.group === 'recommended')
+      // An orphan is confirmed uninstalled by Codex, so its package is safe to suggest
+      // on the overview even though the detail page still labels the state explicitly.
+      .filter((category) => category.group === 'recommended' || category.kind === 'pluginOrphans')
       .flatMap((category) => category.entries)
       .filter((item) => isSelectable(item.risk))
       .map((item) => item.id)))
@@ -296,6 +299,7 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
                   onExpand={() => toggleExpanded(category.kind)}
                   onSelectAll={(on) => setMany(category.entries.filter((entry) => isSelectable(entry.risk)), on)}
                   onToggleEntry={(entry) => setMany([entry], !selected.has(entry.id))}
+                  onNavigate={category.kind === 'pluginRuntime' ? onOpenPlugins : undefined}
                 />
               ))}
             </div>
@@ -391,13 +395,14 @@ function PageSection({ glyph, title, bytes, rowDetail, value, onOpen }: {
   )
 }
 
-function CategoryRow({ category, selected, expanded, onExpand, onSelectAll, onToggleEntry }: {
+function CategoryRow({ category, selected, expanded, onExpand, onSelectAll, onToggleEntry, onNavigate }: {
   category: StorageCategory
   selected: Set<string>
   expanded: boolean
   onExpand: () => void
   onSelectAll: (on: boolean) => void
   onToggleEntry: (entry: StorageEntry) => void
+  onNavigate?: () => void
 }) {
   const { t, m } = usePreferences()
   const selectableEntries = category.entries.filter((entry) => isSelectable(entry.risk))
@@ -412,7 +417,7 @@ function CategoryRow({ category, selected, expanded, onExpand, onSelectAll, onTo
               ref={(input) => { if (input) input.indeterminate = someSelected && !allSelected }}
               onChange={(event) => onSelectAll(event.target.checked)} />
           : <span className="checkbox-space" />}
-        <button className="row-main" onClick={onExpand} aria-expanded={expanded}>
+        <button className="row-main" onClick={onNavigate ?? onExpand} aria-expanded={onNavigate ? undefined : expanded}>
           <span className="row-text">
             <span className="row-title">{m(message(`category.${category.kind}.title`))}</span>
             <span className="row-detail">{m(message(`category.${category.kind}.detail`))}</span>
@@ -421,10 +426,10 @@ function CategoryRow({ category, selected, expanded, onExpand, onSelectAll, onTo
             <span className="row-bytes">{formatBytes(categoryBytes(category))}</span>
             <span className={`advice advice-${category.group}`}>{m(message(`group.${category.group}`))}</span>
           </span>
-          <span className="chevron">{expanded ? '⌃' : '⌄'}</span>
+          <span className="chevron">{onNavigate ? '›' : expanded ? '⌃' : '⌄'}</span>
         </button>
       </div>
-      {expanded && <ul className="entries">
+      {expanded && !onNavigate && <ul className="entries">
         {category.entries.map((entry) => (
           <li className="entry" key={entry.id}>
             {isSelectable(entry.risk)

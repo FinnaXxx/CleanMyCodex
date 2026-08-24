@@ -160,7 +160,7 @@
   const noop = () => () => {}
   window.cleanmycodex = {
     platform: 'darwin',
-    appInfo: async () => ({ version: '0.1.2', platform: 'darwin', appServerAvailable: true, codexRunning: false, blockers: [] }),
+    appInfo: async () => ({ version: '0.1.2', platform: 'darwin', appServerAvailable: true, codexBinaryAvailable: true, codexRunning: false, blockers: [] }),
     scan: async () => snapshot,
     cancelScan: async () => {},
     onScanProgress: noop,

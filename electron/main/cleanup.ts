@@ -20,6 +20,8 @@ export interface CleanupDeps {
    * repository listing a worktree that is no longer there.
    */
   removeWorktree?: (path: string, repositoryPath: string | null) => Promise<void>
+  /** Uninstall through the Codex CLI so plugin config and cached versions remain consistent. */
+  removePlugin?: (plugin: string, marketplace: string) => Promise<void>
   /** Whether Codex is currently running — gates work that needs it fully stopped. */
   isCodexRunning: () => boolean
   sessionDatabase?: {
@@ -95,6 +97,21 @@ async function runRemoval(
   }
   if (task.minimumIdleSeconds !== null && Date.now() - latestActivity(task.url) < task.minimumIdleSeconds * 1000) {
     return outcome(task, { kind: 'skipped', reason: message('cleanup.skipRecentlyWritten') }, 0)
+  }
+
+  if (task.removal === 'codexPlugin') {
+    if (!deps.removePlugin || !task.pluginName || !task.pluginMarketplace) {
+      return outcome(task, { kind: 'failed', reason: message('error.invalidRequest') }, 0)
+    }
+    const targets = [...new Set([task.url, ...task.companionURLs])]
+    const before = targets.reduce((sum, target) => sum + fileAllocated(target), 0)
+    try {
+      await deps.removePlugin(task.pluginName, task.pluginMarketplace)
+      const after = targets.reduce((sum, target) => sum + fileAllocated(target), 0)
+      return outcome(task, { kind: 'succeeded' }, Math.max(0, before - after))
+    } catch (err) {
+      return outcome(task, { kind: 'failed', reason: failure(err) }, 0)
+    }
   }
 
   const targets = [task.url, ...task.companionURLs]

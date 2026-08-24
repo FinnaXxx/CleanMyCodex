@@ -1,7 +1,8 @@
+import { execFile } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { basename, join, relative, resolve, sep } from 'node:path'
 import type { PluginStatus, PluginVersionItem, StorageCategory, StorageEntry } from '../../shared/types'
-import { message } from '../../shared/messages'
+import { MessageError, message } from '../../shared/messages'
 import type { InstalledPlugin } from './app-server'
 import { directoryAllocatedSize } from './fs-size'
 
@@ -151,4 +152,19 @@ export function pluginStorageCategories(plugins: PluginVersionItem[]): StorageCa
       entries: pluginEntries(plugins, 'orphaned', 'caution')
     }
   ]
+}
+
+/** Use Codex's own CLI command so its config and installation cache stay in sync. */
+export async function removeCodexPlugin(executable: string | null, plugin: string, marketplace: string): Promise<void> {
+  if (!executable) throw new MessageError(message('error.codexBinaryMissing'))
+  await new Promise<void>((resolve, reject) => {
+    execFile(executable, ['plugin', 'remove', `${plugin}@${marketplace}`, '--json'], {
+      timeout: 30_000,
+      windowsHide: true
+    }, (error, _stdout, stderr) => {
+      if (!error) return resolve()
+      const reason = stderr.trim() || error.message
+      reject(new MessageError(message('error.verbatim', { text: reason })))
+    })
+  })
 }

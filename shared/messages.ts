@@ -64,7 +64,7 @@ export type MessageKey =
   // Scan notes
   | 'scanNote.appServerUnavailable' | 'scanNote.noSessionTitles'
   // Cleanup preview warnings
-  | 'warning.permanent' | 'warning.permanentWorktreeGit' | 'warning.workspaceGit' | 'warning.pinnedSessions' | 'warning.generatedAssetLocalCopy'
+  | 'warning.permanent' | 'warning.permanentWorktreeGit' | 'warning.pluginManagement' | 'warning.workspaceGit' | 'warning.pinnedSessions' | 'warning.generatedAssetLocalCopy'
   | 'warning.worktreeRelatedSessions'
   // Codex runtime blockers
   | 'blocker.detectionFailed' | 'blocker.desktopRunning' | 'blocker.cliRunning'
@@ -225,6 +225,7 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
 
   'warning.permanent': ['清理的内容会被永久删除，无法恢复。', 'Everything cleaned is deleted permanently and cannot be recovered.'],
   'warning.permanentWorktreeGit': ['清理的内容会被永久删除，无法恢复。请确认未提交或未推送的内容已经保存。', 'Everything cleaned is deleted permanently and cannot be recovered. Make sure anything uncommitted or unpushed has been saved.'],
+  'warning.pluginManagement': ['当前插件将通过 Codex 正式卸载；旧版本和卸载残留会被永久删除。', 'Current plugins will be uninstalled through Codex; old versions and uninstalled leftovers will be deleted permanently.'],
   'warning.workspaceGit': ['请确认未提交或未推送的内容已经保存。', 'Make sure anything uncommitted or unpushed has been saved.'],
   'warning.pinnedSessions': ['所选会话中有 {count} 个是置顶会话，删除后不会恢复', '{count} of the selected conversations are pinned; deleting them is permanent'],
   'warning.generatedAssetLocalCopy': ['会话会保留，但所选生成资产的本地路径将失效；依赖这些路径的打开、复制或继续编辑操作可能失败。', 'Conversations remain, but the selected generated-asset paths will stop working; open, copy, or edit operations that rely on them may fail.'],

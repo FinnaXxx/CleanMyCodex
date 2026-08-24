@@ -13,6 +13,52 @@ const roots: string[] = []
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
 
 describe('cleanup engine', () => {
+  it('uninstalls a current plugin through Codex without directly deleting its protected path', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-cleanup-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const target = join(locations.plugins, 'cache', 'personal', 'demo', '1.0.0')
+    mkdirSync(target, { recursive: true }); writeFileSync(join(target, 'plugin.json'), 'x')
+    const task: CleanupTask = {
+      id: 'uninstall:personal:demo', title: 'demo', detail: 'personal', url: target,
+      expectedBytes: 1, threadID: null, companionURLs: [], minimumIdleSeconds: null,
+      requiresCodexStopped: true, removal: 'codexPlugin', pluginName: 'demo', pluginMarketplace: 'personal'
+    }
+    const calls: string[] = []
+    const report = await runCleanup([task], new ProtectedPaths(locations, [target]), {
+      remove: async () => { throw new Error('must not delete directly') },
+      removePlugin: async (plugin, marketplace) => { calls.push(`${plugin}@${marketplace}`) },
+      isCodexRunning: () => false
+    })
+
+    expect(calls).toEqual(['demo@personal'])
+    expect(report.outcomes[0].status.kind).toBe('succeeded')
+    expect(existsSync(target)).toBe(true)
+  })
+
+  it('measures every cached version removed by a plugin uninstall', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-cleanup-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const current = join(locations.plugins, 'cache', 'personal', 'demo', '2.0.0')
+    const old = join(locations.plugins, 'cache', 'personal', 'demo', '1.0.0')
+    for (const target of [current, old]) {
+      mkdirSync(target, { recursive: true })
+      writeFileSync(join(target, 'payload.bin'), Buffer.alloc(8192))
+    }
+    const task: CleanupTask = {
+      id: 'uninstall:personal:demo', title: 'demo', detail: 'personal', url: current,
+      expectedBytes: 16_384, threadID: null, companionURLs: [old], minimumIdleSeconds: null,
+      requiresCodexStopped: true, removal: 'codexPlugin', pluginName: 'demo', pluginMarketplace: 'personal'
+    }
+    const report = await runCleanup([task], new ProtectedPaths(locations, [current, old]), {
+      remove: async () => { throw new Error('must not delete directly') },
+      removePlugin: async () => { rmSync(join(locations.plugins, 'cache', 'personal', 'demo'), { recursive: true, force: true }) },
+      isCodexRunning: () => false
+    })
+
+    expect(report.outcomes[0].status.kind).toBe('succeeded')
+    expect(report.outcomes[0].freedBytes).toBeGreaterThanOrEqual(16_384)
+  })
+
   it('counts directory contents and permanently deletes an allowed target', async () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-cleanup-')); roots.push(root)
     const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })

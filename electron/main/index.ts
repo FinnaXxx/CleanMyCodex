@@ -21,7 +21,7 @@ import {
   sessionProtocolThreadIDs
 } from './session-database'
 import { cleanupLogPath, ensureLogDirectory, logCleanup, logDirectory } from './diagnostics'
-import { pluginStorageCategories, scanPluginVersions } from './plugins'
+import { removeCodexPlugin } from './plugins'
 import { newerReleaseVersion } from './release-update'
 import {
   appendAutomationLog,
@@ -82,6 +82,7 @@ ipcMain.handle('app:info', () => {
     version: app.getVersion(),
     platform: process.platform,
     appServerAvailable: appServer.isAvailable,
+    codexBinaryAvailable: locateCodexExecutable() !== null,
     codexRunning: environment.running,
     blockers: environment.blockers
   }
@@ -227,14 +228,15 @@ ipcMain.handle('sessions:repairLeftovers', () => {
 })
 
 ipcMain.handle('cleanup:prepare', async (_event, selection: CleanupSelection) => {
-  if (selectionTouchesPlugins(selection)) await refreshPluginsBeforeCleanup()
+  // Preview from the completed scan immediately, matching the other cleanup pages.
+  // Current-plugin uninstall is validated by Codex CLI, while old and residual
+  // versions remain constrained to the exact paths captured by the scan.
   const tasks = trustedTasks(selection)
   return makeCleanupPreview(selection, tasks, codexEnvironment(), latestSnapshot)
 })
 
 ipcMain.handle('cleanup:run', async (_event, request: CleanupRequest) => {
   if (!request || typeof request !== 'object' || typeof request.quitCodex !== 'boolean' || typeof request.forceQuitCodex !== 'boolean') throw new MessageError(message('error.invalidRequest'))
-  if (selectionTouchesPlugins(request.selection)) await refreshPluginsBeforeCleanup()
   const tasks = trustedTasks(request.selection)
   const related = request.selection.kind === 'worktrees'
     ? ` deleteRelatedSessions=${request.selection.deleteRelatedSessions} sessionTasks=${tasks.filter((task) => task.threadID).length}`
@@ -348,31 +350,6 @@ function logScan(snapshot: ScanSnapshot, elapsedMs: number): void {
   for (const note of snapshot.notes) logCleanup(`  note ${describeMessage(note)}`)
 }
 
-async function refreshPluginsBeforeCleanup(): Promise<void> {
-  if (!latestSnapshot) throw new MessageError(message('error.scanFirst'))
-  const installedPlugins = await appServer.installedPlugins()
-  const pluginVersions = scanPluginVersions(locations.plugins, installedPlugins)
-  latestSnapshot = {
-    ...latestSnapshot,
-    categories: [
-      ...latestSnapshot.categories.filter((category) => category.kind !== 'pluginRemnants' && category.kind !== 'pluginOrphans'),
-      ...pluginStorageCategories(pluginVersions).filter((category) => category.entries.length)
-    ],
-    pluginVersions
-  }
-  guards = guardsFor(latestSnapshot)
-}
-
-function selectionTouchesPlugins(selection: CleanupSelection): boolean {
-  if (!selection || typeof selection !== 'object') return false
-  if (selection.kind === 'plugins') return true
-  if (selection.kind !== 'storage' || !Array.isArray(selection.ids) || !latestSnapshot) return false
-  const pluginIDs = new Set(latestSnapshot.categories
-    .filter((category) => category.kind === 'pluginRemnants' || category.kind === 'pluginOrphans')
-    .flatMap((category) => category.entries.map((entry) => entry.id)))
-  return selection.ids.some((id) => typeof id === 'string' && pluginIDs.has(id))
-}
-
 function trustedTasks(selection: CleanupSelection) {
   if (!latestSnapshot) throw new MessageError(message('error.scanFirst'))
   return buildTrustedTasks(selection, latestSnapshot, latestWorkspace)
@@ -426,6 +403,7 @@ function cleanupDependencies(): CleanupDeps {
     remove: (path: string) => rm(path, { recursive: true, force: true }),
     removeWorktree: (path: string, repositoryPath: string | null) =>
       removeCodexWorktree(path, repositoryPath, (target) => rm(target, { recursive: true, force: true })),
+    removePlugin: (plugin, marketplace) => removeCodexPlugin(locateCodexExecutable(), plugin, marketplace),
     isCodexRunning: codexIsRunning,
     sessionDatabase: {
       preflightDelete: (threadID, relatedURLs) => preflightSessionRecords(locations.home, threadID, relatedURLs),
