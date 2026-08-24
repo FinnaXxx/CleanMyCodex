@@ -9,6 +9,7 @@ const api = {
   /** The renderer reserves room for the macOS traffic lights and squares its own chrome. */
   platform: process.platform,
   appInfo: (): Promise<AppInfo> => ipcRenderer.invoke('app:info'),
+  checkForUpdates: (): Promise<void> => ipcRenderer.invoke('updates:check'),
   scan: (): Promise<ScanSnapshot | null> => ipcRenderer.invoke('scan:run'),
   cancelScan: (): Promise<void> => ipcRenderer.invoke('scan:cancel'),
   onScanProgress: (listener: (progress: ScanProgress) => void): (() => void) => {

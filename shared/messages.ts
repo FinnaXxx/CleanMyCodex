@@ -81,6 +81,8 @@ export type MessageKey =
   | 'menu.file' | 'menu.settings'
   // Application updates
   | 'update.title' | 'update.available' | 'update.detail' | 'update.openRelease' | 'update.later'
+  | 'update.checkTitle' | 'update.current' | 'update.currentDetail'
+  | 'update.unavailable' | 'update.unavailableDetail' | 'update.failed' | 'update.failedDetail' | 'update.ok'
 
 export interface Message {
   key: MessageKey
@@ -255,7 +257,15 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'update.available': ['Clean My Codex {version} 已发布', 'Clean My Codex {version} is available'],
   'update.detail': ['是否打开下载页面？下载 DMG 后，将新应用拖入“应用程序”并选择替换即可。', 'Open the download page? After downloading the DMG, drag the new app into Applications and choose Replace.'],
   'update.openRelease': ['前往下载', 'Open Download Page'],
-  'update.later': ['稍后', 'Later']
+  'update.later': ['稍后', 'Later'],
+  'update.checkTitle': ['检查更新', 'Check for Updates'],
+  'update.current': ['已是最新版本', 'You’re up to date'],
+  'update.currentDetail': ['当前版本为 {version}。', 'You’re running version {version}.'],
+  'update.unavailable': ['暂时无法获取版本信息', 'Release information is not available yet'],
+  'update.unavailableDetail': ['仓库仍为 Private 或尚未发布可公开访问的 Release。', 'The repository is still private, or it does not have a publicly accessible release yet.'],
+  'update.failed': ['检查更新失败', 'Couldn’t check for updates'],
+  'update.failedDetail': ['请检查网络连接后重试。', 'Check your network connection and try again.'],
+  'update.ok': ['好', 'OK']
 }
 
 export function formatMessage(value: Message, language: Language): string {

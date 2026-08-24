@@ -6,6 +6,7 @@ export default function SettingsView({ onOpenScheduledCleanup }: {
 }) {
   const { theme, language, setTheme, setLanguage, t, e } = usePreferences()
   const [logError, setLogError] = useState<string | null>(null)
+  const [checkingForUpdates, setCheckingForUpdates] = useState(false)
 
   // The folder is made on demand, so its path is only known once it has been asked for.
   const openLogs = async (): Promise<void> => {
@@ -14,6 +15,16 @@ export default function SettingsView({ onOpenScheduledCleanup }: {
       await window.cleanmycodex.openPath(await window.cleanmycodex.logDirectory())
     } catch (err) {
       setLogError(e(err instanceof Error ? err.message : String(err)))
+    }
+  }
+
+  const checkForUpdates = async (): Promise<void> => {
+    if (checkingForUpdates) return
+    setCheckingForUpdates(true)
+    try {
+      await window.cleanmycodex.checkForUpdates()
+    } finally {
+      setCheckingForUpdates(false)
     }
   }
 
@@ -35,6 +46,12 @@ export default function SettingsView({ onOpenScheduledCleanup }: {
           { value: 'en', label: 'English' }
         ]} label={t('语言', 'Language')} />
       </SettingsRow>
+      {window.cleanmycodex.platform === 'darwin' && <SettingsRow title={t('软件更新', 'Software Update')}
+        detail={t('检查是否有新的 GitHub Release', 'Check for a newer GitHub release')}>
+        <button className="btn" disabled={checkingForUpdates} onClick={() => void checkForUpdates()}>
+          {checkingForUpdates ? t('检查中…', 'Checking…') : t('检查更新', 'Check for Updates')}
+        </button>
+      </SettingsRow>}
     </SettingsGroup>
 
     <SettingsGroup title={t('诊断', 'Diagnostics')}>

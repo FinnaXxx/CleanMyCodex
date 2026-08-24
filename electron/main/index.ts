@@ -84,6 +84,7 @@ ipcMain.handle('app:info', () => {
     blockers: environment.blockers
   }
 })
+ipcMain.handle('updates:check', () => checkForUpdates('manual'))
 
 ipcMain.handle('scan:run', () => runInteractiveScan(async (signal) => {
   const startedAt = Date.now()
@@ -508,7 +509,7 @@ function createWindow(): void {
   blockDeveloperTools(mainWindow)
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
-    void checkForUpdates()
+    void checkForUpdates('automatic')
   })
   nativeTheme.on('updated', () => mainWindow?.setBackgroundColor(windowBackdrop()))
   mainWindow.on('closed', () => { mainWindow = null })
@@ -525,9 +526,11 @@ function createWindow(): void {
  * Checks only public release metadata and sends the user to GitHub to install manually.
  * A private repository returns 404 here; that is expected until the project is public.
  */
-async function checkForUpdates(): Promise<void> {
-  if (checkedForUpdates || process.platform !== 'darwin' || !app.isPackaged || !mainWindow) return
-  checkedForUpdates = true
+async function checkForUpdates(mode: 'automatic' | 'manual'): Promise<void> {
+  const manual = mode === 'manual'
+  if (process.platform !== 'darwin' || !mainWindow) return
+  if (!manual && (checkedForUpdates || !app.isPackaged)) return
+  if (!manual) checkedForUpdates = true
 
   try {
     const response = await net.fetch(LatestReleaseAPI, {
@@ -537,19 +540,28 @@ async function checkForUpdates(): Promise<void> {
       },
       signal: AbortSignal.timeout(10_000)
     })
-    if (response.status === 404) return
+    if (response.status === 404) {
+      if (manual) await showUpdateStatus('unavailable')
+      return
+    }
     if (!response.ok) {
       logCleanup(`update check failed: GitHub returned HTTP ${response.status}`)
+      if (manual) await showUpdateStatus('failed')
       return
     }
 
     const body = await response.json() as { tag_name?: unknown }
     if (typeof body.tag_name !== 'string') {
       logCleanup('update check failed: latest release has no tag_name')
+      if (manual) await showUpdateStatus('failed')
       return
     }
     const version = newerReleaseVersion(app.getVersion(), body.tag_name)
-    if (!version || !mainWindow) return
+    if (!version) {
+      if (manual) await showUpdateStatus('current')
+      return
+    }
+    if (!mainWindow) return
 
     const language = loadUILanguage()
     const result = await dialog.showMessageBox(mainWindow, {
@@ -568,7 +580,27 @@ async function checkForUpdates(): Promise<void> {
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     logCleanup(`update check failed: ${reason}`)
+    if (manual) await showUpdateStatus('failed')
   }
+}
+
+async function showUpdateStatus(status: 'current' | 'unavailable' | 'failed'): Promise<void> {
+  if (!mainWindow) return
+  const language = loadUILanguage()
+  const content = status === 'current'
+    ? { message: message('update.current'), detail: message('update.currentDetail', { version: app.getVersion() }) }
+    : status === 'unavailable'
+      ? { message: message('update.unavailable'), detail: message('update.unavailableDetail') }
+      : { message: message('update.failed'), detail: message('update.failedDetail') }
+  await dialog.showMessageBox(mainWindow, {
+    type: status === 'failed' ? 'error' : 'info',
+    title: formatMessage(message('update.checkTitle'), language),
+    message: formatMessage(content.message, language),
+    detail: formatMessage(content.detail, language),
+    buttons: [formatMessage(message('update.ok'), language)],
+    defaultId: 0,
+    cancelId: 0
+  })
 }
 
 async function openExternalWebURL(value: string): Promise<void> {
