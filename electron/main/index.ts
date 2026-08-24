@@ -152,10 +152,12 @@ function runWorker<T>(request: object): Promise<T> {
     }
     worker.on('message', (event: { type: string; progress?: unknown; result?: T; message?: string }) => {
       if (event.type === 'progress') mainWindow?.webContents.send('scan:progress', event.progress)
-      else if (event.type === 'result') { finish(() => resolve(event.result as T)); void worker.terminate() }
+      // A completed worker closes its own parent port and exits naturally. Forcefully
+      // terminating it from inside this message callback races V8's structured-clone and
+      // background cleanup on Electron 33, which can take down the whole main process.
+      else if (event.type === 'result') finish(() => resolve(event.result as T))
       else if (event.type === 'error') {
         finish(() => reject(event.message ? new Error(event.message) : new MessageError(message('error.scanFailed'))))
-        void worker.terminate()
       }
     })
     worker.on('error', (error) => finish(() => reject(error)))

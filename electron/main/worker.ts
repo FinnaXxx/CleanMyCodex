@@ -32,6 +32,7 @@ parentPort?.on('message', async (request: Request) => {
         type: 'progress', progress: { stage: message('stage.done'), currentPath: '', fraction: 1 }
       })
       parentPort?.postMessage({ type: 'result', result })
+      parentPort?.close()
     } else {
       const threadIndex = CodexThreadIndex.load(locations.home)
       const workspaceThreads = threadIndex.workspaceThreads(locations.workspace)
@@ -41,8 +42,10 @@ parentPort?.on('message', async (request: Request) => {
         type: 'progress', progress: { stage: message('stage.workspace'), currentPath, fraction: 0 }
       }), workspaceThreads, worktreePaths(worktreeRoots))
       parentPort?.postMessage({ type: 'result', result })
+      parentPort?.close()
     }
   } catch (error) {
     parentPort?.postMessage({ type: 'error', message: error instanceof Error ? error.message : String(error) })
+    parentPort?.close()
   }
 })

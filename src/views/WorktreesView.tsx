@@ -91,6 +91,11 @@ function WorktreeRow({ worktree, checked, onToggle }: { worktree: WorktreeItem; 
   const { t, m, locale } = usePreferences()
   const name = worktreeDisplayName(worktree)
   const worktreeID = worktree.id.split(/[\\/]/).filter(Boolean).at(-1) ?? worktree.id
+  // The desktop index also contains guardian/subagent threads created while one
+  // conversation is running. They remain attached for complete cleanup, but they are
+  // not separate conversations in the sidebar and must not inflate this count.
+  const mainThreads = worktree.sourceThreads.filter((thread) => !thread.isSubagent)
+  const conversationCount = mainThreads.length || (worktree.sourceThreads.length ? 1 : 0)
   const label = `${name} · Worktree ${worktreeID}`
   return <div className="worktree-row">
     {worktreeIsRemovable(worktree)
@@ -100,8 +105,8 @@ function WorktreeRow({ worktree, checked, onToggle }: { worktree: WorktreeItem; 
       <strong>{name} <span className="muted">· Worktree {worktreeID}</span></strong>
       <small>
         {t(
-          `${worktree.sourceThreads.length} 个关联会话`,
-          `${worktree.sourceThreads.length} related ${worktree.sourceThreads.length === 1 ? 'conversation' : 'conversations'}`
+          `${conversationCount} 个关联会话`,
+          `${conversationCount} related ${conversationCount === 1 ? 'conversation' : 'conversations'}`
         )}
         {worktree.artifactBytes > 0 && t(` · 构建产物 ${formatBytes(worktree.artifactBytes)}`, ` · ${formatBytes(worktree.artifactBytes)} build output`)}
         {worktree.status === 'unmanaged' && <span className="pill status-unconfirmed">{m(message('tag.unmanagedWorktree'))}</span>}
