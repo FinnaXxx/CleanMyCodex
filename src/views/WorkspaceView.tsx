@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CleanupProgress, CleanupSelection, SessionLocation, WorkspaceFolder, WorkspaceSnapshot } from '../../shared/types'
-import { formatBytes, repositoryStateIsSafe, workspaceBytes, workspaceFolderIsUnsafe } from '../../shared/types'
+import { formatBytes, repositoryStateIsSafe, workspaceBytes, workspaceDisplayName, workspaceFolderIsUnsafe } from '../../shared/types'
 import { message } from '../../shared/messages'
 import { FolderIcon } from '../icons'
 import { formatShortDate } from '../format'
@@ -51,12 +51,12 @@ export default function WorkspaceView({ snapshot, cleaning, actionsDisabled, cle
 
 function WorkspaceRow({ entry, checked, date, onToggle }: { entry: WorkspaceFolder; checked: boolean; date: string; onToggle: () => void }) {
   const { t, m, locale } = usePreferences()
-  const display = workspaceDisplay(entry)
+  const displayName = workspaceDisplayName(entry)
   const status = workspaceStatus(entry)
   return <div className="workspace-row">
-    <input type="checkbox" aria-label={display.name} checked={checked} onChange={onToggle}/>
+    <input type="checkbox" aria-label={displayName} checked={checked} onChange={onToggle}/>
     <div className="grow">
-      <strong title={display.tooltip}>{display.name}</strong>
+      <strong>{displayName}</strong>
       <small>
         {t(`${entry.fileCount} 个文件`, `${entry.fileCount} files`)}
         {entry.children.length > 0 && t(` · 仅日期目录下的散落文件，不含下方 ${entry.children.length} 项产出`, ` · Loose files in the date folder only, not the ${entry.children.length} outputs below`)}
@@ -78,11 +78,4 @@ function workspaceStatus(entry: WorkspaceFolder): { location: SessionLocation } 
   const main = entry.sourceThreads.filter((thread) => !thread.isSubagent)
   const shown = main.length ? main : entry.sourceThreads
   return { location: shown.every((thread) => thread.archived) ? 'archived' : 'active' }
-}
-
-function workspaceDisplay(entry: WorkspaceFolder): { name: string; tooltip?: string } {
-  if (!entry.sourceThreads.length) return { name: entry.name }
-  const main = entry.sourceThreads.filter((thread) => !thread.isSubagent)
-  const shown = main.length ? main : entry.sourceThreads
-  return { name: shown[0].title }
 }
