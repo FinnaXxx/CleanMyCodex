@@ -33,7 +33,8 @@ export type MessageKey =
   | 'category.protectedUserData.title' | 'category.protectedUserData.detail'
   // Storage entry notes
   | 'note.marketplaceStaging' | 'note.installLeftover' | 'note.idleThreeDays' | 'note.helperScratch'
-  | 'note.codexOperationalCache' | 'note.platformCache'
+  | 'note.codexOperationalCache' | 'note.remotePluginCatalogCache' | 'note.codexAppsToolsCache'
+  | 'note.codexAppDirectoryCache' | 'note.codexAppsServerInfoCache' | 'note.tuiPetsCache' | 'note.platformCache'
   | 'note.applicationLog' | 'note.logDatabase' | 'note.sessionProjection'
   | 'note.localMarketplace' | 'note.configOrCredentials' | 'note.stateDatabase' | 'note.browserProfile'
   | 'note.computerUseComponent' | 'note.builtinPlugin' | 'note.currentPlugin' | 'note.unconfirmedPlugin' | 'note.pluginRuntime'
@@ -76,6 +77,8 @@ export type MessageKey =
   | 'auto.disabled' | 'auto.nothingToClean' | 'auto.summary' | 'auto.skippedItem' | 'auto.failed'
   // Native application menu
   | 'menu.file' | 'menu.settings'
+  // Application updates
+  | 'update.title' | 'update.available' | 'update.detail' | 'update.openRelease' | 'update.later'
 
 export interface Message {
   key: MessageKey
@@ -104,8 +107,8 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'category.pluginOrphans.detail': ['plugin/list 已确认未安装，仅供手动清理', 'Confirmed uninstalled by plugin/list; manual cleanup only'],
   'category.pluginRuntime.title': ['当前插件与运行组件', 'Current Plugins & Runtime'],
   'category.pluginRuntime.detail': ['已统计但不会自动删除', 'Counted, but never removed automatically'],
-  'category.codexCache.title': ['Codex 运行元数据缓存', 'Codex Operational Metadata Cache'],
-  'category.codexCache.detail': ['插件目录、工具定义和服务信息', 'Plugin catalog, tool definitions, and service info'],
+  'category.codexCache.title': ['Codex 可重建缓存', 'Codex Rebuildable Caches'],
+  'category.codexCache.detail': ['可重建；清理后可能需要联网重新获取', 'Rebuildable; clearing may require a network refresh'],
   'category.appCache.title': ['应用缓存', 'App Cache'],
   'category.appCache.detail': ['桌面应用运行缓存', 'Desktop application runtime cache'],
   'category.appLogs.title': ['应用日志', 'Application Logs'],
@@ -121,7 +124,12 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'note.installLeftover': ['安装或更新时留下的目录', 'Folder left behind by an install or update'],
   'note.idleThreeDays': ['超过 3 天没有改动', 'Not modified for over 3 days'],
   'note.helperScratch': ['Codex 辅助程序遗留的临时目录', 'Temporary folder left by a Codex helper process'],
-  'note.codexOperationalCache': ['Codex 使用的插件与工具元数据', 'Plugin and tool metadata used by Codex'],
+  'note.codexOperationalCache': ['冷启动与离线回退缓存', 'Cold-start and offline fallback cache'],
+  'note.remotePluginCatalogCache': ['远程插件全局/用户/工作区目录快照', 'Remote plugin global/user/workspace catalog snapshot'],
+  'note.codexAppsToolsCache': ['Codex Apps 连接器工具定义快照', 'Codex Apps connector tool-definition snapshot'],
+  'note.codexAppDirectoryCache': ['ChatGPT Apps 公共/工作区目录快照', 'ChatGPT Apps public/workspace directory snapshot'],
+  'note.codexAppsServerInfoCache': ['Codex Apps MCP 服务初始化信息快照', 'Codex Apps MCP server initialization-info snapshot'],
+  'note.tuiPetsCache': ['内置 TUI 宠物精灵图、PNG 帧与 SIXEL 渲染缓存', 'Built-in TUI pet spritesheets, PNG frames, and SIXEL render cache'],
   'note.platformCache': ['桌面应用使用的运行缓存', 'Runtime cache used by the desktop application'],
   'note.applicationLog': ['桌面应用日志，由应用自行轮转', 'Desktop application log, rotated by the application itself'],
   'note.logDatabase': ['Codex 诊断日志数据库（含 WAL/SHM）', 'Codex diagnostic log database (including WAL/SHM)'],
@@ -234,7 +242,13 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'auto.failed': ['定时清理失败：{reason}', 'Scheduled cleanup failed: {reason}'],
 
   'menu.file': ['文件', 'File'],
-  'menu.settings': ['设置…', 'Settings…']
+  'menu.settings': ['设置…', 'Settings…'],
+
+  'update.title': ['发现新版本', 'Update Available'],
+  'update.available': ['Clean My Codex {version} 已发布', 'Clean My Codex {version} is available'],
+  'update.detail': ['是否打开下载页面？下载 DMG 后，将新应用拖入“应用程序”并选择替换即可。', 'Open the download page? After downloading the DMG, drag the new app into Applications and choose Replace.'],
+  'update.openRelease': ['前往下载', 'Open Download Page'],
+  'update.later': ['稍后', 'Later']
 }
 
 export function formatMessage(value: Message, language: Language): string {

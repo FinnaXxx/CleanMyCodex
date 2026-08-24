@@ -49,8 +49,11 @@
       entry('plugin-current', 'code-review · 0.5.1', 236 * MiB, { note: 'note.currentPlugin', tags: [['tag.current', 'neutral']], risk: 'shielded', url: `${HOME}/plugins/code-review/0.5.1` }),
       entry('plugin-appserver', '.plugin-appserver', 384 * MiB, { note: 'note.pluginRuntime', tags: [['tag.runtime', 'info']], risk: 'shielded', url: `${HOME}/.plugin-appserver` })
     ] },
-    { kind: 'codexCache', group: 'protectedData', risk: 'shielded', entries: [
-      entry('codex-cache', 'cache', 268 * MiB, { note: 'note.codexOperationalCache', risk: 'shielded', url: `${HOME}/cache` })
+    { kind: 'codexCache', group: 'review', risk: 'rebuildable', entries: [
+      entry('remote-plugin-catalog', 'remote_plugin_catalog', 196 * MiB, { note: 'note.remotePluginCatalogCache', risk: 'rebuildable', stopped: true, url: `${HOME}/cache/remote_plugin_catalog` }),
+      entry('codex-apps-tools', 'codex_apps_tools', 42 * MiB, { note: 'note.codexAppsToolsCache', risk: 'rebuildable', stopped: true, url: `${HOME}/cache/codex_apps_tools` }),
+      entry('codex-app-directory', 'codex_app_directory', 28 * MiB, { note: 'note.codexAppDirectoryCache', risk: 'rebuildable', stopped: true, url: `${HOME}/cache/codex_app_directory` }),
+      entry('codex-apps-server-info', 'codex_apps_server_info', 2 * MiB, { note: 'note.codexAppsServerInfoCache', risk: 'rebuildable', stopped: true, url: `${HOME}/cache/codex_apps_server_info` })
     ] },
     { kind: 'appCache', group: 'protectedData', risk: 'shielded', entries: [
       entry('app-cache-1', 'Codex', 1.62 * GiB, { note: 'note.platformCache', risk: 'shielded', url: '~/Library/Caches/Codex' }),

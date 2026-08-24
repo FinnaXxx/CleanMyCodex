@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, shell, ipcMain, nativeTheme, Notification, type MenuItemConstructorOptions } from 'electron'
+import { app, BrowserWindow, Menu, shell, ipcMain, nativeTheme, Notification, dialog, net, type MenuItemConstructorOptions } from 'electron'
 import { join } from 'node:path'
 import { release } from 'node:os'
 import { rm } from 'node:fs/promises'
@@ -21,6 +21,7 @@ import {
 } from './session-database'
 import { cleanupLogPath, ensureLogDirectory, logCleanup, logDirectory } from './diagnostics'
 import { pluginStorageCategories, scanPluginVersions } from './plugins'
+import { newerReleaseVersion } from './release-update'
 import {
   appendAutomationLog,
   applyAutomationSettings,
@@ -68,6 +69,10 @@ let scanWorker: Worker | null = null
 let scanController: AbortController | null = null
 let scanRevision = 0
 const cancelledWorkers = new WeakSet<Worker>()
+let checkedForUpdates = false
+
+const LatestReleaseAPI = 'https://api.github.com/repos/FinnaXxx/CleanMyCodex/releases/latest'
+const LatestReleasePage = 'https://github.com/FinnaXxx/CleanMyCodex/releases/latest'
 
 ipcMain.handle('app:info', () => {
   const environment = codexEnvironment()
@@ -501,7 +506,10 @@ function createWindow(): void {
     }
   })
   blockDeveloperTools(mainWindow)
-  mainWindow.on('ready-to-show', () => mainWindow?.show())
+  mainWindow.on('ready-to-show', () => {
+    mainWindow?.show()
+    void checkForUpdates()
+  })
   nativeTheme.on('updated', () => mainWindow?.setBackgroundColor(windowBackdrop()))
   mainWindow.on('closed', () => { mainWindow = null })
   mainWindow.webContents.setWindowOpenHandler(({ url }) => { void openExternalWebURL(url); return { action: 'deny' } })
@@ -511,6 +519,56 @@ function createWindow(): void {
   })
   if (process.env['ELECTRON_RENDERER_URL']) void mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   else void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+}
+
+/**
+ * Checks only public release metadata and sends the user to GitHub to install manually.
+ * A private repository returns 404 here; that is expected until the project is public.
+ */
+async function checkForUpdates(): Promise<void> {
+  if (checkedForUpdates || process.platform !== 'darwin' || !app.isPackaged || !mainWindow) return
+  checkedForUpdates = true
+
+  try {
+    const response = await net.fetch(LatestReleaseAPI, {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28'
+      },
+      signal: AbortSignal.timeout(10_000)
+    })
+    if (response.status === 404) return
+    if (!response.ok) {
+      logCleanup(`update check failed: GitHub returned HTTP ${response.status}`)
+      return
+    }
+
+    const body = await response.json() as { tag_name?: unknown }
+    if (typeof body.tag_name !== 'string') {
+      logCleanup('update check failed: latest release has no tag_name')
+      return
+    }
+    const version = newerReleaseVersion(app.getVersion(), body.tag_name)
+    if (!version || !mainWindow) return
+
+    const language = loadUILanguage()
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      title: formatMessage(message('update.title'), language),
+      message: formatMessage(message('update.available', { version }), language),
+      detail: formatMessage(message('update.detail'), language),
+      buttons: [
+        formatMessage(message('update.openRelease'), language),
+        formatMessage(message('update.later'), language)
+      ],
+      defaultId: 0,
+      cancelId: 1
+    })
+    if (result.response === 0) await openExternalWebURL(LatestReleasePage)
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    logCleanup(`update check failed: ${reason}`)
+  }
 }
 
 async function openExternalWebURL(value: string): Promise<void> {

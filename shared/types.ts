@@ -40,7 +40,7 @@ export const StorageKindSection: Record<StorageKind, StorageSection> = {
   pluginRemnants: 'plugins',
   pluginOrphans: 'plugins',
   pluginRuntime: 'plugins',
-  codexCache: 'protectedData',
+  codexCache: 'caches',
   appCache: 'protectedData',
   appLogs: 'logs',
   computerUse: 'plugins',

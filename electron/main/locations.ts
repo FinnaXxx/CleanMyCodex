@@ -14,6 +14,23 @@ const CACHE_DIRECTORY_NAMES = [
   'GraphiteDawnCache'
 ]
 
+/** Rebuildable cache leaves currently defined by the Codex sources. */
+const CODEX_CACHE_DIRECTORY_NAMES = [
+  'remote_plugin_catalog',
+  'codex_apps_server_info',
+  'codex_apps_tools',
+  'codex_app_directory',
+  'tui-pets'
+]
+
+/**
+ * Known cache leaves inside `~/.codex/cache`. The container is deliberately absent:
+ * future Codex versions may add live state beside these rebuildable directories.
+ */
+export function codexCacheDirectories(container: string, path = { join }): string[] {
+  return CODEX_CACHE_DIRECTORY_NAMES.map((name) => path.join(container, name))
+}
+
 /**
  * The cache directories inside one application cache container, and inside its `Default`
  * profile. Never the container itself: an application's cache directory is its own
@@ -93,6 +110,8 @@ export class CodexLocations {
   get pluginRuntime(): string { return join(this.plugins, '.plugin-appserver') }
   get temporary(): string { return join(this.home, '.tmp') }
   get codexCache(): string { return join(this.home, 'cache') }
+  /** Recognized rebuildable leaves; the cache container itself stays protected. */
+  get codexCaches(): string[] { return codexCacheDirectories(this.codexCache) }
   /** Where Codex unpacks the marketplace that ships with the release. Scratch-looking,
    *  but live: config.toml registers it as the `openai-bundled` marketplace source. */
   get bundledMarketplaces(): string { return join(this.temporary, 'bundled-marketplaces') }

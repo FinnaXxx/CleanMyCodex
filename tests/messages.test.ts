@@ -51,7 +51,8 @@ describe('shared message table', () => {
       'electron/main/scanner.ts', 'electron/main/cleanup.ts', 'electron/main/planner.ts',
       'electron/main/plugins.ts', 'electron/main/platform-services.ts', 'electron/main/automation.ts',
       'electron/main/index.ts', 'electron/main/worker.ts', 'electron/main/app-server.ts',
-      'electron/main/session-database.ts', 'electron/main/guard.ts', 'shared/types.ts'
+      'electron/main/session-database.ts', 'electron/main/guard.ts', 'electron/main/release-update.ts',
+      'shared/types.ts'
     ]
     for (const file of files) {
       const body = readFileSync(join(root, file), 'utf8')

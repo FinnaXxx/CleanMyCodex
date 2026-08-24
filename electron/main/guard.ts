@@ -14,8 +14,9 @@ function outermost(paths: string[]): string[] {
 /**
  * The allow/deny list that every deletion goes through. Deny-by-default: a path must sit
  * inside one of the Codex data roots and must not match a protected entry. Writable roots
- * themselves are always denied. Desktop data outside ~/.codex is stricter still: both
- * the App Support profile and platform cache containers are entirely read-only.
+ * themselves are always denied. The only exception below a protected container is an
+ * exact, source-known Codex cache leaf. Desktop data outside ~/.codex is stricter still:
+ * both the App Support profile and platform cache containers are entirely read-only.
  */
 export class ProtectedPaths {
   private readonly locations: CodexLocations
@@ -207,6 +208,12 @@ export class ProtectedPaths {
 
   isProtected(url: string): boolean {
     const target = this.canonical(url)
+    // `~/.codex/cache` is a protected container. Only exact, source-known cache leaves
+    // may be removed; unknown siblings and forged descendants remain deny-by-default.
+    const codexCache = this.canonical(this.locations.codexCache)
+    const knownCodexCaches = this.locations.codexCaches.map((path) => this.canonical(path))
+    if (knownCodexCaches.includes(target)) return false
+    if (ProtectedPaths.contains(codexCache, target) || ProtectedPaths.contains(target, codexCache)) return true
     if (this.protectedURLs.map((path) => this.canonical(path)).some((p) => ProtectedPaths.contains(p, target) || ProtectedPaths.contains(target, p))) return true
     // state_*.sqlite, history.jsonl … directly inside ~/.codex.
     const parent = normalize(target + '/..')

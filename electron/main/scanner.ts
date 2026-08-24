@@ -21,6 +21,14 @@ const TEMPORARY_STAGING_PREFIXES = ['plugins-clone-', 'plugins-backup-']
 /** How long a staging directory must sit untouched before it counts as abandoned. */
 const STAGING_IDLE_SECONDS = 86_400
 
+const CODEX_CACHE_NOTES: Record<string, MessageKey> = {
+  remote_plugin_catalog: 'note.remotePluginCatalogCache',
+  codex_apps_tools: 'note.codexAppsToolsCache',
+  codex_app_directory: 'note.codexAppDirectoryCache',
+  codex_apps_server_info: 'note.codexAppsServerInfoCache',
+  'tui-pets': 'note.tuiPetsCache'
+}
+
 function entryExists(path: string): boolean {
   try {
     statSync(path)
@@ -196,12 +204,16 @@ export async function scanSnapshot(
   categories.push(category('temporary', 'recommended', 'safe', staleTemporary))
   await yieldToEventLoop()
 
-  const codexCacheEntries = [locations.codexCache]
+  const codexCacheEntries = locations.codexCaches
     .filter(entryExists)
-    .map((path) => entry(cacheTitle(path, locations), 'note.codexOperationalCache', path, measure(path, 'stage.caches', 0.15), 'shielded', {
+    .map((path) => entry(relativeTo(locations.codexCache, path),
+      CODEX_CACHE_NOTES[basename(path)] ?? 'note.codexOperationalCache', path,
+      measure(path, 'stage.caches', 0.15), 'rebuildable', {
       requiresCodexStopped: true
     }))
-  categories.push(category('codexCache', 'protectedData', 'shielded', codexCacheEntries))
+  // These are safe to rebuild but useful for cold start and offline fallback, so expose
+  // them for manual selection without preselecting or scheduling them.
+  categories.push(category('codexCache', 'review', 'rebuildable', codexCacheEntries))
   await yieldToEventLoop()
 
   const appCacheEntries = locations.appCaches
@@ -277,7 +289,12 @@ export async function scanSnapshot(
   }
   let homeEntries: string[] = []
   try { homeEntries = readdirSync(locations.home) } catch { /* missing home */ }
-  for (const db of homeEntries.filter((name) => !name.startsWith('thread_history_') && ProtectedPaths.protectedHomePrefixes.some((prefix) => name.startsWith(prefix)))) {
+  // Log and session databases already have dedicated categories above. Exclude their
+  // main files and sidecars here so the same storage is not displayed twice.
+  for (const db of homeEntries.filter((name) =>
+    !name.startsWith('logs_') &&
+    !name.startsWith('thread_history_') &&
+    ProtectedPaths.protectedHomePrefixes.some((prefix) => name.startsWith(prefix)))) {
     const path = join(locations.home, db)
     protectedConfigEntries.push(entry(db, 'note.stateDatabase', path, fileAllocatedSize(path), 'shielded'))
   }

@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
 import { snapshotFoundNothing, type ScanProgress } from '../shared/types'
-import { CodexLocations, appCacheDirectories } from '../electron/main/locations'
+import { CodexLocations, appCacheDirectories, codexCacheDirectories } from '../electron/main/locations'
 import { outermostStorageRoots, scanSnapshot } from '../electron/main/scanner'
 
 const roots: string[] = []
@@ -77,6 +77,10 @@ describe('storage scanner semantics', () => {
     write(join(locations.generatedImages, thread, 'active.png'))
     write(join(locations.computerUse, 'helper.bin'))
     write(join(locations.pluginRuntime, 'codex'))
+    const logDatabase = join(locations.home, 'logs_2.sqlite')
+    write(logDatabase)
+    write(`${logDatabase}-wal`)
+    write(`${logDatabase}-shm`)
     write(join(locations.home, 'thread_history_1.sqlite'))
     write(join(locations.home, 'thread_history_1.sqlite-wal'))
     write(join(locations.appSupport, 'Default', 'Cookies'))
@@ -84,7 +88,9 @@ describe('storage scanner semantics', () => {
     write(join(locations.appSupport, 'Cache', 'cache.bin'))
     write(join(locations.appSupport, 'GraphiteDawnCache', 'cache.bin'))
     write(join(locations.appSupport, 'WasmTtsEngine', 'engine.bin'))
-    write(join(locations.codexCache, 'cache.bin'))
+    for (const cache of locations.codexCaches) write(join(cache, 'cache.bin'))
+    const unknownCodexCache = join(locations.codexCache, 'future-runtime-state')
+    write(join(unknownCodexCache, 'state.bin'))
     write(join(locations.appCaches[0], 'cache.bin'))
     write(join(locations.home, 'attachments', 'attachment.bin'))
     write(join(locations.home, 'goals_1.sqlite'))
@@ -100,6 +106,12 @@ describe('storage scanner semantics', () => {
     expect(logs?.entries.map((entry) => entry.url)).toEqual([locations.appLogs])
     expect(logs?.entries[0].bytes).toBeGreaterThan(0)
     expect(snapshot.categories.flatMap((category) => category.entries).some((entry) => entry.url === oldLog)).toBe(false)
+    const logDatabases = snapshot.categories.find((category) => category.kind === 'logDatabase')
+    expect(logDatabases?.entries).toMatchObject([{ url: logDatabase, bytes: 24_576 }])
+    const protectedConfigURLs = snapshot.categories.find((category) => category.kind === 'protectedConfig')?.entries.map((entry) => entry.url) ?? []
+    expect(protectedConfigURLs).not.toContain(logDatabase)
+    expect(protectedConfigURLs).not.toContain(`${logDatabase}-wal`)
+    expect(protectedConfigURLs).not.toContain(`${logDatabase}-shm`)
 
     const temporary = snapshot.categories.find((category) => category.kind === 'temporary')
     expect(temporary?.entries.map((entry) => entry.url)).not.toContain(stale)
@@ -119,8 +131,18 @@ describe('storage scanner semantics', () => {
     expect(displayedURLs).not.toContain(join(locations.appSupport, 'Cache'))
     expect(displayedURLs).not.toContain(join(locations.appSupport, 'GraphiteDawnCache'))
     const codexCache = snapshot.categories.find((category) => category.kind === 'codexCache')
-    expect(codexCache).toMatchObject({ group: 'protectedData', risk: 'shielded' })
-    expect(codexCache?.entries.some((entry) => entry.url === locations.codexCache)).toBe(true)
+    expect(codexCache).toMatchObject({ group: 'review', risk: 'rebuildable' })
+    expect(new Set(codexCache?.entries.map((entry) => entry.url))).toEqual(new Set(locations.codexCaches))
+    expect(Object.fromEntries(codexCache?.entries.map((entry) => [entry.title, entry.note?.key]) ?? [])).toEqual({
+      remote_plugin_catalog: 'note.remotePluginCatalogCache',
+      codex_apps_tools: 'note.codexAppsToolsCache',
+      codex_app_directory: 'note.codexAppDirectoryCache',
+      codex_apps_server_info: 'note.codexAppsServerInfoCache',
+      'tui-pets': 'note.tuiPetsCache'
+    })
+    expect(codexCache?.entries.every((entry) => entry.requiresCodexStopped)).toBe(true)
+    expect(codexCache?.entries.some((entry) => entry.url === locations.codexCache)).toBe(false)
+    expect(codexCache?.entries.some((entry) => entry.url === unknownCodexCache)).toBe(false)
     const appCache = snapshot.categories.find((category) => category.kind === 'appCache')
     expect(appCache).toMatchObject({ group: 'protectedData', risk: 'shielded' })
     expect(appCache?.entries.some((entry) => entry.url === locations.codexCache)).toBe(false)
@@ -186,5 +208,17 @@ describe('storage scanner semantics', () => {
       expect(locations.appCaches).not.toContain(container)
       expect(locations.writableRoots).toContain(container)
     }
+  })
+
+  it('derives only source-known leaves from the Codex cache container', () => {
+    const container = 'C:\\Users\\test\\.codex\\cache'
+    expect(codexCacheDirectories(container, win32)).toEqual([
+      `${container}\\remote_plugin_catalog`,
+      `${container}\\codex_apps_server_info`,
+      `${container}\\codex_apps_tools`,
+      `${container}\\codex_app_directory`,
+      `${container}\\tui-pets`
+    ])
+    expect(codexCacheDirectories(container, win32)).not.toContain(container)
   })
 })

@@ -38,6 +38,21 @@ describe('cleanup engine', () => {
     expect(existsSync(target)).toBe(true)
   })
 
+  it('removes an exact source-known Codex cache leaf while preserving the container boundary', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-cleanup-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const target = locations.codexCaches[0]
+    mkdirSync(target, { recursive: true }); writeFileSync(join(target, 'catalog.json'), Buffer.alloc(8192))
+    const task: CleanupTask = { id: target, title: 'remote_plugin_catalog', detail: target, url: target, expectedBytes: 8192, threadID: null, companionURLs: [], minimumIdleSeconds: null, requiresCodexStopped: true }
+    const report = await runCleanup([task], new ProtectedPaths(locations), {
+      remove: async (path) => rmSync(path, { recursive: true, force: true }), isCodexRunning: () => false
+    })
+
+    expect(report.outcomes[0].status.kind).toBe('succeeded')
+    expect(existsSync(target)).toBe(false)
+    expect(existsSync(locations.codexCache)).toBe(true)
+  })
+
   it('refuses a whole application cache container and leaves it in place', async () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-cleanup-')); roots.push(root)
     const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })

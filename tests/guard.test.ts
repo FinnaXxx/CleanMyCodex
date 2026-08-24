@@ -70,6 +70,22 @@ describe('cleanup path guard', () => {
     }
   })
 
+  it('allows only exact source-known leaves inside the Codex cache container', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const guard = new ProtectedPaths(locations)
+    for (const cache of locations.codexCaches) {
+      mkdirSync(cache, { recursive: true })
+      expect(guard.isProtected(cache), cache).toBe(false)
+      expect(() => guard.validate(cache), cache).not.toThrow()
+      expect(rejection(() => guard.validate(join(cache, 'forged-child'))), cache).toBe('guard.protectedPath')
+    }
+    const unknown = join(locations.codexCache, 'future-runtime-state')
+    mkdirSync(unknown, { recursive: true })
+    expect(rejection(() => guard.validate(locations.codexCache))).toBe('guard.protectedPath')
+    expect(rejection(() => guard.validate(unknown))).toBe('guard.protectedPath')
+  })
+
   it('allows explicitly selected workspace children but never the workspace root', () => {
     const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-guard-')); roots.push(root)
     const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
