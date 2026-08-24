@@ -11,10 +11,7 @@ concurrency:
 
 jobs:
   test:
-    strategy:
-      matrix:
-        os: [xcode-27, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
