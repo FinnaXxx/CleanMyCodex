@@ -23,7 +23,7 @@ function folder(path: string, children: WorkspaceFolder[] = []): WorkspaceFolder
 function worktree(id: string, overrides: Partial<WorktreeItem> = {}): WorktreeItem {
   return {
     id, path: id, projectPath: `${id}/app`, project: 'app', repositoryPath: '/repos/app',
-    branch: 'main', status: 'managed', state: 'clean', isOrphaned: false,
+    branch: 'main', headCommit: null, status: 'managed', state: 'clean', isOrphaned: false,
     bytes: 500, artifactBytes: 400, modifiedAt: 0, sourceThreads: [], ...overrides
   }
 }

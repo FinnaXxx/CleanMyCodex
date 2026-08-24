@@ -193,7 +193,8 @@ function App() {
         {page === 'overview' && <OverviewView snapshot={snapshot} appInfo={appInfo} cleaning={cleaning}
           actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup}
           onOpenSessions={() => navigate('sessions')} onOpenSuggestedSessions={openSuggestedSessions}
-          onOpenGeneratedAssets={() => navigate('generatedAssets')} onOpenWorkspace={() => navigate('workspace')} onRescan={runScan} />}
+          onOpenGeneratedAssets={() => navigate('generatedAssets')} onOpenWorkspace={() => navigate('workspace')}
+          onOpenWorktrees={() => navigate('worktrees')} onRescan={runScan} />}
         {page === 'sessions' && <SessionsView snapshot={snapshot} cleaning={cleaning} actionsDisabled={!!progress}
           cleanProgress={cleanProgress} onCleanup={requestCleanup} initialSelection={sessionInitialSelection} />}
         {page === 'generatedAssets' && <GeneratedAssetsView snapshot={snapshot} cleaning={cleaning} actionsDisabled={!!progress}

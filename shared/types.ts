@@ -313,6 +313,8 @@ export interface WorktreeItem {
   repositoryPath: string | null
   /** Branch checked out here, or null when detached or unreadable. */
   branch: string | null
+  /** Short commit a detached HEAD sits on, which is how Codex checks a worktree out. */
+  headCommit: string | null
   status: WorktreeStatus
   state: WorkspaceRepositoryState
   /** True when the `.git` pointer no longer resolves to a repository. */

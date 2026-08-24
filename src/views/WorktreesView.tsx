@@ -96,7 +96,9 @@ function WorktreeRow({ worktree, checked, onToggle }: { worktree: WorktreeItem; 
     <div className="grow">
       <strong>{name}{extraThreads > 0 && <span className="muted"> {t(`+${extraThreads} 个会话`, `+${extraThreads} conversations`)}</span>}</strong>
       <small>
-        <code>{worktree.branch ?? t('游离 HEAD', 'detached HEAD')}</code>
+        <code>{worktree.branch ?? (worktree.headCommit
+          ? t(`游离 HEAD · ${worktree.headCommit}`, `detached at ${worktree.headCommit}`)
+          : t('游离 HEAD', 'detached HEAD'))}</code>
         {worktree.artifactBytes > 0 && t(` · 构建产物 ${formatBytes(worktree.artifactBytes)}`, ` · ${formatBytes(worktree.artifactBytes)} build output`)}
         {worktree.status === 'unmanaged' && <span className="pill status-unconfirmed">{m(message('tag.unmanagedWorktree'))}</span>}
         {worktree.isOrphaned && <span className="pill status-orphaned">{m(message('tag.orphanedWorktree'))}</span>}

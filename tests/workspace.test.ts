@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { isSystemJunk, scanWorkspace } from '../electron/main/workspace'
+import { spawnSync } from 'node:child_process'
+import { gitState, isSystemJunk, scanWorkspace } from '../electron/main/workspace'
 import { workspaceBytes, workspaceDeletionTargets } from '../shared/types'
 
 const roots: string[] = []
@@ -119,5 +120,77 @@ describe('workspace scanner', () => {
     const excluding = scanWorkspace(root, undefined, [], [worktreeRoot])
     expect(excluding.entries.map((entry) => entry.name)).toEqual(['2026-08-22'])
     expect(workspaceBytes(excluding)).toBeLessThan(workspaceBytes(including))
+  })
+})
+
+/**
+ * Real repositories, because what is under test is how git answers — a fake `.git` would
+ * only prove the assertions match the fixture.
+ */
+describe('git state of a checkout', () => {
+  const git = (cwd: string, ...args: string[]) =>
+    spawnSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } })
+
+  /** A repository with one pushed commit, its own bare `origin`, and a second commit that
+   *  stays local. Returns both SHAs so a test can check out either one detached. */
+  function repository(options: { withRemote?: boolean } = {}): { path: string; pushed: string; local: string } {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-gitstate-')); roots.push(root)
+    const path = join(root, 'work')
+    mkdirSync(path, { recursive: true })
+    git(path, 'init', '--quiet', '--initial-branch=main')
+    git(path, 'config', 'user.email', 'test@example.com')
+    git(path, 'config', 'user.name', 'Test')
+    writeFileSync(join(path, 'README.md'), 'first')
+    git(path, 'add', '.')
+    git(path, 'commit', '--quiet', '-m', 'first')
+    const pushed = git(path, 'rev-parse', 'HEAD').stdout.trim()
+
+    if (options.withRemote !== false) {
+      const origin = join(root, 'origin.git')
+      git(root, 'init', '--quiet', '--bare', origin)
+      git(path, 'remote', 'add', 'origin', origin)
+      git(path, 'push', '--quiet', '-u', 'origin', 'main')
+    }
+
+    writeFileSync(join(path, 'README.md'), 'second')
+    git(path, 'commit', '--quiet', '-am', 'second')
+    const local = git(path, 'rev-parse', 'HEAD').stdout.trim()
+    git(path, 'checkout', '--quiet', 'main')
+    git(path, 'reset', '--hard', '--quiet', pushed)
+    return { path, pushed, local }
+  }
+
+  it('calls a detached checkout of a pushed commit synced, not unpushed', () => {
+    // The case a Codex worktree lands in: checked out detached, nothing changed. It has
+    // no upstream to compare against, but every commit in it is already on the remote.
+    const repo = repository()
+    git(repo.path, 'checkout', '--quiet', '--detach', repo.pushed)
+    expect(git(repo.path, 'rev-parse', '--abbrev-ref', 'HEAD').stdout.trim()).toBe('HEAD')
+    expect(gitState(repo.path)).toBe('clean')
+  })
+
+  it('still calls a detached checkout of a commit nobody pushed unpushed', () => {
+    const repo = repository()
+    git(repo.path, 'checkout', '--quiet', '--detach', repo.local)
+    expect(gitState(repo.path)).toBe('unpushed')
+  })
+
+  it('calls a branch without an upstream synced when its commit is already on the remote', () => {
+    const repo = repository()
+    git(repo.path, 'checkout', '--quiet', '-b', 'no-upstream', repo.pushed)
+    expect(git(repo.path, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}').status).not.toBe(0)
+    expect(gitState(repo.path)).toBe('clean')
+  })
+
+  it('calls everything unpushed in a repository that has no remote at all', () => {
+    const repo = repository({ withRemote: false })
+    expect(gitState(repo.path)).toBe('unpushed')
+  })
+
+  it('still reports uncommitted work first, whatever the branch situation is', () => {
+    const repo = repository()
+    git(repo.path, 'checkout', '--quiet', '--detach', repo.pushed)
+    writeFileSync(join(repo.path, 'README.md'), 'edited')
+    expect(gitState(repo.path)).toBe('dirty')
   })
 })

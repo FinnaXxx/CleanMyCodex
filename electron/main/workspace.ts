@@ -12,10 +12,21 @@ export function gitState(path: string): WorkspaceRepositoryState {
   if (status.status !== 0 || status.error) return 'unknown'
   if (status.stdout.trim()) return 'dirty'
   const upstream = run(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'])
-  if (upstream.status !== 0 || !upstream.stdout.trim()) return 'unpushed'
-  const ahead = run(['rev-list', '--count', '@{upstream}..HEAD'])
-  if (ahead.status !== 0) return 'unknown'
-  return Number(ahead.stdout.trim()) > 0 ? 'unpushed' : 'clean'
+  if (upstream.status === 0 && upstream.stdout.trim()) {
+    const ahead = run(['rev-list', '--count', '@{upstream}..HEAD'])
+    if (ahead.status !== 0) return 'unknown'
+    return Number(ahead.stdout.trim()) > 0 ? 'unpushed' : 'clean'
+  }
+  // No upstream to compare against: a detached HEAD, or a branch nobody set one on. What
+  // matters is still whether these commits exist anywhere else, so ask that directly
+  // rather than reading a missing upstream as work that was never pushed. A Codex
+  // worktree is checked out detached, so treating it the other way marked every one of
+  // them as unpushed the moment it appeared — including one that had never been touched.
+  // Counting stops at the first commit found, and a repository with no remotes at all
+  // excludes nothing, which correctly leaves everything in it unpushed.
+  const unpushed = run(['rev-list', '--count', '--max-count=1', 'HEAD', '--not', '--remotes'])
+  if (unpushed.status !== 0) return 'unknown'
+  return Number(unpushed.stdout.trim()) > 0 ? 'unpushed' : 'clean'
 }
 
 /** Each repository costs up to three git subprocesses, so a scan inspects at most this

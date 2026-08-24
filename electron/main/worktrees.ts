@@ -41,6 +41,9 @@ export interface WorktreeAdmin {
   /** Working tree root of the repository this worktree belongs to. */
   repositoryPath: string | null
   branch: string | null
+  /** Short commit HEAD sits on when it is detached. Codex checks a worktree out that
+   *  way, so this is what identifies most of them; null once a branch is checked out. */
+  headCommit: string | null
   /** Thread that owns this worktree, from the marker file. */
   ownerThreadID: string | null
   isCodexManaged: boolean
@@ -78,6 +81,9 @@ export function readWorktreeAdmin(projectPath: string): WorktreeAdmin | null {
 
   const head = readFile(join(adminPath, 'HEAD'))?.trim() ?? ''
   const branch = head.startsWith('ref: refs/heads/') ? head.slice('ref: refs/heads/'.length) : null
+  // A detached HEAD holds the commit itself rather than a ref to a branch.
+  // 40 hex for a SHA-1 repository, 64 for a SHA-256 one.
+  const headCommit = !branch && /^([0-9a-f]{40}|[0-9a-f]{64})$/i.test(head) ? head.slice(0, 7) : null
 
   const marker = readFile(join(adminPath, CODEX_MARKER_FILE))
   let ownerThreadID: string | null = null
@@ -95,6 +101,7 @@ export function readWorktreeAdmin(projectPath: string): WorktreeAdmin | null {
     adminPath,
     repositoryPath: repositoryRoot(adminPath),
     branch,
+    headCommit,
     ownerThreadID,
     isCodexManaged: marker !== null
   }
@@ -271,6 +278,7 @@ function describe(worktreeDirectory: string, budget: { value: number }): Describ
       project: basename(checkout),
       repositoryPath: admin?.repositoryPath ?? null,
       branch: admin?.branch ?? null,
+      headCommit: admin?.headCommit ?? null,
       status,
       // A worktree whose repository is gone has no upstream to compare against, so asking
       // git about it would only ever answer `unknown` at the cost of a subprocess.

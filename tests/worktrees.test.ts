@@ -28,6 +28,8 @@ function buildWorktree(base: string, options: {
   project: string
   managed?: boolean
   branch?: string
+  /** Writes a bare sha into HEAD, which is how Codex leaves a worktree it checked out. */
+  detachedAt?: string
   threadID?: string
   /** Leaves the repository out, as if the user deleted or moved it. */
   withoutRepository?: boolean
@@ -37,7 +39,9 @@ function buildWorktree(base: string, options: {
   const checkout = join(options.root, options.id, options.project)
   mkdirSync(checkout, { recursive: true })
   mkdirSync(admin, { recursive: true })
-  writeFileSync(join(admin, 'HEAD'), `ref: refs/heads/${options.branch ?? 'main'}\n`)
+  writeFileSync(join(admin, 'HEAD'), options.detachedAt
+    ? `${options.detachedAt}\n`
+    : `ref: refs/heads/${options.branch ?? 'main'}\n`)
   writeFileSync(join(admin, 'commondir'), '../..\n')
   writeFileSync(join(admin, 'gitdir'), `${join(checkout, '.git')}\n`)
   if (options.managed !== false) {
@@ -65,6 +69,26 @@ describe('Codex worktrees', () => {
     expect(admin?.branch).toBe('feature/x')
     expect(admin?.ownerThreadID).toBe('thread-9')
     expect(admin?.isCodexManaged).toBe(true)
+  })
+
+  it('names the commit a detached worktree sits on, since that is all it has', () => {
+    const base = temporaryRoot()
+    const root = join(base, '.codex', 'worktrees')
+    const sha = 'e4594860f1a2b3c4d5e6f70819a2b3c4d5e6f708'
+    const built = buildWorktree(base, { root, id: 'a072', project: 'CleanMyCodex', detachedAt: sha })
+    const admin = readWorktreeAdmin(built.checkout)
+    expect(admin?.branch).toBeNull()
+    expect(admin?.headCommit).toBe('e459486')
+    expect(scanWorktrees([root])[0].headCommit).toBe('e459486')
+  })
+
+  it('leaves the commit out once a branch is checked out', () => {
+    const base = temporaryRoot()
+    const root = join(base, '.codex', 'worktrees')
+    const built = buildWorktree(base, { root, id: 'b073', project: 'on-branch', branch: 'work' })
+    const admin = readWorktreeAdmin(built.checkout)
+    expect(admin?.branch).toBe('work')
+    expect(admin?.headCommit).toBeNull()
   })
 
   it('reads an ordinary repository as no worktree at all', () => {

@@ -54,6 +54,7 @@
   --tone-6: #758095;
   --tone-7: #b4bac7;
   --tone-8: #d75b50;
+  --tone-9: #4a8f4f;
   --radius-lg: 16px;
   --radius: 11px;
   --radius-sm: 7px;
@@ -120,6 +121,7 @@
     --tone-6: #929caf;
     --tone-7: #656d7c;
     --tone-8: #ee7d72;
+    --tone-9: #6cad70;
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.34);
     --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 28px -20px rgba(0, 0, 0, 0.9);
     --shadow-md: 0 10px 30px -14px rgba(0, 0, 0, 0.7);
@@ -181,6 +183,7 @@
   --tone-6: #929caf;
   --tone-7: #656d7c;
   --tone-8: #ee7d72;
+  --tone-9: #6cad70;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.34);
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 28px -20px rgba(0, 0, 0, 0.9);
   --shadow-md: 0 10px 30px -14px rgba(0, 0, 0, 0.7);
@@ -455,6 +458,7 @@ progress { width: 100%; height: 5px; border-radius: 3px; overflow: hidden; }
 .distribution-tone-logs { background: var(--tone-4); }
 .distribution-tone-plugins { background: var(--tone-5); }
 .distribution-tone-protectedData { background: var(--tone-6); }
+.distribution-tone-worktrees { background: var(--tone-9); }
 .distribution-tone-other { background: var(--tone-7); }
 .distribution-legend {
   display: flex;
@@ -517,6 +521,7 @@ progress { width: 100%; height: 5px; border-radius: 3px; overflow: hidden; }
 .section-sessions { --section-tone: var(--tone-2); }
 .section-generatedAssets { --section-tone: var(--tone-8); }
 .section-workspace { --section-tone: var(--tone-1); }
+.section-worktrees { --section-tone: var(--tone-9); }
 /* The sidebar glyph reused as a section icon takes the section's tone, not the sidebar's grey. */
 .section-icon .nav-glyph { width: 16px; height: 16px; color: inherit; }
 .card, .panel {

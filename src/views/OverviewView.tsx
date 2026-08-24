@@ -18,6 +18,7 @@ import {
   sessionMatchesSuggestedArchivePreset,
   snapshotFoundNothing,
   snapshotGeneratedAssetBytes,
+  snapshotWorktreeBytes,
   snapshotSessionBytes,
   workspaceBytes,
   formatBytes
@@ -38,10 +39,11 @@ interface Props {
   onOpenSuggestedSessions: () => void
   onOpenGeneratedAssets: () => void
   onOpenWorkspace: () => void
+  onOpenWorktrees: () => void
   onRescan: () => void
 }
 
-export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisabled, cleanProgress, onCleanup, onOpenSessions, onOpenSuggestedSessions, onOpenGeneratedAssets, onOpenWorkspace, onRescan }: Props) {
+export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisabled, cleanProgress, onCleanup, onOpenSessions, onOpenSuggestedSessions, onOpenGeneratedAssets, onOpenWorkspace, onOpenWorktrees, onRescan }: Props) {
   const { t, m, locale } = usePreferences()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [expanded, setExpanded] = useState<Set<StorageKind>>(new Set())
@@ -59,7 +61,9 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
   const generatedAssetTotalBytes = snapshotGeneratedAssetBytes(snapshot)
   const generatedAssetCount = snapshot.generatedAssets.length
   const workspaceTotalBytes = workspaceBytes(snapshot.workspace)
-  const manualSelectionTarget = sessionCount > 0 ? 'sessions' : workspaceTotalBytes > 0 ? 'workspace' : generatedAssetCount > 0 ? 'generatedAssets' : null
+  const worktreeCount = (snapshot.worktrees ?? []).length
+  const worktreeTotalBytes = snapshotWorktreeBytes(snapshot)
+  const manualSelectionTarget = sessionCount > 0 ? 'sessions' : workspaceTotalBytes > 0 ? 'workspace' : generatedAssetCount > 0 ? 'generatedAssets' : worktreeCount > 0 ? 'worktrees' : null
 
   /** Sections are content types; whether an item is worth cleaning shows up per row. */
   const sections = useMemo(() => StorageSectionOrder.map((section) => ({
@@ -126,6 +130,8 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
       onOpenGeneratedAssets()
     } else if (manualSelectionTarget === 'workspace') {
       onOpenWorkspace()
+    } else if (manualSelectionTarget === 'worktrees') {
+      onOpenWorktrees()
     }
   }
 
@@ -236,6 +242,17 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
           : t('尚未完成统计，重新扫描后可查看', 'Not measured yet; scan again to see it')}
         value={snapshot.workspace.isScanned ? formatBytes(workspaceTotalBytes) : '—'}
         onOpen={onOpenWorkspace}
+      />
+
+      <PageSection
+        glyph="worktrees"
+        title={t('Worktree', 'Worktrees')}
+        bytes={worktreeTotalBytes}
+        rowDetail={worktreeCount
+          ? t(`${worktreeCount} 个 worktree，在 Worktree 页删除`, `${worktreeCount} worktrees, picked on the Worktrees page`)
+          : t('没有扫描到 Codex worktree', 'No Codex worktrees found')}
+        value={worktreeCount ? formatBytes(worktreeTotalBytes) : '—'}
+        onOpen={onOpenWorktrees}
       />
 
       <PageSection
