@@ -153,7 +153,7 @@ describe('trusted cleanup planner', () => {
     const tasks = buildTrustedTasks(selection, snap, snap.workspace)
     const preview = makeCleanupPreview(selection, tasks, {
       running: true, detectionKnown: true, desktopRunning: false,
-      cliCommands: ['codex'], canRestart: false, blockers: [message('blocker.cliRunning', { count: 1 })]
+      cliCommands: ['codex'], canQuit: false, blockers: [message('blocker.cliRunning', { count: 1 })]
     })
     expect(preview.blockers.map((item) => item.key)).toEqual(['blocker.cliRunning'])
     expect(preview.blockedTitles).toEqual(['active'])
@@ -168,7 +168,7 @@ describe('trusted cleanup planner', () => {
     expect(tasks[0].title).toBe('active')
     const preview = makeCleanupPreview(selection, tasks, {
       running: false, detectionKnown: true, desktopRunning: false,
-      cliCommands: [], canRestart: false, blockers: []
+      cliCommands: [], canQuit: false, blockers: []
     }, snap)
     expect(preview.warnings).toContainEqual(message('warning.generatedAssetLocalCopy'))
   })
@@ -249,7 +249,7 @@ describe('automatic cleanup planner', () => {
     expect(tasks.map((task) => task.threadID)).toEqual(['pinned', 'ordinary'])
     const preview = makeCleanupPreview(selection, tasks, {
       running: false, detectionKnown: true, desktopRunning: false,
-      cliCommands: [], canRestart: false, blockers: []
+      cliCommands: [], canQuit: false, blockers: []
     }, snap)
     expect(preview.warnings).toContainEqual(message('warning.pinnedSessions', { count: 1 }))
   })
@@ -294,7 +294,7 @@ describe('automatic cleanup planner', () => {
       kind: 'worktrees', ids: [snap.worktrees[0].id], deleteRelatedSessions: true
     }, tasks, {
       running: false, detectionKnown: true, desktopRunning: false,
-      cliCommands: [], canRestart: false, blockers: []
+      cliCommands: [], canQuit: false, blockers: []
     }, snap)
     expect(preview.items).toEqual([{
       id: `worktree:${snap.worktrees[0].id}`,
@@ -320,7 +320,7 @@ describe('automatic cleanup planner', () => {
 
     const preview = makeCleanupPreview(selection, tasks, {
       running: false, detectionKnown: true, desktopRunning: false,
-      cliCommands: [], canRestart: false, blockers: []
+      cliCommands: [], canQuit: false, blockers: []
     }, snap)
     expect(preview.items).toHaveLength(1)
     expect(preview.items[0].expectedBytes).toBe(snap.worktrees[0].bytes + related.fileBytes)
@@ -340,7 +340,7 @@ describe('automatic cleanup planner', () => {
     const snap = snapshot()
     const environment = {
       running: false, detectionKnown: true, desktopRunning: false,
-      cliCommands: [], canRestart: false, blockers: []
+      cliCommands: [], canQuit: false, blockers: []
     }
     const clean: CleanupSelection = { kind: 'worktrees', ids: ['/codex/worktrees/aa01'], deleteRelatedSessions: false }
     const dirty: CleanupSelection = { kind: 'worktrees', ids: ['/codex/worktrees/cc03'], deleteRelatedSessions: false }
@@ -348,6 +348,6 @@ describe('automatic cleanup planner', () => {
       makeCleanupPreview(selection, buildTrustedTasks(selection, snap, snap.workspace), environment, snap)
         .warnings.map((warning) => warning.key)
     expect(keys(clean)).toEqual(['warning.permanent'])
-    expect(keys(dirty)).toEqual(['warning.permanent', 'warning.workspaceGit'])
+    expect(keys(dirty)).toEqual(['warning.permanentWorktreeGit'])
   })
 })

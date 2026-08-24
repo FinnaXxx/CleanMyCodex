@@ -47,7 +47,7 @@ function App() {
   const [cleanProgress, setCleanProgress] = useState<CleanupProgress | null>(null)
   const [cleanupPreview, setCleanupPreview] = useState<CleanupPreview | null>(null)
   const [dialogReport, setDialogReport] = useState<CleanupReport | null>(null)
-  const [restartCodex, setRestartCodex] = useState(false)
+  const [quitCodex, setQuitCodex] = useState(false)
   const [forceQuitCodex, setForceQuitCodex] = useState(false)
   const [updatingCleanupPreview, setUpdatingCleanupPreview] = useState(false)
   const [cleanupStage, setCleanupStage] = useState<Message | null>(null)
@@ -84,7 +84,7 @@ function App() {
       if (!preview.items.length) return
       setCleanupPreview(preview)
       setDialogReport(null)
-      setRestartCodex(preview.canRestartCodex && preview.blockedTitles.length > 0)
+      setQuitCodex(false)
       setForceQuitCodex(false)
     } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
   }, [cleaning, progress])
@@ -106,7 +106,7 @@ function App() {
       setDialogReport(null)
       setCleanProgress({ completed: 0, total: cleanupPreview.items.length, currentTitle: '' })
       try {
-        const nextReport = await window.cleanmycodex.cleanup({ selection: cleanupPreview.selection, restartCodex, forceQuitCodex })
+        const nextReport = await window.cleanmycodex.cleanup({ selection: cleanupPreview.selection, quitCodex, forceQuitCodex })
         await runScan()
         setDialogReport(nextReport)
       } catch (err) {
@@ -116,7 +116,7 @@ function App() {
         setCleanProgress(null)
       }
     },
-    [cleaning, cleanupPreview, forceQuitCodex, restartCodex, runScan]
+    [cleaning, cleanupPreview, forceQuitCodex, quitCodex, runScan]
   )
 
   const setDeleteRelatedSessions = useCallback(async (value: boolean) => {
@@ -129,7 +129,7 @@ function App() {
         deleteRelatedSessions: value
       })
       setCleanupPreview(preview)
-      setRestartCodex(preview.canRestartCodex && preview.blockedTitles.length > 0)
+      setQuitCodex(false)
       setForceQuitCodex(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -167,7 +167,7 @@ function App() {
     {cleanupPreview && (cleaning || dialogReport
       ? <CleanupExperience preview={cleanupPreview} report={dialogReport} progress={cleanProgress}
           scanProgress={progress} stage={cleanupStage} onDone={() => setCleanupPreview(null)} />
-      : <CleanupDialog preview={cleanupPreview} restart={restartCodex} forceQuit={forceQuitCodex} onRestart={setRestartCodex} onForceQuit={setForceQuitCodex}
+      : <CleanupDialog preview={cleanupPreview} quitCodex={quitCodex} forceQuit={forceQuitCodex} onQuitCodex={setQuitCodex} onForceQuit={setForceQuitCodex}
           updating={updatingCleanupPreview} onDeleteRelatedSessions={setDeleteRelatedSessions}
           onConfirm={runCleanup} onClose={() => setCleanupPreview(null)} />)}
   </>
@@ -194,8 +194,10 @@ function App() {
       <div className="pane">
         <header className="titlebar">
           <div className="titlebar-title">
-            {page === 'automation' && <button className="icon-button titlebar-back" title={t('返回设置', 'Back to Settings')}
-              aria-label={t('返回设置', 'Back to Settings')} onClick={() => setPage('settings')}><BackIcon /></button>}
+            {page !== 'overview' && <button className="icon-button titlebar-back"
+              title={page === 'automation' ? t('返回设置', 'Back to Settings') : t('返回总览', 'Back to Overview')}
+              aria-label={page === 'automation' ? t('返回设置', 'Back to Settings') : t('返回总览', 'Back to Overview')}
+              onClick={() => navigate(page === 'automation' ? 'settings' : 'overview')}><BackIcon /></button>}
             <h2>{titles[page]}</h2>
           </div>
           <div className="titlebar-actions">
@@ -315,9 +317,9 @@ function InitialScanView({ progress, error, onRetry }: {
   </section>
 }
 
-function CleanupDialog({ preview, restart, forceQuit, updating, onRestart, onForceQuit, onDeleteRelatedSessions, onConfirm, onClose }: {
-  preview: CleanupPreview; restart: boolean; forceQuit: boolean; updating: boolean
-  onRestart: (value: boolean) => void; onForceQuit: (value: boolean) => void
+function CleanupDialog({ preview, quitCodex, forceQuit, updating, onQuitCodex, onForceQuit, onDeleteRelatedSessions, onConfirm, onClose }: {
+  preview: CleanupPreview; quitCodex: boolean; forceQuit: boolean; updating: boolean
+  onQuitCodex: (value: boolean) => void; onForceQuit: (value: boolean) => void
   onDeleteRelatedSessions: (value: boolean) => void; onConfirm: () => void; onClose: () => void
 }) {
   const { t, m } = usePreferences()
@@ -330,8 +332,8 @@ function CleanupDialog({ preview, restart, forceQuit, updating, onRestart, onFor
         onChange={(event) => onDeleteRelatedSessions(event.target.checked)}/><strong>{m(message('warning.worktreeRelatedSessions'))}</strong></label>}
       {preview.warnings.map((warning) => <p className="notice warning" key={warning.key}>{m(warning)}</p>)}
       {!!preview.blockedTitles.length && <div className="notice warning"><strong>{t('需要 Codex 完全退出', 'Codex must quit completely')}</strong><br/>
-        {preview.canRestartCodex ? <><label><input type="checkbox" checked={restart} onChange={(event) => { onRestart(event.target.checked); if (!event.target.checked) onForceQuit(false) }}/> {t('先退出 Codex，清理完成后重新打开', 'Quit Codex first, then reopen it after cleanup')}</label>
-          {restart && <label><input type="checkbox" checked={forceQuit} onChange={(event) => onForceQuit(event.target.checked)}/> {t('正常退出超时后强制结束（可能丢失未保存内容）', 'Force quit after timeout (unsaved work may be lost)')}</label>}</>
+        {preview.canQuitCodex ? <><label><input type="checkbox" checked={quitCodex} onChange={(event) => { onQuitCodex(event.target.checked); if (!event.target.checked) onForceQuit(false) }}/> {t('先退出 Codex，清理完成后保持关闭', 'Quit Codex first and keep it closed after cleanup')}</label>
+          {quitCodex && <label><input type="checkbox" checked={forceQuit} onChange={(event) => onForceQuit(event.target.checked)}/> {t('正常退出超时后强制结束（可能丢失未保存内容）', 'Force quit after timeout (unsaved work may be lost)')}</label>}</>
           : <small>{preview.blockers.map(m).join(t('；', '; '))}{t('，这些项目本次不会执行；退出 Codex 后需重新清理。', '. These items will be skipped. Quit Codex and run cleanup again.')}</small>}</div>}
     </>
     <div className="dialog-actions"><button className="btn" disabled={updating} onClick={onClose}>{t('取消', 'Cancel')}</button>

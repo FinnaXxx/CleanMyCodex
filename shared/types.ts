@@ -21,6 +21,7 @@ export type StorageKind =
   | 'pluginRemnants'
   | 'pluginOrphans'
   | 'pluginRuntime'
+  | 'pluginData'
   | 'releaseVersions'
   | 'releaseRuntime'
   | 'codexCache'
@@ -43,6 +44,7 @@ export const StorageKindSection: Record<StorageKind, StorageSection> = {
   pluginRemnants: 'plugins',
   pluginOrphans: 'plugins',
   pluginRuntime: 'plugins',
+  pluginData: 'plugins',
   releaseVersions: 'plugins',
   releaseRuntime: 'plugins',
   codexCache: 'caches',
@@ -388,7 +390,7 @@ export const snapshotWorktreeBytes = (s: ScanSnapshot): number =>
   worktreeBytes(s.worktrees ?? [])
 
 export const snapshotPluginBytes = (s: ScanSnapshot): number =>
-  s.categories.filter((category) => category.kind === 'pluginRemnants' || category.kind === 'pluginOrphans' || category.kind === 'pluginRuntime')
+  s.categories.filter((category) => categorySection(category) === 'plugins')
     .reduce((sum, category) => sum + categoryBytes(category), 0)
 
 export interface CleanupTask {
@@ -430,7 +432,7 @@ export type CleanupSelection =
 
 export interface CleanupRequest {
   selection: CleanupSelection
-  restartCodex: boolean
+  quitCodex: boolean
   forceQuitCodex: boolean
 }
 
@@ -447,7 +449,7 @@ export interface CleanupPreview {
   expectedBytes: number
   blockedTitles: string[]
   codexRunning: boolean
-  canRestartCodex: boolean
+  canQuitCodex: boolean
   /** Why Codex counts as running; empty when it is not. */
   blockers: Message[]
   warnings: Message[]

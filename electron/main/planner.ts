@@ -118,15 +118,14 @@ export function makeCleanupPreview(
   const blocked = environment.running
     ? tasks.filter((task) => task.requiresCodexStopped)
     : []
-  // Deletion is permanent for every selection, so the preview always says so first.
-  const warnings: Message[] = [message('warning.permanent')]
+  const unsafeWorktree = selection.kind === 'worktrees' && selectedWorktreesAreUnsafe(selection, snapshot)
+  // Keep the worktree's repository reminder in the permanent-deletion notice so the
+  // confirmation reads as one warning rather than two competing lines.
+  const warnings: Message[] = [message(unsafeWorktree ? 'warning.permanentWorktreeGit' : 'warning.permanent')]
   if (selection.kind === 'workspace') warnings.push(message('warning.workspaceGit'))
   // A worktree is a checkout like any other, so the same reminder applies. Nothing is
   // said about Codex' own restore: whether it keeps a snapshot is unverified, and a
   // recovery route this app has not seen work is not one to promise.
-  if (selection.kind === 'worktrees' && selectedWorktreesAreUnsafe(selection, snapshot)) {
-    warnings.push(message('warning.workspaceGit'))
-  }
   if (selection.kind === 'generated-assets') warnings.push(message('warning.generatedAssetLocalCopy'))
   // Pinning only holds off the scheduled run. Deleting one by hand is allowed, but the
   // confirmation says so rather than letting a pin quietly disappear.
@@ -139,7 +138,7 @@ export function makeCleanupPreview(
     expectedBytes: tasks.reduce((sum, task) => sum + task.expectedBytes, 0),
     blockedTitles: blocked.map((task) => task.title),
     codexRunning: environment.running,
-    canRestartCodex: environment.canRestart,
+    canQuitCodex: environment.canQuit,
     blockers: environment.blockers,
     warnings
   }

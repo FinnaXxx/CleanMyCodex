@@ -25,6 +25,7 @@ export type MessageKey =
   | 'category.pluginRemnants.title' | 'category.pluginRemnants.detail'
   | 'category.pluginOrphans.title' | 'category.pluginOrphans.detail'
   | 'category.pluginRuntime.title' | 'category.pluginRuntime.detail'
+  | 'category.pluginData.title' | 'category.pluginData.detail'
   | 'category.codexCache.title' | 'category.codexCache.detail'
   | 'category.appCache.title' | 'category.appCache.detail'
   | 'category.appLogs.title' | 'category.appLogs.detail'
@@ -39,7 +40,8 @@ export type MessageKey =
   | 'note.codexOperationalCache' | 'note.remotePluginCatalogCache' | 'note.codexAppsToolsCache'
   | 'note.codexAppDirectoryCache' | 'note.codexAppsServerInfoCache' | 'note.tuiPetsCache' | 'note.platformCache'
   | 'note.applicationLog' | 'note.logDatabase' | 'note.sessionProjection'
-  | 'note.localMarketplace' | 'note.configOrCredentials' | 'note.stateDatabase' | 'note.browserProfile'
+  | 'note.localMarketplace' | 'note.configOrCredentials' | 'note.pluginData'
+  | 'note.knownMarketplaces' | 'note.stateDatabase' | 'note.browserProfile'
   | 'note.computerUseComponent' | 'note.builtinPlugin' | 'note.currentPlugin' | 'note.unconfirmedPlugin' | 'note.pluginRuntime'
   | 'note.desktopStateLeftover' | 'note.skillsBackup' | 'note.releaseVersion' | 'note.currentRelease'
   | 'note.unconfirmedRelease' | 'note.unrecognizedEntry'
@@ -56,13 +58,13 @@ export type MessageKey =
   | 'stage.preparing' | 'stage.caches' | 'stage.plugins' | 'stage.sessions' | 'stage.assets'
   | 'stage.workspace' | 'stage.worktrees' | 'stage.done'
   // Cleanup stages and outcomes
-  | 'cleanup.quitting' | 'cleanup.reopening'
+  | 'cleanup.quitting'
   | 'cleanup.skipCodexRunning' | 'cleanup.skipRecentlyWritten' | 'cleanup.skipMissing'
   | 'cleanup.localIndexFailed' | 'cleanup.worktreeRemoveFailed' | 'cleanup.worktreeNotManaged'
   // Scan notes
   | 'scanNote.appServerUnavailable' | 'scanNote.noSessionTitles'
   // Cleanup preview warnings
-  | 'warning.permanent' | 'warning.workspaceGit' | 'warning.pinnedSessions' | 'warning.generatedAssetLocalCopy'
+  | 'warning.permanent' | 'warning.permanentWorktreeGit' | 'warning.workspaceGit' | 'warning.pinnedSessions' | 'warning.generatedAssetLocalCopy'
   | 'warning.worktreeRelatedSessions'
   // Codex runtime blockers
   | 'blocker.detectionFailed' | 'blocker.desktopRunning' | 'blocker.cliRunning'
@@ -116,6 +118,8 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'category.pluginOrphans.detail': ['plugin/list 已确认未安装，仅供手动清理', 'Confirmed uninstalled by plugin/list; manual cleanup only'],
   'category.pluginRuntime.title': ['当前插件与运行组件', 'Current Plugins & Runtime'],
   'category.pluginRuntime.detail': ['已统计但不会自动删除', 'Counted, but never removed automatically'],
+  'category.pluginData.title': ['插件数据与配置', 'Plugin Data & Configuration'],
+  'category.pluginData.detail': ['插件运行所需的受保护数据', 'Protected data required by plugins'],
   'category.codexCache.title': ['Codex 可重建缓存', 'Codex Rebuildable Caches'],
   'category.codexCache.detail': ['可重建；清理后可能需要联网重新获取', 'Rebuildable; clearing may require a network refresh'],
   'category.appCache.title': ['应用缓存', 'App Cache'],
@@ -151,6 +155,8 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'note.sessionProjection': ['会话内容投影数据库（含 WAL/SHM）', 'Session content projection database (including WAL/SHM)'],
   'note.localMarketplace': ['config.toml 注册的本地插件市场', 'Local marketplace registered in config.toml'],
   'note.configOrCredentials': ['配置、凭据或用户规则', 'Configuration, credentials, or user rules'],
+  'note.pluginData': ['插件持久化数据', 'Persistent plugin data'],
+  'note.knownMarketplaces': ['已知插件市场注册表', 'Known plugin marketplace registry'],
   'note.stateDatabase': ['Codex 状态数据库', 'Codex state database'],
   'note.browserProfile': ['浏览器配置与登录状态', 'Browser configuration and sign-in state'],
   'note.computerUseComponent': ['Computer Use 辅助组件', 'Computer Use helper component'],
@@ -207,7 +213,6 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'stage.done': ['完成', 'Done'],
 
   'cleanup.quitting': ['正在退出 Codex…', 'Quitting Codex…'],
-  'cleanup.reopening': ['正在重新打开 Codex…', 'Reopening Codex…'],
   'cleanup.skipCodexRunning': ['Codex 正在运行，请退出后重新清理', 'Codex is running. Quit it and clean up again.'],
   'cleanup.skipRecentlyWritten': ['扫描后路径又有写入，请稍后重新扫描并清理', 'The path was written to after the scan. Scan again and retry.'],
   'cleanup.skipMissing': ['路径已不存在', 'The path no longer exists'],
@@ -219,6 +224,7 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'scanNote.noSessionTitles': ['没有读到 Codex 的会话标题，列表改用会话首句或项目名显示。', 'No Codex session titles were found. The list falls back to the first message or the project name.'],
 
   'warning.permanent': ['清理的内容会被永久删除，无法恢复。', 'Everything cleaned is deleted permanently and cannot be recovered.'],
+  'warning.permanentWorktreeGit': ['清理的内容会被永久删除，无法恢复。请确认未提交或未推送的内容已经保存。', 'Everything cleaned is deleted permanently and cannot be recovered. Make sure anything uncommitted or unpushed has been saved.'],
   'warning.workspaceGit': ['请确认未提交或未推送的内容已经保存。', 'Make sure anything uncommitted or unpushed has been saved.'],
   'warning.pinnedSessions': ['所选会话中有 {count} 个是置顶会话，删除后不会恢复', '{count} of the selected conversations are pinned; deleting them is permanent'],
   'warning.generatedAssetLocalCopy': ['会话会保留，但所选生成资产的本地路径将失效；依赖这些路径的打开、复制或继续编辑操作可能失败。', 'Conversations remain, but the selected generated-asset paths will stop working; open, copy, or edit operations that rely on them may fail.'],

@@ -50,7 +50,7 @@ export function storageDistribution(snapshot: ScanSnapshot): StorageDistribution
     ...sections,
     { kind: 'other', bytes: other }
   ]
-  const items = candidates.filter((item) => item.bytes > 0)
+  const items = candidates.filter((item) => item.bytes > 0).sort((a, b) => b.bytes - a.bytes)
 
   return { items, total: items.reduce((sum, item) => sum + item.bytes, 0) }
 }

@@ -6,7 +6,7 @@ export interface CodexEnvironment {
   detectionKnown: boolean
   desktopRunning: boolean
   cliCommands: string[]
-  canRestart: boolean
+  canQuit: boolean
   /** Why Codex counts as running; empty when it is not. */
   blockers: Message[]
 }
@@ -26,7 +26,7 @@ export function codexEnvironment(): CodexEnvironment {
       detectionKnown: false,
       desktopRunning: false,
       cliCommands: [],
-      canRestart: false,
+      canQuit: false,
       blockers: [message('blocker.detectionFailed')]
     }
   }
@@ -47,17 +47,17 @@ export function codexEnvironment(): CodexEnvironment {
     detectionKnown: true,
     desktopRunning,
     cliCommands: cli,
-    canRestart: process.platform === 'darwin' && desktopRunning && cli.length === 0,
+    canQuit: process.platform === 'darwin' && desktopRunning && cli.length === 0,
     blockers
   }
 }
 
 export function codexIsRunning(): boolean { return codexEnvironment().running }
 
-export async function quitCodexDesktop(timeoutMs = 20_000, forceAfterTimeout = false): Promise<string[]> {
+export async function quitCodexDesktop(timeoutMs = 20_000, forceAfterTimeout = false): Promise<void> {
   const environment = codexEnvironment()
   if (environment.cliCommands.length) throw new MessageError(message('error.cliStillRunning', { count: environment.cliCommands.length }))
-  if (!environment.desktopRunning) return []
+  if (!environment.desktopRunning) return
   if (process.platform !== 'darwin') throw new MessageError(message('error.quitUnsupported'))
   const runningBundles = runningMacBundleIDs()
   if (!runningBundles.length) throw new MessageError(message('error.noRunningCodexApp'))
@@ -71,7 +71,7 @@ export async function quitCodexDesktop(timeoutMs = 20_000, forceAfterTimeout = f
   }
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    if (!codexEnvironment().desktopRunning) return runningBundles
+    if (!codexEnvironment().desktopRunning) return
     await new Promise((resolve) => setTimeout(resolve, 400))
   }
   if (forceAfterTimeout) {
@@ -81,7 +81,7 @@ export async function quitCodexDesktop(timeoutMs = 20_000, forceAfterTimeout = f
     }
     const forcedDeadline = Date.now() + 5_000
     while (Date.now() < forcedDeadline) {
-      if (!codexEnvironment().desktopRunning) return runningBundles
+      if (!codexEnvironment().desktopRunning) return
       await new Promise((resolve) => setTimeout(resolve, 250))
     }
     throw new MessageError(message('error.forceQuitFailed'))
@@ -104,11 +104,6 @@ function runningMacBundleIDs(): string[] {
     const result = spawnSync('/usr/bin/osascript', ['-e', `application id "${id}" is running`], { encoding: 'utf8', timeout: 3_000 })
     return result.status === 0 && result.stdout.trim().toLowerCase() === 'true'
   })
-}
-
-export async function relaunchCodex(bundleIDs: string[]): Promise<void> {
-  if (process.platform !== 'darwin') return
-  for (const id of bundleIDs) await execFilePromise('/usr/bin/open', ['-g', '-b', id]).catch(() => undefined)
 }
 
 function runningCommands(): string[] | null {

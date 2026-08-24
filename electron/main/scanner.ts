@@ -375,19 +375,31 @@ export async function scanSnapshot(
 
   const marketplaceSources = new Set(guards.localMarketplaceSources)
   const protectedConfigEntries: StorageEntry[] = []
+  const pluginDataEntries: StorageEntry[] = []
   for (const path of guards.protectedURLs) {
-    if (path === locations.codexCache || path === locations.generatedImages) continue // represented by dedicated scan results
+    // These containers are represented by dedicated scan results. In particular,
+    // plugins/cache is an installation store containing active plugin versions, not a
+    // disposable cache; listing the whole tree would duplicate every version below it.
+    if (path === locations.codexCache || path === locations.generatedImages || path === join(locations.plugins, 'cache')) continue
     if ((!ProtectedPaths.contains(locations.home, path) && !marketplaceSources.has(path)) || !entryExists(path)) continue
-    protectedConfigEntries.push(entry(
+    const relativePath = relativeToHome(path, locations.home)
+    const note = marketplaceSources.has(path) ? 'note.localMarketplace'
+      : path === join(locations.plugins, 'data') ? 'note.pluginData'
+        : path === join(locations.plugins, 'known_marketplaces.json') ? 'note.knownMarketplaces'
+          : 'note.configOrCredentials'
+    const protectedEntry = entry(
       // Nested protected entries (plugins/data, …) need their path to stay unambiguous.
       marketplaceSources.has(path) || basename(path) !== relativeToHome(path, locations.home)
-        ? relativeToHome(path, locations.home)
+        ? relativePath
         : basename(path),
-      marketplaceSources.has(path) ? 'note.localMarketplace' : 'note.configOrCredentials',
+      note,
       path,
       pathAllocatedSize(path),
       'shielded'
-    ))
+    )
+    const pluginsRoot = join(locations.home, 'plugins')
+    if (ProtectedPaths.contains(pluginsRoot, path) || marketplaceSources.has(path)) pluginDataEntries.push(protectedEntry)
+    else protectedConfigEntries.push(protectedEntry)
   }
   let homeEntries: string[] = []
   try { homeEntries = readdirSync(locations.home) } catch { /* missing home */ }
@@ -400,6 +412,7 @@ export async function scanSnapshot(
     const path = join(locations.home, db)
     protectedConfigEntries.push(entry(db, 'note.stateDatabase', path, fileAllocatedSize(path), 'shielded'))
   }
+  categories.push(category('pluginData', 'protectedData', 'shielded', pluginDataEntries))
   categories.push(category('protectedConfig', 'protectedData', 'shielded', protectedConfigEntries))
 
   const protectedUserEntries = ProtectedPaths.protectedAppSupportEntries.flatMap((relative): StorageEntry[] => {

@@ -164,7 +164,7 @@
     scan: async () => snapshot,
     cancelScan: async () => {},
     onScanProgress: noop,
-    prepareCleanup: async () => ({ selection: { kind: 'storage', ids: [] }, items: [], expectedBytes: 0, blockedTitles: [], codexRunning: false, canRestartCodex: false, blockers: [], warnings: [] }),
+    prepareCleanup: async () => ({ selection: { kind: 'storage', ids: [] }, items: [], expectedBytes: 0, blockedTitles: [], codexRunning: false, canQuitCodex: false, blockers: [], warnings: [] }),
     cleanup: async () => ({ startedAt: now, finishedAt: now, outcomes: [] }),
     scanWorkspace: async () => workspace,
     sessionLeftovers: async () => ({ count: 0, logPath: '' }),

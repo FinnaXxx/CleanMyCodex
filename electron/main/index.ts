@@ -11,7 +11,7 @@ import { removeCodexWorktree } from './worktrees'
 import { runCleanup, type CleanupDeps } from './cleanup'
 import { AppServerClient, locateCodexExecutable } from './app-server'
 import { buildAutomaticTasks, buildTrustedTasks, makeCleanupPreview } from './planner'
-import { codexEnvironment, codexIsRunning, quitCodexDesktop, relaunchCodex } from './platform-services'
+import { codexEnvironment, codexIsRunning, quitCodexDesktop } from './platform-services'
 import {
   countOrphanRecords,
   deleteOrphanSessionRecords,
@@ -233,17 +233,18 @@ ipcMain.handle('cleanup:prepare', async (_event, selection: CleanupSelection) =>
 })
 
 ipcMain.handle('cleanup:run', async (_event, request: CleanupRequest) => {
-  if (!request || typeof request !== 'object' || typeof request.restartCodex !== 'boolean' || typeof request.forceQuitCodex !== 'boolean') throw new MessageError(message('error.invalidRequest'))
+  if (!request || typeof request !== 'object' || typeof request.quitCodex !== 'boolean' || typeof request.forceQuitCodex !== 'boolean') throw new MessageError(message('error.invalidRequest'))
   if (selectionTouchesPlugins(request.selection)) await refreshPluginsBeforeCleanup()
   const tasks = trustedTasks(request.selection)
   const related = request.selection.kind === 'worktrees'
     ? ` deleteRelatedSessions=${request.selection.deleteRelatedSessions} sessionTasks=${tasks.filter((task) => task.threadID).length}`
     : ''
-  logEnvironment(`cleanup:run ${request.selection.kind} tasks=${tasks.length}${related} restart=${request.restartCodex} force=${request.forceQuitCodex}`)
-  let reopen: string[] = []
-  if (request.restartCodex && tasks.some((task) => task.requiresCodexStopped)) {
+  logEnvironment(`cleanup:run ${request.selection.kind} tasks=${tasks.length}${related} quit=${request.quitCodex} force=${request.forceQuitCodex}`)
+  if (request.quitCodex && tasks.some((task) => task.requiresCodexStopped)) {
     mainWindow?.webContents.send('cleanup:stage', message('cleanup.quitting'))
-    reopen = await quitCodexDesktop(20_000, request.forceQuitCodex)
+    // Keep Codex closed after cleanup so the user can clean other sections without
+    // paying for another quit/relaunch cycle on every page.
+    await quitCodexDesktop(20_000, request.forceQuitCodex)
   }
   try {
     const report = await runCleanup(tasks, guards, cleanupDependencies(), (progress: CleanupProgress) => {
@@ -252,10 +253,6 @@ ipcMain.handle('cleanup:run', async (_event, request: CleanupRequest) => {
     logRemovals(request.selection, report, tasks)
     return report
   } finally {
-    if (reopen.length) {
-      mainWindow?.webContents.send('cleanup:stage', message('cleanup.reopening'))
-      await relaunchCodex(reopen)
-    }
     mainWindow?.webContents.send('cleanup:stage', null)
   }
 })
@@ -320,7 +317,7 @@ function logEnvironment(label: string): void {
   const blockers = environment.blockers.map(describeMessage).join(' ') || 'none'
   logCleanup(`${label}: CleanMyCodex ${app.getVersion()} on ${process.platform} ${release()}, electron ${process.versions.electron}`)
   logCleanup(`  codexHome=${locations.home}${process.env['CODEX_HOME'] ? ' (CODEX_HOME)' : ''} codexBinary=${locateCodexExecutable() ?? 'not found'}`)
-  logCleanup(`  running=${environment.running} desktop=${environment.desktopRunning} canRestart=${environment.canRestart} blockers=${blockers}`)
+  logCleanup(`  running=${environment.running} desktop=${environment.desktopRunning} canQuit=${environment.canQuit} blockers=${blockers}`)
 }
 
 /**
