@@ -35,5 +35,6 @@ jobs:
       - run: pnpm exec electron-builder --mac dmg --arm64 --x64 --publish never
       - uses: softprops/action-gh-release@v2
         with:
+          body_path: RELEASE_NOTES.md
           generate_release_notes: true
           files: dist-electron/*.dmg
