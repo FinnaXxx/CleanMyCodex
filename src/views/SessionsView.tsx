@@ -8,6 +8,8 @@ import {
   sessionDisplayName,
   sessionProjectName,
   sessionTotalBytes,
+  sessionMatchesSuggestedArchivePreset,
+  SUGGESTED_ARCHIVED_SESSION_AGE_DAYS,
   listableSessions,
   formatBytes
 } from '../../shared/types'
@@ -22,19 +24,29 @@ interface Props {
   actionsDisabled: boolean
   cleanProgress: CleanupProgress | null
   onCleanup: (selection: CleanupSelection) => void
+  initialSelection: SessionInitialSelection
 }
 
 type Scope = 'all' | 'active' | 'archived'
 type Sort = 'total' | 'date' | 'name'
+export type SessionInitialSelection = 'none' | 'suggested-archives'
 
-export default function SessionsView({ snapshot, cleaning, actionsDisabled, cleanProgress, onCleanup }: Props) {
+export default function SessionsView({ snapshot, cleaning, actionsDisabled, cleanProgress, onCleanup, initialSelection }: Props) {
   const { t, e, locale } = usePreferences()
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [scope, setScope] = useState<Scope>('all')
+  const [selected, setSelected] = useState<Set<string>>(() => {
+    if (initialSelection !== 'suggested-archives') return new Set()
+    const now = Date.now()
+    return new Set(listableSessions(snapshot)
+      .filter((session) => sessionMatchesSuggestedArchivePreset(session, now))
+      .map((session) => session.id))
+  })
+  const [scope, setScope] = useState<Scope>(initialSelection === 'suggested-archives' ? 'archived' : 'all')
   const [sort, setSort] = useState<Sort>('total')
   const [query, setQuery] = useState('')
   /** Empty keeps every session; otherwise it is "last active more than N days ago". */
-  const [olderThanDays, setOlderThanDays] = useState('')
+  const [olderThanDays, setOlderThanDays] = useState(initialSelection === 'suggested-archives'
+    ? String(SUGGESTED_ARCHIVED_SESSION_AGE_DAYS)
+    : '')
 
   const [leftovers, setLeftovers] = useState<{ count: number; logPath: string } | null>(null)
   const [repairing, setRepairing] = useState(false)

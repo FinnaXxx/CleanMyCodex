@@ -141,6 +141,19 @@ export interface SessionItem {
 
 export const sessionTotalBytes = (s: SessionItem): number => s.fileBytes + s.assetBytes + s.childBytes
 
+/**
+ * The conservative preset offered only when the user asks the overview to help choose
+ * conversations. It is never used to start a cleanup by itself.
+ */
+export const SUGGESTED_ARCHIVED_SESSION_AGE_DAYS = 60
+
+export const sessionMatchesSuggestedArchivePreset = (s: SessionItem, now = Date.now()): boolean =>
+  s.location === 'archived' &&
+  now - s.modifiedAt >= SUGGESTED_ARCHIVED_SESSION_AGE_DAYS * 86_400_000 &&
+  !s.isPinned &&
+  !s.blocksAutomaticCleanup &&
+  !s.isUnstable
+
 export const sessionProjectName = (s: SessionItem): string | null => {
   if (!s.workingDirectory || s.workingDirectory.length === 0) return null
   const parts = s.workingDirectory.split(/[/\\]/).filter(Boolean)

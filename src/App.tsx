@@ -20,7 +20,7 @@ import { decodeMessage, message } from '../shared/messages'
 import type { Message } from '../shared/messages'
 import OverviewView from './views/OverviewView'
 import { storageDistribution } from './storage-distribution'
-import SessionsView from './views/SessionsView'
+import SessionsView, { type SessionInitialSelection } from './views/SessionsView'
 import PluginsView from './views/PluginsView'
 import WorkspaceView from './views/WorkspaceView'
 import AutomationView from './views/AutomationView'
@@ -34,6 +34,7 @@ type Page = 'overview' | 'sessions' | 'workspace' | 'plugins' | 'settings' | 'au
 function App() {
   const { t, e } = usePreferences()
   const [page, setPage] = useState<Page>('overview')
+  const [sessionInitialSelection, setSessionInitialSelection] = useState<SessionInitialSelection>('none')
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
   const [snapshot, setSnapshot] = useState<ScanSnapshot | null>(null)
   const [progress, setProgress] = useState<ScanProgress | null>(null)
@@ -82,6 +83,16 @@ function App() {
       setForceQuitCodex(false)
     } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
   }, [cleaning, progress])
+
+  const navigate = useCallback((nextPage: Page): void => {
+    setSessionInitialSelection('none')
+    setPage(nextPage)
+  }, [])
+
+  const openSuggestedSessions = useCallback((): void => {
+    setSessionInitialSelection('suggested-archives')
+    setPage('sessions')
+  }, [])
 
   const runCleanup = useCallback(
     async () => {
@@ -152,7 +163,7 @@ function App() {
 
   return <>
     <div className="shell">
-      <Sidebar page={page} onNavigate={setPage} snapshot={snapshot} workspace={workspace} />
+      <Sidebar page={page} onNavigate={navigate} snapshot={snapshot} workspace={workspace} />
       <div className="pane">
         <header className="titlebar">
           <div className="titlebar-title">
@@ -175,8 +186,10 @@ function App() {
 
         {page === 'overview' && <OverviewView snapshot={snapshot} appInfo={appInfo} cleaning={cleaning}
           actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup}
-          onOpenSessions={() => setPage('sessions')} onOpenWorkspace={() => setPage('workspace')} onRescan={runScan} />}
-        {page === 'sessions' && <SessionsView snapshot={snapshot} cleaning={cleaning} actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup} />}
+          onOpenSessions={() => navigate('sessions')} onOpenSuggestedSessions={openSuggestedSessions}
+          onOpenWorkspace={() => navigate('workspace')} onRescan={runScan} />}
+        {page === 'sessions' && <SessionsView snapshot={snapshot} cleaning={cleaning} actionsDisabled={!!progress}
+          cleanProgress={cleanProgress} onCleanup={requestCleanup} initialSelection={sessionInitialSelection} />}
         {page === 'plugins' && <PluginsView snapshot={snapshot} cleaning={cleaning} actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup} />}
         {page === 'workspace' && workspace && <WorkspaceView snapshot={workspace} cleaning={cleaning} actionsDisabled={!!progress} cleanProgress={cleanProgress} onCleanup={requestCleanup} />}
         {page === 'settings' && <SettingsView onOpenScheduledCleanup={() => setPage('automation')} />}

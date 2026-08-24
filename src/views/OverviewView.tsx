@@ -15,6 +15,7 @@ import {
   categorySection,
   isSelectable,
   listableSessions,
+  sessionMatchesSuggestedArchivePreset,
   snapshotFoundNothing,
   snapshotSessionBytes,
   workspaceBytes,
@@ -33,19 +34,28 @@ interface Props {
   cleanProgress: CleanupProgress | null
   onCleanup: (selection: CleanupSelection) => void
   onOpenSessions: () => void
+  onOpenSuggestedSessions: () => void
   onOpenWorkspace: () => void
   onRescan: () => void
 }
 
-export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisabled, cleanProgress, onCleanup, onOpenSessions, onOpenWorkspace, onRescan }: Props) {
+export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisabled, cleanProgress, onCleanup, onOpenSessions, onOpenSuggestedSessions, onOpenWorkspace, onRescan }: Props) {
   const { t, m, locale } = usePreferences()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [expanded, setExpanded] = useState<Set<StorageKind>>(new Set())
 
-  const sessionCount = useMemo(() => listableSessions(snapshot).length, [snapshot])
+  const sessions = useMemo(() => listableSessions(snapshot), [snapshot])
+  const sessionCount = sessions.length
+  const suggestedSessionCount = useMemo(() => {
+    const now = Date.now()
+    return sessions.filter((session) => sessionMatchesSuggestedArchivePreset(session, now)).length
+  }, [sessions])
   const allEntries = useMemo<StorageEntry[]>(() => snapshot.categories.flatMap((c) => c.entries), [snapshot])
   const selectedEntries = useMemo(() => allEntries.filter((e) => selected.has(e.id)), [allEntries, selected])
   const selectedBytes = selectedEntries.reduce((sum, e) => sum + e.reclaimableBytes, 0)
+  const sessionBytes = snapshotSessionBytes(snapshot)
+  const workspaceTotalBytes = workspaceBytes(snapshot.workspace)
+  const manualSelectionTarget = sessionCount > 0 ? 'sessions' : workspaceTotalBytes > 0 ? 'workspace' : null
 
   /** Sections are content types; whether an item is worth cleaning shows up per row. */
   const sections = useMemo(() => StorageSectionOrder.map((section) => ({
@@ -101,6 +111,16 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
     return next
   })
 
+  const runPrimaryAction = (): void => {
+    if (selectedEntries.length) {
+      onCleanup({ kind: 'storage', ids: selectedEntries.map((entry) => entry.id) })
+    } else if (manualSelectionTarget === 'sessions') {
+      suggestedSessionCount > 0 ? onOpenSuggestedSessions() : onOpenSessions()
+    } else if (manualSelectionTarget === 'workspace') {
+      onOpenWorkspace()
+    }
+  }
+
   if (snapshotFoundNothing(snapshot)) return <div className="detail-content">
     <NothingFound snapshot={snapshot} onRescan={onRescan} />
   </div>
@@ -116,17 +136,37 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
               <span className="metric-note">{t('上次扫描 ', 'Scanned ')}{new Date(snapshot.scannedAt).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</span>
             </div>
             <div className="metric metric-reclaimable">
-              <span className="metric-label">{t('本次可释放', 'Reclaimable')}</span>
+              <span className="metric-label">{selectedEntries.length
+                ? t('本次可释放', 'Reclaimable')
+                : t('可释放空间', 'Space to reclaim')}</span>
               <span className="metric-value accent">{formatBytes(selectedBytes)}</span>
-              <span className="metric-note">{t(`已选择 ${selectedEntries.length} 项`, `${selectedEntries.length} items selected`)}</span>
+              <span className="metric-note">{selectedEntries.length
+                ? t(`已选择 ${selectedEntries.length} 项`, `${selectedEntries.length} items selected`)
+                : manualSelectionTarget === 'sessions'
+                  ? suggestedSessionCount > 0
+                    ? t(`找到 ${suggestedSessionCount} 个建议检查的旧归档会话`, `${suggestedSessionCount} old archived conversations suggested for review`)
+                    : t(`${sessionCount} 个会话需要手动确认`, `${sessionCount} conversations require your review`)
+                  : manualSelectionTarget === 'workspace'
+                    ? t('工作产出需要手动确认', 'Workspace output requires your review')
+                    : t('没有发现建议清理项', 'No recommended cleanup found')}</span>
             </div>
           </div>
           <button
             className="btn primary btn-large summary-clean"
-            disabled={!selectedEntries.length || cleaning || actionsDisabled}
-            onClick={() => onCleanup({ kind: 'storage', ids: selectedEntries.map((entry) => entry.id) })}
+            disabled={cleaning || actionsDisabled || (!selectedEntries.length && !manualSelectionTarget)}
+            onClick={runPrimaryAction}
           >
-            {cleaning ? t(`清理中… ${cleanProgress?.completed ?? 0}/${cleanProgress?.total ?? selectedEntries.length}`, `Cleaning… ${cleanProgress?.completed ?? 0}/${cleanProgress?.total ?? selectedEntries.length}`) : t('开始清理', 'Start Cleanup')}
+            {cleaning
+              ? t(`清理中… ${cleanProgress?.completed ?? 0}/${cleanProgress?.total ?? selectedEntries.length}`, `Cleaning… ${cleanProgress?.completed ?? 0}/${cleanProgress?.total ?? selectedEntries.length}`)
+              : selectedEntries.length
+                ? t('开始清理', 'Start Cleanup')
+                : manualSelectionTarget === 'sessions'
+                  ? suggestedSessionCount > 0
+                    ? t('查看建议清理的会话', 'Review Suggested Conversations')
+                    : t('选择要清理的会话', 'Choose Conversations')
+                  : manualSelectionTarget === 'workspace'
+                    ? t('选择要清理的工作产出', 'Choose Workspace Output')
+                    : t('暂无建议清理项', 'Nothing Recommended')}
           </button>
         </div>
         <div className="summary-chart">
@@ -167,22 +207,22 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
       <PageSection
         glyph="sessions"
         title={t('会话记录', 'Sessions')}
-        bytes={snapshotSessionBytes(snapshot)}
+        bytes={sessionBytes}
         rowDetail={sessionCount
           ? t(`${sessionCount} 个会话，在会话记录页删除`, `${sessionCount} conversations, picked on the Sessions page`)
           : t('没有扫描到本地会话', 'No local conversations found')}
-        value={sessionCount ? formatBytes(snapshotSessionBytes(snapshot)) : '—'}
+        value={sessionCount ? formatBytes(sessionBytes) : '—'}
         onOpen={onOpenSessions}
       />
 
       <PageSection
         glyph="workspace"
         title={t('工作产出', 'Workspace Output')}
-        bytes={workspaceBytes(snapshot.workspace)}
+        bytes={workspaceTotalBytes}
         rowDetail={snapshot.workspace.isScanned
           ? t('Codex 生成的文件和仓库，在工作产出页删除', 'Files and repositories Codex produced, confirmed on the Workspace page')
           : t('尚未完成统计，重新扫描后可查看', 'Not measured yet; scan again to see it')}
-        value={snapshot.workspace.isScanned ? formatBytes(workspaceBytes(snapshot.workspace)) : '—'}
+        value={snapshot.workspace.isScanned ? formatBytes(workspaceTotalBytes) : '—'}
         onOpen={onOpenWorkspace}
       />
 
