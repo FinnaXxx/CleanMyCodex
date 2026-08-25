@@ -18,7 +18,6 @@
     "check": "pnpm typecheck && pnpm test && pnpm build",
     "build:mac": "pnpm rebuild:native && pnpm build && electron-builder --mac",
     "build:win": "pnpm rebuild:native && pnpm build && electron-builder --win",
-    "build:linux": "pnpm rebuild:native && pnpm build && electron-builder --linux",
     "typecheck:test": "tsc --noEmit -p tsconfig.test.json"
   },
   "dependencies": {

@@ -10,7 +10,6 @@ import { dirname, join } from 'node:path'
  *
  * macOS: ~/Library/Logs/CleanMyCodex/cleanup.log
  * Windows: %APPDATA%\CleanMyCodex\logs\cleanup.log
- * Linux: ~/.config/CleanMyCodex/logs/cleanup.log
  */
 const MAX_BYTES = 1024 * 1024
 

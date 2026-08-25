@@ -8,9 +8,17 @@ permissions:
   contents: write
 
 jobs:
-  release-mac:
+  build-mac:
     # GitHub's Xcode 27 preview runner provides the macOS 27 SDK.
     runs-on: xcode-27
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - electron_arch: arm64
+            macho_arch: arm64
+          - electron_arch: x64
+            macho_arch: x86_64
     steps:
       - uses: actions/checkout@v4
       - name: Show macOS build environment
@@ -32,14 +40,45 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
-      - run: pnpm exec electron-builder --mac dmg --arm64 --x64 --publish never
-      - uses: softprops/action-gh-release@v2
-        with:
-          body_path: RELEASE_NOTES.md
-          generate_release_notes: true
-          files: dist-electron/*.dmg
+      # Native modules are rebuilt in-place. Building both architectures in one
+      # workspace can mutate a hard-linked module after the first app was signed.
+      - name: Package macOS (${{ matrix.electron_arch }})
+        run: pnpm exec electron-builder --mac dmg --${{ matrix.electron_arch }} --publish never
+      - name: Verify packaged macOS app
+        shell: bash
+        env:
+          ELECTRON_ARCH: ${{ matrix.electron_arch }}
+          MACHO_ARCH: ${{ matrix.macho_arch }}
+        run: |
+          set -euo pipefail
+          dmg="dist-electron/CleanMyCodex-$(node -p "require('./package.json').version")-${ELECTRON_ARCH}.dmg"
+          mount_point="$(mktemp -d)"
+          cleanup() {
+            hdiutil detach "$mount_point" >/dev/null 2>&1 || true
+            rmdir "$mount_point" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
 
-  release-windows:
+          hdiutil attach -readonly -nobrowse -mountpoint "$mount_point" "$dmg"
+          app="$mount_point/CleanMyCodex.app"
+          executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
+
+          codesign --verify --deep --strict --verbose=4 "$app"
+          lipo -verify_arch "$MACHO_ARCH" "$app/Contents/MacOS/$executable"
+
+          native_count=0
+          while IFS= read -r -d '' native_module; do
+            lipo -verify_arch "$MACHO_ARCH" "$native_module"
+            native_count=$((native_count + 1))
+          done < <(find "$app" -type f -name '*.node' -print0)
+          test "$native_count" -gt 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.electron_arch }}
+          path: dist-electron/*.dmg
+          if-no-files-found: error
+
+  build-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -58,8 +97,23 @@ jobs:
       - run: pnpm test
       - run: pnpm build
       - run: pnpm exec electron-builder --win nsis --x64 --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: dist-electron/*.exe
+          if-no-files-found: error
+
+  release:
+    needs: [build-mac, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
           body_path: RELEASE_NOTES.md
           generate_release_notes: true
-          files: dist-electron/*.exe
+          files: release-assets/*

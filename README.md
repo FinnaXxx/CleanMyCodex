@@ -8,7 +8,7 @@ English · [简体中文](README_CN.md)
 
 [![Release](https://img.shields.io/github/v/release/FinnaXxx/CleanMyCodex)](https://github.com/FinnaXxx/CleanMyCodex/releases)
 [![CI](https://github.com/FinnaXxx/CleanMyCodex/actions/workflows/ci.yml/badge.svg)](https://github.com/FinnaXxx/CleanMyCodex/actions/workflows/ci.yml)
-![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
+![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 <picture>
@@ -47,9 +47,9 @@ Configuration and credentials — `config.toml`, `auth.json`, the age-encrypted 
 
 ## Install
 
-Download the latest `.dmg` from [Releases](https://github.com/FinnaXxx/CleanMyCodex/releases). Builds are published for Apple Silicon (`arm64`) and Intel (`x64`).
+Download the latest build from [Releases](https://github.com/FinnaXxx/CleanMyCodex/releases). macOS `.dmg` builds are published for Apple Silicon (`arm64`) and Intel (`x64`); Windows is published as an x64 NSIS installer (`.exe`).
 
-The bundle is ad-hoc signed but not notarized, so the first launch goes through **System Settings → Privacy & Security → Open Anyway**.
+The macOS bundle is ad-hoc signed but not notarized, so the first launch goes through **System Settings → Privacy & Security → Open Anyway**. The Windows installer is currently unsigned, so Microsoft Defender SmartScreen may ask for confirmation before it runs.
 
 ## Compatibility
 
@@ -57,8 +57,7 @@ The bundle is ad-hoc signed but not notarized, so the first launch goes through 
 | --- | --- | --- | --- |
 | macOS, Apple Silicon | `.dmg` release | CI and packaging | Supported |
 | macOS, Intel | `.dmg` release | CI and packaging | Supported |
-| Windows | No release package | CI build and tests | Experimental; scheduled cleanup is available |
-| Linux | No release package | Not run in CI | Unverified; scheduled cleanup is unavailable |
+| Windows, x64 | `.exe` NSIS release | CI and packaging | Experimental; scheduled cleanup is available |
 
 Clean My Codex follows the current Codex Desktop storage layout. The latest Clean My Codex and Codex releases are recommended; because parts of the desktop storage format are private and may change, no fixed range of Codex versions is guaranteed during the testing stage.
 
@@ -149,7 +148,7 @@ Automatic session cleanup skips pinned conversations, conversations with an unfi
 
 One thing worth knowing that this app does not manage: Codex records a checkpoint of every turn as a git ref in your own repository, under `refs/codex/turn-diffs/`. Those refs keep the objects they point at alive, so `git gc` cannot reclaim them and a long-running repository's `.git` keeps growing. They live in your repository rather than in Codex' data directory, so Clean My Codex counts nothing of them and touches nothing of them.
 
-Cleanup is written to a log — cache and leftover removals record the path and byte count of each deletion, including the ones that failed or were skipped: macOS `~/Library/Logs/CleanMyCodex/cleanup.log`, Windows `%APPDATA%\CleanMyCodex\logs\cleanup.log`, Linux `~/.config/CleanMyCodex/logs/cleanup.log`. Each deletion records the thread IDs that were resolved, whether `thread/delete` was available, how many rows the local re-check removed, and which desktop table and state file were cleaned of how many entries. Past 1 MB, one generation of history is kept. Scheduled cleanup writes its own `autoclean.log`. Settings → Diagnostics → Logs opens that folder.
+Cleanup is written to a log — cache and leftover removals record the path and byte count of each deletion, including the ones that failed or were skipped: macOS `~/Library/Logs/CleanMyCodex/cleanup.log`, Windows `%APPDATA%\CleanMyCodex\logs\cleanup.log`. Each deletion records the thread IDs that were resolved, whether `thread/delete` was available, how many rows the local re-check removed, and which desktop table and state file were cleaned of how many entries. Past 1 MB, one generation of history is kept. Scheduled cleanup writes its own `autoclean.log`. Settings → Diagnostics → Logs opens that folder.
 
 ## Development
 
@@ -171,7 +170,6 @@ Packaging:
 ```bash
 pnpm build:mac
 pnpm build:win
-pnpm build:linux
 ```
 
 ## Contributing and support

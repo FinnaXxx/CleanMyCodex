@@ -30,9 +30,3 @@ nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
-linux:
-  icon: Assets/AppIcon.png
-  target:
-    - AppImage
-  category: Utility
-  artifactName: ${productName}-${version}-${arch}.${ext}

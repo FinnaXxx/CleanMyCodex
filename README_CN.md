@@ -8,7 +8,7 @@
 
 [![Release](https://img.shields.io/github/v/release/FinnaXxx/CleanMyCodex)](https://github.com/FinnaXxx/CleanMyCodex/releases)
 [![CI](https://github.com/FinnaXxx/CleanMyCodex/actions/workflows/ci.yml/badge.svg)](https://github.com/FinnaXxx/CleanMyCodex/actions/workflows/ci.yml)
-![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
+![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 <picture>
@@ -47,9 +47,9 @@ worktree 只有在 git 为它保留的管理目录里仍带着 Codex 写入的�
 
 ## 安装
 
-从 [Releases](https://github.com/FinnaXxx/CleanMyCodex/releases) 下载最新的 `.dmg`，提供 Apple Silicon（`arm64`）和 Intel（`x64`）两个安装包。
+从 [Releases](https://github.com/FinnaXxx/CleanMyCodex/releases) 下载最新安装包。macOS 提供 Apple Silicon（`arm64`）和 Intel（`x64`）两个 `.dmg`；Windows 提供 x64 NSIS 安装程序（`.exe`）。
 
-安装包做了 ad-hoc 签名但未做公证，首次打开需要在 **系统设置 → 隐私与安全性 → 仍要打开** 里放行一次。
+macOS 安装包做了 ad-hoc 签名但未做公证，首次打开需要在 **系统设置 → 隐私与安全性 → 仍要打开** 里放行一次。Windows 安装程序目前未签名，Microsoft Defender SmartScreen 可能会要求确认后才能运行。
 
 ## 兼容性
 
@@ -57,8 +57,7 @@ worktree 只有在 git 为它保留的管理目录里仍带着 Codex 写入的�
 | --- | --- | --- | --- |
 | macOS，Apple Silicon | `.dmg` 正式包 | CI 与打包验证 | 支持 |
 | macOS，Intel | `.dmg` 正式包 | CI 与打包验证 | 支持 |
-| Windows | 未发布安装包 | CI 构建与测试 | 实验性支持；可用定时清理 |
-| Linux | 未发布安装包 | 未进入 CI | 尚未验证；不可用定时清理 |
+| Windows，x64 | `.exe` NSIS 正式包 | CI 与打包验证 | 实验性支持；可用定时清理 |
 
 Clean My Codex 跟随当前 Codex Desktop 的存储布局，建议同时使用最新版 Clean My Codex 与 Codex。桌面端部分存储格式并未公开且可能变化，因此测试阶段不承诺固定的 Codex 版本兼容范围。
 
@@ -149,7 +148,7 @@ Clean My Codex 跟随当前 Codex Desktop 的存储布局，建议同时使用�
 
 另外有一件本工具不管、但值得知道的事：Codex 会把每一轮对话的检查点作为 git ref 写进你自己的仓库，路径在 `refs/codex/turn-diffs/` 下。这些 ref 会让它们指向的对象一直存活，`git gc` 回收不掉，跑得久的仓库 `.git` 会持续变大。它们在你的仓库里而不在 Codex 数据目录里，所以 Clean My Codex 既不统计也不触碰。
 
-清理会写入清理日志（缓存和残留清理逐条记录删掉的路径与字节数，删除失败或跳过的也记）：macOS `~/Library/Logs/CleanMyCodex/cleanup.log`，Windows `%APPDATA%\CleanMyCodex\logs\cleanup.log`，Linux `~/.config/CleanMyCodex/logs/cleanup.log`。每次删除记录解析出的 thread ID、`thread/delete` 是否可用、本地复查删掉了多少行，以及桌面端的哪张表、哪个状态文件被清理了多少条，超过 1 MB 保留一代历史。定时清理另有 `autoclean.log`。设置页的「诊断 → 日志」可以直接打开这个目录。
+清理会写入清理日志（缓存和残留清理逐条记录删掉的路径与字节数，删除失败或跳过的也记）：macOS `~/Library/Logs/CleanMyCodex/cleanup.log`，Windows `%APPDATA%\CleanMyCodex\logs\cleanup.log`。每次删除记录解析出的 thread ID、`thread/delete` 是否可用、本地复查删掉了多少行，以及桌面端的哪张表、哪个状态文件被清理了多少条，超过 1 MB 保留一代历史。定时清理另有 `autoclean.log`。设置页的「诊断 → 日志」可以直接打开这个目录。
 
 ## 开发
 
@@ -171,7 +170,6 @@ pnpm check
 ```bash
 pnpm build:mac
 pnpm build:win
-pnpm build:linux
 ```
 
 ## 贡献与支持

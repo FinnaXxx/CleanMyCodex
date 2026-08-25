@@ -1,9 +1,9 @@
 /**
  * Optional helper for capturing the README screenshots away from macOS.
  *
- * The interface asks for `-apple-system` and `PingFang SC`. A Linux box has neither, so
- * the shots come out in whatever fallback fontconfig picks and stop looking like the
- * application. This downloads Inter and Noto Sans SC into `fonts/` and writes the
+ * The interface asks for `-apple-system` and `PingFang SC`. A non-macOS capture host may
+ * have neither, so the shots stop looking like the application. This downloads Inter and
+ * Noto Sans SC into `fonts/` and writes the
  * stylesheet `page.html` already links, which also forces the two families on. On macOS
  * skip this: the real fonts are already there, and `fonts/fonts.css` simply 404s.
  */

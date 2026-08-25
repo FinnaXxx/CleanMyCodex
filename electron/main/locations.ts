@@ -62,9 +62,8 @@ export function appCacheDirectories(container: string, path = { join }): string[
  *
  * - `home` — Codex' runtime data (`~/.codex`, or `CODEX_HOME`).
  * - `library` — profile and application-support data. macOS `~/Library`, Windows
- *   `%APPDATA%`, Linux `$XDG_CONFIG_HOME`.
- * - `caches` — platform cache roots. macOS `~/Library/Caches`, Windows `%LOCALAPPDATA%`,
- *   Linux `$XDG_CACHE_HOME`.
+ *   `%APPDATA%`.
+ * - `caches` — platform cache roots. macOS `~/Library/Caches`, Windows `%LOCALAPPDATA%`.
  *
  * `documents` holds the sandbox workspace (`~/Documents/Codex`).
  */
@@ -108,7 +107,7 @@ export class CodexLocations {
     switch (platform()) {
       case 'darwin': return join(homedir(), 'Library')
       case 'win32': return process.env['APPDATA'] ?? join(homedir(), 'AppData', 'Roaming')
-      default: return process.env['XDG_CONFIG_HOME'] ?? join(homedir(), '.config')
+      default: throw new Error(`Unsupported platform: ${platform()}`)
     }
   }
 
@@ -116,7 +115,7 @@ export class CodexLocations {
     switch (platform()) {
       case 'darwin': return join(homedir(), 'Library', 'Caches')
       case 'win32': return process.env['LOCALAPPDATA'] ?? join(homedir(), 'AppData', 'Local')
-      default: return process.env['XDG_CACHE_HOME'] ?? join(homedir(), '.cache')
+      default: throw new Error(`Unsupported platform: ${platform()}`)
     }
   }
 
@@ -198,7 +197,11 @@ export class CodexLocations {
   // --- Outside ~/.codex ---
 
   get appSupport(): string {
-    return join(this.library, platform() === 'darwin' ? 'Application Support/Codex' : 'Codex')
+    switch (platform()) {
+      case 'darwin': return join(this.library, 'Application Support/Codex')
+      case 'win32': return join(this.library, 'Codex')
+      default: throw new Error(`Unsupported platform: ${platform()}`)
+    }
   }
 
   /**
@@ -211,8 +214,7 @@ export class CodexLocations {
       case 'darwin':
       case 'win32':
         return [join(this.caches, 'Codex'), join(this.caches, 'com.openai.codex')]
-      default:
-        return [join(this.caches, 'Codex')]
+      default: throw new Error(`Unsupported platform: ${platform()}`)
     }
   }
 
@@ -230,7 +232,7 @@ export class CodexLocations {
     switch (platform()) {
       case 'darwin': return join(this.library, 'Logs', 'com.openai.codex')
       case 'win32': return join(this.caches, 'Codex', 'Logs')
-      default: return join(this.library, 'Codex', 'Logs')
+      default: throw new Error(`Unsupported platform: ${platform()}`)
     }
   }
 
@@ -246,7 +248,11 @@ export class CodexLocations {
    * leaves path validation with nothing to allow below it.
    */
   get readOnlyAppSupport(): string[] {
-    return platform() === 'darwin' ? [join(this.library, 'Application Support/com.openai.codex')] : []
+    switch (platform()) {
+      case 'darwin': return [join(this.library, 'Application Support/com.openai.codex')]
+      case 'win32': return []
+      default: throw new Error(`Unsupported platform: ${platform()}`)
+    }
   }
 
   /** Roots recognized by path validation. Anything outside is rejected; individual

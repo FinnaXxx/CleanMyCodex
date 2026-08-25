@@ -46,8 +46,8 @@ describe('cleanup path guard', () => {
     writeFileSync(join(day, 'codex-desktop-s1-100-t0.log'), 'x')
     const guard = new ProtectedPaths(locations)
     for (const path of [locations.appLogs, day, join(day, 'codex-desktop-s1-100-t0.log')]) {
-      // macOS keeps the log root outside every data root, while Windows and Linux nest it
-      // inside one. It is refused either way; only the reason given differs.
+      // macOS keeps the log root outside every data root, while Windows nests it inside
+      // one. It is refused either way; only the reason given differs.
       expect(['guard.outsideDataRoots', 'guard.protectedPath'], path)
         .toContain(rejection(() => guard.validate(path)))
     }
