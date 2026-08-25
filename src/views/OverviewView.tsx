@@ -20,6 +20,7 @@ import {
   snapshotGeneratedAssetBytes,
   snapshotWorktreeBytes,
   snapshotSessionBytes,
+  snapshotSessionSectionBytes,
   workspaceBytes,
   formatBytes
 } from '../../shared/types'
@@ -58,7 +59,9 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
   const allEntries = useMemo<StorageEntry[]>(() => snapshot.categories.flatMap((c) => c.entries), [snapshot])
   const selectedEntries = useMemo(() => allEntries.filter((e) => selected.has(e.id)), [allEntries, selected])
   const selectedBytes = selectedEntries.reduce((sum, e) => sum + e.reclaimableBytes, 0)
-  const sessionBytes = snapshotSessionBytes(snapshot)
+  const sessionRolloutBytes = snapshotSessionBytes(snapshot)
+  const sessionProjection = useMemo(() => snapshot.categories.find((c) => c.kind === 'sessionDatabase'), [snapshot])
+  const sessionSectionBytes = snapshotSessionSectionBytes(snapshot)
   const generatedAssetTotalBytes = snapshotGeneratedAssetBytes(snapshot)
   const generatedAssetCount = snapshot.generatedAssets.length
   const workspaceTotalBytes = workspaceBytes(snapshot.workspace)
@@ -70,8 +73,11 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
   const sections = useMemo(() => StorageSectionOrder.map((section) => ({
     section,
     categories: snapshot.categories
-      .filter((category) => !categoryIsEmpty(category) && categorySection(category) === section)
-      .sort((a, b) => categoryReclaimable(b) - categoryReclaimable(a) || categoryBytes(b) - categoryBytes(a))
+      // The session projection DB is shown as its own row under 会话记录, not here.
+      .filter((category) => !categoryIsEmpty(category) && category.kind !== 'sessionDatabase' && categorySection(category) === section)
+      .sort((a, b) => (a.kind === 'unrecognized' ? 1 : b.kind === 'unrecognized' ? -1 : 0)
+        || (a.kind === 'pluginRuntime' ? -1 : b.kind === 'pluginRuntime' ? 1 : 0)
+        || categoryReclaimable(b) - categoryReclaimable(a) || categoryBytes(b) - categoryBytes(a))
   })).filter((group) => group.categories.length > 0), [snapshot])
 
   const distribution = useMemo(() => {
@@ -225,16 +231,41 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
       {appInfo?.codexRunning && <p className="notice warning">{appInfo.blockers.map(m).join(t('；', '; '))}{t('，需要独占文件的项目本次会跳过；退出 Codex 后需重新清理。', '. Items requiring exclusive file access will be skipped; quit Codex and run cleanup again.')}</p>}
       {snapshot.notes.map((note) => <p className="notice" key={note.key}>{m(note)}</p>)}
 
-      <PageSection
-        glyph="sessions"
-        title={t('会话记录', 'Sessions')}
-        bytes={sessionBytes}
-        rowDetail={sessionCount
-          ? t(`${sessionCount} 个会话，在会话记录页删除`, `${sessionCount} conversations, picked on the Sessions page`)
-          : t('没有扫描到本地会话', 'No local conversations found')}
-        value={sessionCount ? formatBytes(sessionBytes) : '—'}
-        onOpen={onOpenSessions}
-      />
+      <section className="section section-sessions">
+        <div className="section-head">
+          <span className="section-icon" aria-hidden="true"><NavIcon name="sessions" /></span>
+          <h2>{t('会话记录', 'Sessions')}</h2>
+          <span className="section-total">{t('共', 'Total')} {formatBytes(sessionSectionBytes)}</span>
+        </div>
+        <div className="card">
+          <div className="row-block row-navigation">
+            <div className="row">
+              <span className="checkbox-space" />
+              <button className="row-main" onClick={onOpenSessions}>
+                <span className="row-text">
+                  <span className="row-title">{t('会话记录', 'Sessions')}</span>
+                  <span className="row-detail">{sessionCount
+                    ? t(`${sessionCount} 个会话，在会话记录页删除`, `${sessionCount} conversations, picked on the Sessions page`)
+                    : t('没有扫描到本地会话', 'No local conversations found')}</span>
+                </span>
+                <span className="row-meta"><span className="row-bytes">{sessionCount ? formatBytes(sessionRolloutBytes) : '—'}</span></span>
+                <span className="chevron">›</span>
+              </button>
+            </div>
+          </div>
+          {sessionProjection && !categoryIsEmpty(sessionProjection) && (
+            <CategoryRow
+              key={sessionProjection.kind}
+              category={sessionProjection}
+              selected={selected}
+              expanded={expanded.has(sessionProjection.kind)}
+              onExpand={() => toggleExpanded(sessionProjection.kind)}
+              onSelectAll={(on) => setMany(sessionProjection.entries.filter((entry) => isSelectable(entry.risk)), on)}
+              onToggleEntry={(entry) => setMany([entry], !selected.has(entry.id))}
+            />
+          )}
+        </div>
+      </section>
 
       <PageSection
         glyph="workspace"
@@ -424,7 +455,7 @@ function CategoryRow({ category, selected, expanded, onExpand, onSelectAll, onTo
           </span>
           <span className="row-meta">
             <span className="row-bytes">{formatBytes(categoryBytes(category))}</span>
-            <span className={`advice advice-${category.group}`}>{m(message(`group.${category.group}`))}</span>
+            {!onNavigate && <span className={`advice advice-${category.group}`}>{m(message(`group.${category.group}`))}</span>}
           </span>
           <span className="chevron">{onNavigate ? '›' : expanded ? '⌃' : '⌄'}</span>
         </button>

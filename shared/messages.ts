@@ -25,6 +25,7 @@ export type MessageKey =
   | 'category.pluginRemnants.title' | 'category.pluginRemnants.detail'
   | 'category.pluginOrphans.title' | 'category.pluginOrphans.detail'
   | 'category.pluginRuntime.title' | 'category.pluginRuntime.detail'
+  | 'category.pluginRuntimeBinaries.title' | 'category.pluginRuntimeBinaries.detail'
   | 'category.pluginData.title' | 'category.pluginData.detail'
   | 'category.codexCache.title' | 'category.codexCache.detail'
   | 'category.appCache.title' | 'category.appCache.detail'
@@ -44,7 +45,7 @@ export type MessageKey =
   | 'note.knownMarketplaces' | 'note.stateDatabase' | 'note.browserProfile'
   | 'note.computerUseComponent' | 'note.builtinPlugin' | 'note.currentPlugin' | 'note.unconfirmedPlugin' | 'note.pluginRuntime'
   | 'note.desktopStateLeftover' | 'note.skillsBackup' | 'note.releaseVersion' | 'note.currentRelease'
-  | 'note.unconfirmedRelease' | 'note.unrecognizedEntry'
+  | 'note.unconfirmedRelease'
   // Entry tags
   | 'tag.builtin' | 'tag.current' | 'tag.unconfirmed' | 'tag.runtime' | 'tag.outdated' | 'tag.orphaned'
   | 'tag.unmanagedWorktree' | 'tag.orphanedWorktree'
@@ -116,8 +117,10 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'category.pluginRemnants.detail': ['已有明确当前版本，可清理的旧版本', 'Older versions with a confirmed current version'],
   'category.pluginOrphans.title': ['卸载插件残留', 'Uninstalled Plugin Leftovers'],
   'category.pluginOrphans.detail': ['plugin/list 已确认未安装，仅供手动清理', 'Confirmed uninstalled by plugin/list; manual cleanup only'],
-  'category.pluginRuntime.title': ['当前插件与运行组件', 'Current Plugins & Runtime'],
-  'category.pluginRuntime.detail': ['已统计但不会自动删除', 'Counted, but never removed automatically'],
+  'category.pluginRuntime.title': ['插件版本', 'Plugins'],
+  'category.pluginRuntime.detail': ['Codex 正在使用的插件版本，可在插件版本页卸载', 'Plugin versions in use by Codex; uninstall them on the Plugins page'],
+  'category.pluginRuntimeBinaries.title': ['插件运行组件', 'Plugin Runtime Components'],
+  'category.pluginRuntimeBinaries.detail': ['插件背后的可执行文件', 'Executables behind the plugins'],
   'category.pluginData.title': ['插件数据与配置', 'Plugin Data & Configuration'],
   'category.pluginData.detail': ['插件运行所需的受保护数据', 'Protected data required by plugins'],
   'category.codexCache.title': ['Codex 可重建缓存', 'Codex Rebuildable Caches'],
@@ -134,8 +137,8 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'category.releaseVersions.detail': ['已有明确当前版本，可清理的旧版本', 'Older releases with a confirmed current version'],
   'category.releaseRuntime.title': ['当前 Codex 安装包', 'Current Codex Release'],
   'category.releaseRuntime.detail': ['已统计但不会自动删除', 'Counted, but never removed automatically'],
-  'category.unrecognized.title': ['未识别的项目', 'Unrecognized Items'],
-  'category.unrecognized.detail': ['本工具尚不认识，仅统计占用', 'Not yet known to this app; usage only'],
+  'category.unrecognized.title': ['其他', 'Other'],
+  'category.unrecognized.detail': ['', ''],
   'category.protectedUserData.title': ['用户数据', 'User Data'],
   'category.protectedUserData.detail': ['浏览器登录状态与本地配置', 'Browser sign-in state and local configuration'],
 
@@ -169,7 +172,6 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'note.releaseVersion': ['已被 current 取代的旧安装包', 'Older release superseded by the one `current` points at'],
   'note.currentRelease': ['current 指向的安装包，正在使用', 'The release `current` points at; in use'],
   'note.unconfirmedRelease': ['无法确认当前版本，已锁定', 'The current release could not be confirmed; locked'],
-  'note.unrecognizedEntry': ['本工具尚不认识这一项，只统计不清理', 'Not yet known to this app; counted, never cleaned'],
 
   'tag.builtin': ['官方内置', 'Official built-in'],
   'tag.current': ['当前版本', 'Current'],

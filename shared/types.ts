@@ -21,6 +21,7 @@ export type StorageKind =
   | 'pluginRemnants'
   | 'pluginOrphans'
   | 'pluginRuntime'
+  | 'pluginRuntimeBinaries'
   | 'pluginData'
   | 'releaseVersions'
   | 'releaseRuntime'
@@ -44,6 +45,7 @@ export const StorageKindSection: Record<StorageKind, StorageSection> = {
   pluginRemnants: 'plugins',
   pluginOrphans: 'plugins',
   pluginRuntime: 'plugins',
+  pluginRuntimeBinaries: 'plugins',
   pluginData: 'plugins',
   releaseVersions: 'plugins',
   releaseRuntime: 'plugins',
@@ -382,9 +384,24 @@ export const snapshotSessionBytes = (s: ScanSnapshot): number => {
   const sessionIDs = new Set(s.sessions.map((session) => session.id))
   const linkedAssetBytes = generatedAssetBytes((s.generatedAssets ?? [])
     .filter((asset) => asset.sourceSessionID !== null && sessionIDs.has(asset.sourceSessionID)))
-  return Math.max(0, listableSessions(s).reduce((sum, x) => sum + sessionTotalBytes(x), 0) - linkedAssetBytes) +
-    s.categories.filter((category) => category.kind === 'sessionDatabase').reduce((sum, category) => sum + categoryBytes(category), 0)
+  // Per-session rollouts and their thread-scoped assets only. The shared
+  // `thread_history_*.sqlite` projection Codex uses to load sessions is a
+  // global, shielded file removed per-thread via deleteThreadLocally — it is
+  // not owned by any one session, so it is tracked separately via
+  // snapshotSessionDatabaseBytes and shown as its own row under 会话记录.
+  return Math.max(0, listableSessions(s).reduce((sum, x) => sum + sessionTotalBytes(x), 0) - linkedAssetBytes)
 }
+
+/** Bytes of the shared `thread_history_*.sqlite` projection Codex uses to load
+ *  sessions — a shielded, per-thread-cleaned file shown as its own row under
+ *  会话记录 alongside the per-session rollouts. */
+export const snapshotSessionDatabaseBytes = (s: ScanSnapshot): number =>
+  s.categories.filter((category) => category.kind === 'sessionDatabase').reduce((sum, category) => sum + categoryBytes(category), 0)
+
+/** Everything shown under 会话记录: per-session rollouts plus the shared
+ *  projection DB that sits beside them. */
+export const snapshotSessionSectionBytes = (s: ScanSnapshot): number =>
+  snapshotSessionBytes(s) + snapshotSessionDatabaseBytes(s)
 
 export const snapshotGeneratedAssetBytes = (s: ScanSnapshot): number =>
   generatedAssetBytes(s.generatedAssets ?? [])

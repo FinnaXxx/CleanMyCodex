@@ -146,7 +146,7 @@ interface Measured { bytes: number; artifactBytes: number; modifiedAt: number }
  *  Symlinks are not followed, matching how every other tree in this app is measured. */
 function measure(path: string, insideArtifact = false): Measured {
   const result: Measured = { bytes: 0, artifactBytes: 0, modifiedAt: 0 }
-  try { result.modifiedAt = statSync(path).mtimeMs } catch { /* missing */ }
+  try { result.modifiedAt = Math.round(statSync(path).mtimeMs) } catch { /* missing */ }
   let children
   try { children = readdirSync(path, { withFileTypes: true }) } catch { return result }
   for (const child of children) {
@@ -162,7 +162,7 @@ function measure(path: string, insideArtifact = false): Measured {
     const bytes = fileAllocatedSize(childPath)
     result.bytes += bytes
     if (insideArtifact) result.artifactBytes += bytes
-    try { result.modifiedAt = Math.max(result.modifiedAt, statSync(childPath).mtimeMs) } catch { /* missing */ }
+    try { result.modifiedAt = Math.max(result.modifiedAt, Math.round(statSync(childPath).mtimeMs)) } catch { /* missing */ }
   }
   return result
 }

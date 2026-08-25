@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import type { CleanupTask } from '../shared/types'
 import { runCleanup } from '../electron/main/cleanup'
 import { ProtectedPaths } from '../electron/main/guard'
@@ -322,7 +322,9 @@ describe('cleanup engine', () => {
     // Codex' marker, without which nothing here may be removed.
     writeFileSync(join(repository, '.git', 'worktrees', 'repo', 'codex-thread.json'),
       '{"version":1,"ownerThreadId":"t"}')
-    expect(git(repository, 'worktree', 'list').stdout).toContain(checkout)
+    const worktreeRel = relative(root, checkout).replace(/\\/g, '/')
+    const listStdout = () => git(repository, 'worktree', 'list').stdout.replace(/\\/g, '/')
+    expect(listStdout()).toContain(worktreeRel)
 
     const task: CleanupTask = {
       id: worktree, title: 'work', detail: worktree, url: worktree, expectedBytes: 0,
@@ -341,7 +343,7 @@ describe('cleanup engine', () => {
     expect(existsSync(worktree)).toBe(false)
     // The point of going through git: the repository no longer lists it, and the
     // administrative directory inside the repository is gone with it.
-    expect(git(repository, 'worktree', 'list').stdout).not.toContain(checkout)
+    expect(listStdout()).not.toContain(worktreeRel)
     expect(existsSync(join(repository, '.git', 'worktrees', 'repo'))).toBe(false)
   })
 

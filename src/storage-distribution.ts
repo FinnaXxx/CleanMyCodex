@@ -3,7 +3,7 @@ import {
   categoryBytes,
   categorySection,
   snapshotGeneratedAssetBytes,
-  snapshotSessionBytes,
+  snapshotSessionSectionBytes,
   snapshotWorktreeBytes,
   workspaceBytes,
   type ScanSnapshot,
@@ -25,14 +25,14 @@ export interface StorageDistribution {
 /** Mutually exclusive buckets for the overview chart. */
 export function storageDistribution(snapshot: ScanSnapshot): StorageDistribution {
   const workspace = workspaceBytes(snapshot.workspace)
-  const sessions = snapshotSessionBytes(snapshot)
+  const sessions = snapshotSessionSectionBytes(snapshot)
   const generatedAssets = snapshotGeneratedAssetBytes(snapshot)
   const worktrees = snapshotWorktreeBytes(snapshot)
   const sections: StorageDistributionItem[] = StorageSectionOrder.map((section) => ({
     kind: section,
     bytes: snapshot.categories
-      // Session databases already belong to the session total. Their category is a
-      // detail affordance, not additional physical storage.
+      // The session projection DB is shown under 会话记录 (counted in the sessions
+      // bucket above), so exclude it from the logs section to avoid double-counting.
       .filter((category) => category.kind !== 'sessionDatabase' && categorySection(category) === section)
       .reduce((sum, category) => sum + categoryBytes(category), 0)
   }))

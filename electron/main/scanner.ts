@@ -316,11 +316,23 @@ export async function scanSnapshot(
           tone: plugin.status === 'builtin' ? 'info' : 'neutral'
         }]
       }))
-  if (entryExists(locations.pluginRuntime)) {
-    pluginRuntimeEntries.push(entry('.plugin-appserver', 'note.pluginRuntime', locations.pluginRuntime,
-      measure(locations.pluginRuntime, 'stage.plugins', 0.36), 'shielded', { tags: [{ label: message('tag.runtime'), tone: 'info' }] }))
-  }
   categories.push(category('pluginRuntime', 'protectedData', 'shielded', pluginRuntimeEntries))
+  // The Codex executables that actually run these plugins. They are not plugins themselves
+  // (no `.codex-plugin/plugin.json` under `.plugin-appserver`), so `scanPluginVersions`
+  // never lists them and the Plugins page cannot show them. Enumerated here as their own
+  // protected, non-deletable row so the runtime half of the old `pluginRuntime` total is
+  // not silently lost when its plugin half jumps to the Plugins page.
+  const runtimeBinaryEntries: StorageEntry[] = entryExists(locations.pluginRuntime)
+    ? childrenOf(locations.pluginRuntime)
+        .filter((name) => !name.startsWith('.'))
+        .map((name) => {
+          const path = join(locations.pluginRuntime, name)
+          return entry(name, 'note.pluginRuntime', path,
+            measure(path, 'stage.plugins', 0.36), 'shielded',
+            { tags: [{ label: message('tag.runtime'), tone: 'info' }] })
+        })
+    : []
+  categories.push(category('pluginRuntimeBinaries', 'protectedData', 'shielded', runtimeBinaryEntries))
   if (installedPlugins === null && pluginVersions.length) notes.push(message('scanNote.appServerUnavailable'))
   await yieldToEventLoop()
 
@@ -504,7 +516,7 @@ function unrecognizedEntries(
       if (worktreeRoots.some((worktreeRoot) => ProtectedPaths.contains(worktreeRoot, path))) continue
       if (guards.isProtected(path)) continue
       if (ProtectedPaths.protectedHomePrefixes.some((prefix) => name.startsWith(prefix))) continue
-      entries.push(entry(name, 'note.unrecognizedEntry', path, pathAllocatedSize(path), 'shielded'))
+      entries.push(entry(name, null, path, pathAllocatedSize(path), 'shielded'))
     }
   }
 

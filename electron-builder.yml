@@ -22,7 +22,7 @@ mac:
   artifactName: ${productName}-${version}-${arch}.${ext}
   icon: Support/AppIcon.icns
 win:
-  icon: Assets/AppIcon.png
+  icon: Assets/AppIcon.ico
   target:
     - nsis
   artifactName: ${productName}-${version}-${arch}.${ext}
