@@ -1,6 +1,6 @@
 {
   "name": "cleanmycodex",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Codex 空间扫描与清理工具",
   "main": "out/main/index.js",
   "author": "FinnaXxx",
