@@ -339,7 +339,10 @@ describe('cleanup engine', () => {
       isCodexRunning: () => false
     })
 
-    expect(report.outcomes[0].status.kind).toBe('succeeded')
+    // Surface the git failure reason in the assertion message so a Windows-only failure
+    // (this is the one test that exercises a real `git worktree remove`) reports what git
+    // actually said, not just "failed".
+    expect(report.outcomes[0].status.kind, `worktree outcome: ${JSON.stringify(report.outcomes[0].status)}`).toBe('succeeded')
     expect(existsSync(worktree)).toBe(false)
     // The point of going through git: the repository no longer lists it, and the
     // administrative directory inside the repository is gone with it.
