@@ -30,9 +30,9 @@ Pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) before startin
 
 ## What it does
 
-Codex accumulates: a rollout file for every conversation you have ever had, plugin versions it never got around to deleting, staging folders abandoned by an interrupted update, and whatever your sessions wrote to disk. Clean My Codex measures all of it in one pass and shows where the space actually went.
+Codex accumulates: a rollout file for every conversation you have ever had, plugin versions it never got around to deleting, staging folders abandoned by an interrupted update, and whatever your sessions wrote to disk. Clean My Codex scans all of it and lists each item by category with the space it takes.
 
-- **One scan, six areas.** The Codex data directory, sessions, session assets, plugins, worktrees and workspace, each with its own page and its own rules.
+- **Six scan areas.** The Codex data directory, sessions, session assets, plugins, worktrees and workspace — each has its own page and its own rules.
 - **Honest numbers.** A SQLite database contributes what it really occupies; its reusable free pages are never presented as space you can reclaim.
 - **Conservative by default.** Nothing is recommended without positive evidence that it is disposable, so a scan that recommends nothing is a normal result rather than a failure. Everything that is only counted is labelled that way in the interface.
 - **Whole conversations.** A session that spans several rollout segments and several layers of subagents is one row in the list and one deletion, with every derived database and every desktop-side copy cleaned up alongside it.
@@ -68,15 +68,30 @@ Scanning and cleanup run locally. Clean My Codex has no analytics or telemetry a
 
 ## How scanning works
 
-Scanning is scheduled by the Electron main process, and the expensive traversal runs in a worker so the interface never blocks. The result comes back in five parts:
+Scanning is scheduled by the Electron main process, and the expensive traversal runs in a worker so the interface never blocks. The result comes back in six parts:
 
 - **Codex data directory** — caches, logs and temporary files. A SQLite database only contributes its actual footprint; reusable free pages are never listed as cleanable.
 - **Sessions** — rollouts are read as a stream rather than loaded whole, session information is collected, and session assets are linked back to the conversation that produced them.
 - **Session assets** — ImageGen, Visualization and Plan results are scanned for file count, usage, modification time and source conversation; a Visualization source and its Viewer are grouped as one item, and a Plan is named by the H1 of its newest revision.
 - **Plugins** — the directories on disk are combined with what `codex app-server` reports, separating the current version from older versions and uninstall leftovers.
+- **Worktrees** — the checkout Codex creates under `~/.codex/worktrees` for a conversation that needs one. Each is listed with its repository state, how much of it is build output, and how many conversations ran there.
 - **Workspace** — scanned only once you open that page. Each output is matched with the source session title recorded in SQLite, and flagged when git has uncommitted or unpushed work.
 
 A scan result is only a read-only snapshot. When cleanup runs, the main process rebuilds its task list from that snapshot and re-validates every path; caches, configuration, credentials, the state database, the current plugins, worktrees and the workspace never enter scheduled cleanup.
+
+### Work output and generated assets
+
+Three of the six areas are things sessions leave on disk. They relate to sessions differently, so they are deleted differently.
+
+| Area | Where it lives | Relation to a session | How the link is built | How it is removed |
+| --- | --- | --- | --- | --- |
+| **Session assets** | `~/.codex/generated_images`, `visualizations`, `visualization-viewers`, `plans` | 1 session ↔ 1 directory | The directory name is the thread ID | `rm -rf` |
+| **Workspace** | `~/Documents/Codex` | N sessions ↔ 1 directory | `sourceThreads[]`, reverse-looked-up from the SQLite working directory | `rm -rf` + git safety check |
+| **Worktree** | the checkout under `~/.codex/worktrees` | N sessions ↔ 1 worktree | Same `sourceThreads[]` reverse lookup | `git worktree remove` |
+
+- **Session assets are deleted with their session; the workspace is not.** `generated_images/<thread-id>` belongs to one session alone, so once that session is gone the directory is garbage and removing it with the session is safe — there is no point keeping the child once the parent is gone. `~/Documents/Codex/xxx` may be shared by several sessions (`sourceThreads` is an array) and sits in your documents folder as real work, so it is not deleted with any one session. The rule in one line: session assets follow their session; the workspace does not.
+- **Cascade forward, not backward.** Deleting a worktree or a workspace folder can optionally also delete the conversations that ran there — parent deletes child. Session assets cannot delete the session they belong to — child does not delete parent: an asset is a session's product, not something that should decide the session's fate.
+- **The app removes these itself, not `thread/delete`.** None of these directories is managed by the `thread/delete` protocol; the app deletes them directly. The protocol only handles the session's own rollouts, database rows and index lines.
 
 ### Where the data comes from
 

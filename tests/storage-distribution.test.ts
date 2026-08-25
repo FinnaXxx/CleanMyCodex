@@ -32,7 +32,6 @@ describe('overview storage distribution', () => {
       other: 500
     })
     expect(result.total).toBe(1_500)
-    expect(result.items.reduce((sum, item) => sum + item.bytes / result.total, 0)).toBeCloseTo(1)
     expect(result.items.map((item) => item.bytes)).toEqual([500, 500, 380, 100, 20])
   })
 

@@ -487,7 +487,6 @@ describe('storage scanner semantics', () => {
     const snapshot = await scanSnapshot(locations, [])
     const planPaths = snapshot.generatedAssets.filter((asset) => asset.kind === 'plan').map((asset) => asset.path)
     expect(planPaths).toEqual([join(locations.plans, thread)])
-    expect(planPaths).not.toContain(join(locations.plans, 'not-a-thread-id'))
     const unrecognized = snapshot.categories.find((category) => category.kind === 'unrecognized')?.entries.map((entry) => entry.url) ?? []
     expect(unrecognized).not.toContain(join(locations.plans, 'not-a-thread-id'))
   })
