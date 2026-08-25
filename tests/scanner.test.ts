@@ -136,7 +136,8 @@ describe('storage scanner semantics', () => {
     // `logs_*.sqlite` diagnostic DBs are folded into 应用日志 (WAL/SHM rolled into the
     // entry's bytes) rather than split into their own category.
     expect(logs?.entries.some((entry) => entry.url === logDatabase && entry.note?.key === 'note.logDatabase' && entry.bytes === 24_576 && entry.risk === 'shielded')).toBe(true)
-    expect(snapshot.categories.some((category) => category.kind === 'logDatabase')).toBe(false)
+    // `logDatabase` is no longer its own StorageKind: it is folded into 应用日志 above, so
+    // there is nothing to assert here — the type itself forbids that category kind.
     expect(snapshot.categories.flatMap((category) => category.entries).some((entry) => entry.url === oldLog)).toBe(false)
     const protectedConfigURLs = snapshot.categories.find((category) => category.kind === 'protectedConfig')?.entries.map((entry) => entry.url) ?? []
     expect(protectedConfigURLs).not.toContain(logDatabase)
