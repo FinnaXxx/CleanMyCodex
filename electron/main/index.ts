@@ -72,6 +72,7 @@ let scanController: AbortController | null = null
 let scanRevision = 0
 const cancelledWorkers = new WeakSet<Worker>()
 let checkedForUpdates = false
+let quitting = false
 
 const LatestReleaseAPI = 'https://api.github.com/repos/FinnaXxx/CleanMyCodex/releases/latest'
 const LatestReleasePage = 'https://github.com/FinnaXxx/CleanMyCodex/releases/latest'
@@ -519,6 +520,14 @@ function createWindow(): void {
     void checkForUpdates('automatic')
   })
   nativeTheme.on('updated', () => mainWindow?.setBackgroundColor(windowBackdrop()))
+  mainWindow.on('close', (event) => {
+    // Keep the renderer (and its completed scan) alive on macOS. Destroying the last
+    // window would make the next Dock click mount a new renderer and scan again.
+    // `before-quit` flips the flag first, so Quit still closes the window normally.
+    if (process.platform !== 'darwin' || quitting) return
+    event.preventDefault()
+    mainWindow?.hide()
+  })
   mainWindow.on('closed', () => { mainWindow = null })
   mainWindow.webContents.setWindowOpenHandler(({ url }) => { void openExternalWebURL(url); return { action: 'deny' } })
   mainWindow.webContents.on('will-navigate', (event, url) => {
@@ -694,7 +703,15 @@ app.whenReady().then(async () => {
   if (repaired) logCleanup(`schedule: ${repaired}`)
   buildApplicationMenu()
   createWindow()
-  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
+  app.on('activate', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) createWindow()
+    else {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+    }
+  })
 })
 
+app.on('before-quit', () => { quitting = true })
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
