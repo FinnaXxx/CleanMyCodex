@@ -46,12 +46,12 @@ export default function SettingsView({ onOpenScheduledCleanup }: {
           { value: 'en', label: 'English' }
         ]} label={t('语言', 'Language')} />
       </SettingsRow>
-      {window.cleanmycodex.platform === 'darwin' && <SettingsRow title={t('软件更新', 'Software Update')}
+      <SettingsRow title={t('软件更新', 'Software Update')}
         detail={t('检查是否有新的 GitHub Release', 'Check for a newer GitHub release')}>
         <button className="btn" disabled={checkingForUpdates} onClick={() => void checkForUpdates()}>
           {checkingForUpdates ? t('检查中…', 'Checking…') : t('检查更新', 'Check for Updates')}
         </button>
-      </SettingsRow>}
+      </SettingsRow>
     </SettingsGroup>
 
     <SettingsGroup title={t('诊断', 'Diagnostics')}>

@@ -63,7 +63,7 @@ Clean My Codex 跟随当前 Codex Desktop 的存储布局，建议同时使用�
 
 ## 隐私与网络访问
 
-扫描和清理均在本机执行。Clean My Codex 不包含分析或遥测，也不会上传凭据、会话内容或文件元数据。打包后的 macOS 应用会在启动时请求一次 GitHub Releases 元数据以检查新版本，下载和升级仍需手动完成；对 `codex app-server` 的调用使用本机 Codex 进程。
+扫描和清理均在本机执行。Clean My Codex 不包含分析或遥测，也不会上传凭据、会话内容或文件元数据。打包后的应用会在启动时请求一次 GitHub Releases 元数据以检查新版本，下载和升级仍需手动完成；对 `codex app-server` 的调用使用本机 Codex 进程。
 
 ## 扫描设计
 

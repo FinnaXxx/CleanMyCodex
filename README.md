@@ -63,7 +63,7 @@ Clean My Codex follows the current Codex Desktop storage layout. The latest Clea
 
 ## Privacy and network access
 
-Scanning and cleanup run locally. Clean My Codex has no analytics or telemetry and does not upload credentials, session contents or file metadata. A packaged macOS build makes one request to GitHub Releases on startup to check whether a newer version exists; downloads and upgrades remain manual. Calls to `codex app-server` use the local Codex process.
+Scanning and cleanup run locally. Clean My Codex has no analytics or telemetry and does not upload credentials, session contents or file metadata. A packaged build makes one request to GitHub Releases on startup to check whether a newer version exists; downloads and upgrades remain manual. Calls to `codex app-server` use the local Codex process.
 
 ## How scanning works
 

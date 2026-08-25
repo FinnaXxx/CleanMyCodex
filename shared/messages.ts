@@ -88,7 +88,7 @@ export type MessageKey =
   // Native application menu
   | 'menu.file' | 'menu.settings'
   // Application updates
-  | 'update.title' | 'update.available' | 'update.detail' | 'update.openRelease' | 'update.later'
+  | 'update.title' | 'update.available' | 'update.detail' | 'update.detailWindows' | 'update.openRelease' | 'update.later'
   | 'update.checkTitle' | 'update.current' | 'update.currentDetail'
   | 'update.unavailable' | 'update.unavailableDetail' | 'update.failed' | 'update.failedDetail' | 'update.ok'
 
@@ -286,6 +286,7 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'update.title': ['发现新版本', 'Update Available'],
   'update.available': ['Clean My Codex {version} 已发布', 'Clean My Codex {version} is available'],
   'update.detail': ['是否打开下载页面？下载 DMG 后，将新应用拖入“应用程序”并选择替换即可。', 'Open the download page? After downloading the DMG, drag the new app into Applications and choose Replace.'],
+  'update.detailWindows': ['是否打开下载页面？下载 Windows x64 安装程序（.exe）后运行即可。', 'Open the download page? Download and run the Windows x64 installer (.exe).'],
   'update.openRelease': ['前往下载', 'Open Download Page'],
   'update.later': ['稍后', 'Later'],
   'update.checkTitle': ['检查更新', 'Check for Updates'],

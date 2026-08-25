@@ -544,7 +544,7 @@ function createWindow(): void {
  */
 async function checkForUpdates(mode: 'automatic' | 'manual'): Promise<void> {
   const manual = mode === 'manual'
-  if (process.platform !== 'darwin' || !mainWindow) return
+  if (!mainWindow) return
   if (!manual && (checkedForUpdates || !app.isPackaged)) return
   if (!manual) checkedForUpdates = true
 
@@ -584,7 +584,7 @@ async function checkForUpdates(mode: 'automatic' | 'manual'): Promise<void> {
       type: 'info',
       title: formatMessage(message('update.title'), language),
       message: formatMessage(message('update.available', { version }), language),
-      detail: formatMessage(message('update.detail'), language),
+      detail: formatMessage(message(process.platform === 'win32' ? 'update.detailWindows' : 'update.detail'), language),
       buttons: [
         formatMessage(message('update.openRelease'), language),
         formatMessage(message('update.later'), language)
