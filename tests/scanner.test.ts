@@ -117,6 +117,8 @@ describe('storage scanner semantics', () => {
     write(join(locations.appCaches[0], 'cache.bin'))
     write(join(locations.home, 'attachments', 'attachment.bin'))
     write(join(locations.home, 'goals_1.sqlite'))
+    write(join(locations.home, 'history.jsonl'))
+    write(join(locations.home, 'log', 'codex-tui.log'))
 
     const progress: ScanProgress[] = []
     const snapshot = await scanSnapshot(locations, [], (item) => progress.push(item))
@@ -126,15 +128,32 @@ describe('storage scanner semantics', () => {
     // entry for the log root, and no log is ever offered for deletion however old it is.
     const logs = snapshot.categories.find((category) => category.kind === 'appLogs')
     expect(logs).toMatchObject({ group: 'protectedData', risk: 'shielded' })
-    expect(logs?.entries.map((entry) => entry.url)).toEqual([locations.appLogs])
+    expect(new Set(logs?.entries.map((entry) => entry.url))).toEqual(new Set([locations.appLogs, join(locations.home, 'log'), logDatabase]))
     expect(logs?.entries[0].bytes).toBeGreaterThan(0)
+    // `~/.codex/log` is the Codex runtime's rolling log directory: counted under 应用日志
+    // with its own note, never offered for deletion.
+    expect(logs?.entries.some((entry) => entry.url === join(locations.home, 'log') && entry.note?.key === 'note.codexLog' && entry.risk === 'shielded')).toBe(true)
+    // `logs_*.sqlite` diagnostic DBs are folded into 应用日志 (WAL/SHM rolled into the
+    // entry's bytes) rather than split into their own category.
+    expect(logs?.entries.some((entry) => entry.url === logDatabase && entry.note?.key === 'note.logDatabase' && entry.bytes === 24_576 && entry.risk === 'shielded')).toBe(true)
+    expect(snapshot.categories.some((category) => category.kind === 'logDatabase')).toBe(false)
     expect(snapshot.categories.flatMap((category) => category.entries).some((entry) => entry.url === oldLog)).toBe(false)
-    const logDatabases = snapshot.categories.find((category) => category.kind === 'logDatabase')
-    expect(logDatabases?.entries).toMatchObject([{ url: logDatabase, bytes: 24_576 }])
     const protectedConfigURLs = snapshot.categories.find((category) => category.kind === 'protectedConfig')?.entries.map((entry) => entry.url) ?? []
     expect(protectedConfigURLs).not.toContain(logDatabase)
     expect(protectedConfigURLs).not.toContain(`${logDatabase}-wal`)
     expect(protectedConfigURLs).not.toContain(`${logDatabase}-shm`)
+    expect(protectedConfigURLs).not.toContain(join(locations.home, 'log'))
+    // State databases (state/goals/queue/memories) get their own category in 日志与数据库,
+    // with WAL/SHM folded in; they no longer sit in protected-config as separate sidecars.
+    const stateDbs = snapshot.categories.find((category) => category.kind === 'stateDatabase')
+    expect(stateDbs).toMatchObject({ group: 'protectedData', risk: 'shielded' })
+    expect(stateDbs?.entries.some((entry) => entry.url === join(locations.home, 'goals_1.sqlite') && entry.note?.key === 'note.stateDatabase')).toBe(true)
+    // `history.jsonl` is prompt/command history: state, not a rotated log, so it joins the
+    // state databases rather than sitting in protected-config.
+    expect(stateDbs?.entries.some((entry) => entry.url === join(locations.home, 'history.jsonl') && entry.note?.key === 'note.stateDatabase')).toBe(true)
+    expect(protectedConfigURLs).not.toContain(join(locations.home, 'goals_1.sqlite'))
+    expect(protectedConfigURLs).not.toContain(join(locations.home, 'goals_1.sqlite-wal'))
+    expect(protectedConfigURLs).not.toContain(join(locations.home, 'history.jsonl'))
 
     const temporary = snapshot.categories.find((category) => category.kind === 'temporary')
     expect(temporary?.entries.map((entry) => entry.url)).not.toContain(stale)
@@ -178,7 +197,7 @@ describe('storage scanner semantics', () => {
     expect(appCache?.entries.some((entry) => entry.url === locations.codexCache)).toBe(false)
     expect(snapshot.categories.find((category) => category.kind === 'protectedConfig')?.entries.some((entry) => entry.url === join(locations.home, 'attachments'))).toBe(true)
     expect(snapshot.categories.find((category) => category.kind === 'protectedConfig')?.entries.some((entry) => entry.url === locations.generatedImages)).toBe(false)
-    expect(snapshot.categories.find((category) => category.kind === 'protectedConfig')?.entries.some((entry) => entry.url === join(locations.home, 'goals_1.sqlite'))).toBe(true)
+    expect(snapshot.categories.find((category) => category.kind === 'protectedConfig')?.entries.some((entry) => entry.url === join(locations.home, 'goals_1.sqlite'))).toBe(false)
     expect(snapshot.categories.find((category) => category.kind === 'protectedUserData')?.entries.some((entry) => entry.url === join(locations.appSupport, 'WasmTtsEngine'))).toBe(true)
     const pluginRuntime = snapshot.categories.find((category) => category.kind === 'pluginRuntime')
     expect(pluginRuntime?.entries.some((entry) => entry.url === locations.pluginRuntime)).toBe(false)

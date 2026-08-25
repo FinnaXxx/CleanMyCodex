@@ -19,8 +19,8 @@ export type MessageKey =
   // Storage sections
   | 'section.caches' | 'section.logs' | 'section.plugins' | 'section.protectedData'
   // Storage category titles
-  | 'category.logDatabase.title' | 'category.logDatabase.detail'
   | 'category.sessionDatabase.title' | 'category.sessionDatabase.detail'
+  | 'category.stateDatabase.title' | 'category.stateDatabase.detail'
   | 'category.temporary.title' | 'category.temporary.detail'
   | 'category.pluginRemnants.title' | 'category.pluginRemnants.detail'
   | 'category.pluginOrphans.title' | 'category.pluginOrphans.detail'
@@ -40,7 +40,7 @@ export type MessageKey =
   | 'note.marketplaceStaging' | 'note.installLeftover' | 'note.idleThreeDays' | 'note.helperScratch'
   | 'note.codexOperationalCache' | 'note.remotePluginCatalogCache' | 'note.codexAppsToolsCache'
   | 'note.codexAppDirectoryCache' | 'note.codexAppsServerInfoCache' | 'note.tuiPetsCache' | 'note.platformCache'
-  | 'note.applicationLog' | 'note.logDatabase' | 'note.sessionProjection'
+  | 'note.applicationLog' | 'note.codexLog' | 'note.logDatabase' | 'note.sessionProjection'
   | 'note.localMarketplace' | 'note.configOrCredentials' | 'note.pluginData'
   | 'note.knownMarketplaces' | 'note.stateDatabase' | 'note.browserProfile'
   | 'note.computerUseComponent' | 'note.builtinPlugin' | 'note.currentPlugin' | 'note.unconfirmedPlugin' | 'note.pluginRuntime'
@@ -107,10 +107,10 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'section.plugins': ['插件与组件', 'Plugins & Components'],
   'section.protectedData': ['受保护的数据', 'Protected Data'],
 
-  'category.logDatabase.title': ['日志数据库', 'Log Databases'],
-  'category.logDatabase.detail': ['仅统计占用', 'Usage only'],
   'category.sessionDatabase.title': ['会话投影数据库', 'Session Projection Databases'],
   'category.sessionDatabase.detail': ['Codex 加载会话使用的 SQLite 投影', 'SQLite projection Codex uses to load sessions'],
+  'category.stateDatabase.title': ['状态数据库', 'State Databases'],
+  'category.stateDatabase.detail': ['Codex 运行状态、目标、队列、记忆与命令历史；SQLite 库含 WAL/SHM', 'Codex runtime state, goals, queue, memories, and command history; SQLite stores include WAL/SHM'],
   'category.temporary.title': ['过期临时目录', 'Stale Temporary Folders'],
   'category.temporary.detail': ['安装和更新过程留下的临时目录', 'Temporary folders left by installs and updates'],
   'category.pluginRemnants.title': ['老版本插件', 'Old Plugin Versions'],
@@ -128,17 +128,17 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'category.appCache.title': ['应用缓存', 'App Cache'],
   'category.appCache.detail': ['桌面应用运行缓存', 'Desktop application runtime cache'],
   'category.appLogs.title': ['应用日志', 'Application Logs'],
-  'category.appLogs.detail': ['桌面应用自己轮转，只统计不清理', 'Rotated by the desktop application; counted, never cleaned'],
+  'category.appLogs.detail': ['桌面应用自己轮转', 'Rotated by the desktop application'],
   'category.computerUse.title': ['Computer Use 组件', 'Computer Use Component'],
   'category.computerUse.detail': ['Computer Use 运行所需的本地组件', 'Local component Computer Use needs in order to run'],
-  'category.protectedConfig.title': ['受保护的配置', 'Protected Configuration'],
+  'category.protectedConfig.title': ['配置项', 'Protected Configuration'],
   'category.protectedConfig.detail': ['凭据、配置和状态数据库', 'Credentials, configuration, and state databases'],
   'category.releaseVersions.title': ['旧版本 Codex 安装包', 'Old Codex Releases'],
   'category.releaseVersions.detail': ['已有明确当前版本，可清理的旧版本', 'Older releases with a confirmed current version'],
   'category.releaseRuntime.title': ['当前 Codex 安装包', 'Current Codex Release'],
   'category.releaseRuntime.detail': ['已统计但不会自动删除', 'Counted, but never removed automatically'],
   'category.unrecognized.title': ['其他', 'Other'],
-  'category.unrecognized.detail': ['', ''],
+  'category.unrecognized.detail': ['Codex 桌面端新增的、本应用暂未识别的内容', 'Files added by the Codex desktop app that this app does not yet recognize'],
   'category.protectedUserData.title': ['用户数据', 'User Data'],
   'category.protectedUserData.detail': ['浏览器登录状态与本地配置', 'Browser sign-in state and local configuration'],
 
@@ -154,6 +154,7 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'note.tuiPetsCache': ['内置 TUI 宠物精灵图、PNG 帧与 SIXEL 渲染缓存', 'Built-in TUI pet spritesheets, PNG frames, and SIXEL render cache'],
   'note.platformCache': ['桌面应用使用的运行缓存', 'Runtime cache used by the desktop application'],
   'note.applicationLog': ['桌面应用日志，由应用自行轮转', 'Desktop application log, rotated by the application itself'],
+  'note.codexLog': ['Codex 运行日志目录，由 Codex 自行轮转', 'Codex runtime log directory, rotated by Codex itself'],
   'note.logDatabase': ['Codex 诊断日志数据库（含 WAL/SHM）', 'Codex diagnostic log database (including WAL/SHM)'],
   'note.sessionProjection': ['会话内容投影数据库（含 WAL/SHM）', 'Session content projection database (including WAL/SHM)'],
   'note.localMarketplace': ['config.toml 注册的本地插件市场', 'Local marketplace registered in config.toml'],

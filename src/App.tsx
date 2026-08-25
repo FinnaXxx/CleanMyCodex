@@ -10,7 +10,7 @@ import {
   type WorkspaceSnapshot,
   reportFreedBytes,
   cleanupStatusReason,
-  snapshotSessionSectionBytes,
+  snapshotSessionBytes,
   snapshotGeneratedAssetBytes,
   snapshotPluginBytes,
   snapshotWorktreeBytes,
@@ -245,7 +245,7 @@ function Sidebar({ page, snapshot, workspace, onNavigate }: {
   const sessionCount = listableSessions(snapshot).length
   const items: Array<{ page: Page; glyph: NavGlyphName; label: string; value: string }> = [
     { page: 'overview', glyph: 'overview', label: t('总览', 'Overview'), value: formatBytes(storageDistribution(workspace ? { ...snapshot, workspace } : snapshot).total) },
-    { page: 'sessions', glyph: 'sessions', label: t('会话记录', 'Sessions'), value: sessionCount ? formatBytes(snapshotSessionSectionBytes(snapshot)) : '—' },
+    { page: 'sessions', glyph: 'sessions', label: t('会话记录', 'Sessions'), value: sessionCount ? formatBytes(snapshotSessionBytes(snapshot)) : '—' },
     { page: 'workspace', glyph: 'workspace', label: t('工作产出', 'Workspace'), value: workspace?.isScanned ? formatBytes(workspaceBytes(workspace)) : '—' },
     { page: 'worktrees', glyph: 'worktrees', label: t('Worktree', 'Worktrees'), value: (snapshot.worktrees ?? []).length ? formatBytes(snapshotWorktreeBytes(snapshot)) : '—' },
     { page: 'generatedAssets', glyph: 'generatedAssets', label: t('生成资产', 'Generated Assets'), value: snapshot.generatedAssets.length ? formatBytes(snapshotGeneratedAssetBytes(snapshot)) : '—' },

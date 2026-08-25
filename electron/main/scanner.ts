@@ -166,6 +166,26 @@ function databaseFiles(home: string, prefix: string): { path: string; bytes: num
   } catch { return [] }
 }
 
+/** Prefixes of Codex' state SQLite databases directly under ~/.codex: runtime state,
+ *  goals, the work queue, and memories. Each keeps its version suffix between releases. */
+const STATE_DATABASE_PREFIXES = ['state_', 'goals_', 'queue_', 'memories_']
+
+/** Finds Codex' state SQLite databases directly under ~/.codex, each with its WAL/SHM
+ *  sidecars folded into the footprint. */
+function stateDatabases(home: string): { path: string; bytes: number }[] {
+  return STATE_DATABASE_PREFIXES.flatMap((prefix) => databaseFiles(home, prefix))
+}
+
+/** `history*` files (e.g. `history.jsonl`) directly under ~/.codex: Codex' append-only
+ *  prompt/command history, read at startup for recall. */
+function historyFiles(home: string): string[] {
+  try {
+    return readdirSync(home).filter((name) => name.startsWith('history'))
+  } catch {
+    return []
+  }
+}
+
 /**
  * Builds the core Codex snapshot. The interactive worker fills in workspace output
  * immediately afterward so the Documents permission prompt belongs to the main scan.
@@ -290,16 +310,37 @@ export async function scanSnapshot(
   // The desktop application rotates its own logs, so they are counted towards the totals
   // and never offered: cleaning them would reclaim only what it is about to reclaim
   // itself, and would take the recent sessions its diagnostics read with it.
-  const applicationLogs = entryExists(locations.appLogs)
-    ? [entry(basename(locations.appLogs), 'note.applicationLog', locations.appLogs,
-        measure(locations.appLogs, 'stage.caches', 0.18), 'shielded')]
-    : []
+  const applicationLogs: StorageEntry[] = []
+  if (entryExists(locations.appLogs)) {
+    applicationLogs.push(entry(basename(locations.appLogs), 'note.applicationLog', locations.appLogs,
+      measure(locations.appLogs, 'stage.caches', 0.18), 'shielded'))
+  }
+  // `~/.codex/log` is the Codex runtime's own rolling log directory. The runtime rotates
+  // it, so it is counted alongside the desktop application's logs and never offered for
+  // deletion — the same handling as `appLogs` above.
+  const codexLogDir = join(locations.home, 'log')
+  if (entryExists(codexLogDir)) {
+    applicationLogs.push(entry('log', 'note.codexLog', codexLogDir,
+      measure(codexLogDir, 'stage.caches', 0.18), 'shielded'))
+  }
+  // `logs_*.sqlite` are Codex' diagnostic log databases (SQLite, with WAL/SHM). They are
+  // logs, so they are counted under 应用日志 rather than split into their own category.
+  for (const db of logDatabases(locations.home)) {
+    applicationLogs.push(entry(basename(db.path), 'note.logDatabase', db.path, db.bytes, 'shielded'))
+  }
   categories.push(category('appLogs', 'protectedData', 'shielded', applicationLogs))
   await yieldToEventLoop()
 
-  const logs = logDatabases(locations.home)
-  categories.push(category('logDatabase', 'protectedData', 'shielded',
-    logs.map((db) => entry(basename(db.path), 'note.logDatabase', db.path, db.bytes, 'shielded'))))
+  const stateDbEntries: StorageEntry[] = stateDatabases(locations.home).map((db) =>
+    entry(basename(db.path), 'note.stateDatabase', db.path, db.bytes, 'shielded'))
+  // `history*` (e.g. history.jsonl) is Codex' append-only prompt/command history: read at
+  // startup for recall, so it is state rather than a rotated log. It is not SQLite, so it
+  // has no WAL/SHM sidecar to fold in.
+  for (const name of historyFiles(locations.home)) {
+    const path = join(locations.home, name)
+    stateDbEntries.push(entry(name, 'note.stateDatabase', path, fileAllocatedSize(path), 'shielded'))
+  }
+  categories.push(category('stateDatabase', 'protectedData', 'shielded', stateDbEntries))
   await yieldToEventLoop()
 
   const pluginVersions = scanPluginVersions(locations.plugins, installedPlugins, (path) => progress('stage.plugins', path, 0.32))
@@ -393,6 +434,8 @@ export async function scanSnapshot(
     // plugins/cache is an installation store containing active plugin versions, not a
     // disposable cache; listing the whole tree would duplicate every version below it.
     if (path === locations.codexCache || path === locations.generatedImages || path === join(locations.plugins, 'cache')) continue
+    // `~/.codex/log` is shown under 应用日志 (appLogs) above, so do not duplicate it here.
+    if (path === join(locations.home, 'log')) continue
     if ((!ProtectedPaths.contains(locations.home, path) && !marketplaceSources.has(path)) || !entryExists(path)) continue
     const relativePath = relativeToHome(path, locations.home)
     const note = marketplaceSources.has(path) ? 'note.localMarketplace'
@@ -412,17 +455,6 @@ export async function scanSnapshot(
     const pluginsRoot = join(locations.home, 'plugins')
     if (ProtectedPaths.contains(pluginsRoot, path) || marketplaceSources.has(path)) pluginDataEntries.push(protectedEntry)
     else protectedConfigEntries.push(protectedEntry)
-  }
-  let homeEntries: string[] = []
-  try { homeEntries = readdirSync(locations.home) } catch { /* missing home */ }
-  // Log and session databases already have dedicated categories above. Exclude their
-  // main files and sidecars here so the same storage is not displayed twice.
-  for (const db of homeEntries.filter((name) =>
-    !name.startsWith('logs_') &&
-    !name.startsWith('thread_history_') &&
-    ProtectedPaths.protectedHomePrefixes.some((prefix) => name.startsWith(prefix)))) {
-    const path = join(locations.home, db)
-    protectedConfigEntries.push(entry(db, 'note.stateDatabase', path, fileAllocatedSize(path), 'shielded'))
   }
   categories.push(category('pluginData', 'protectedData', 'shielded', pluginDataEntries))
   categories.push(category('protectedConfig', 'protectedData', 'shielded', protectedConfigEntries))

@@ -15,8 +15,8 @@ export type CleanupRisk = 'safe' | 'rebuildable' | 'caution' | 'shielded'
 export const isSelectable = (risk: CleanupRisk): boolean => risk !== 'shielded'
 
 export type StorageKind =
-  | 'logDatabase'
   | 'sessionDatabase'
+  | 'stateDatabase'
   | 'temporary'
   | 'pluginRemnants'
   | 'pluginOrphans'
@@ -39,8 +39,8 @@ export type StorageSection = 'caches' | 'logs' | 'plugins' | 'protectedData'
 export const StorageSectionOrder: StorageSection[] = ['caches', 'logs', 'plugins', 'protectedData']
 
 export const StorageKindSection: Record<StorageKind, StorageSection> = {
-  logDatabase: 'logs',
   sessionDatabase: 'logs',
+  stateDatabase: 'logs',
   temporary: 'caches',
   pluginRemnants: 'plugins',
   pluginOrphans: 'plugins',
