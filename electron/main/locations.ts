@@ -189,6 +189,10 @@ export class CodexLocations {
   /** Rendered viewers Codex materializes from the fragments under `visualizations`, keyed
    *  by thread. Derived output — Codex' own code calls these the viewer caches. */
   get visualizationViewers(): string { return join(this.home, 'visualization-viewers') }
+  /** Plan-mode output: one directory per conversation under `plans/<thread-id>`, holding
+   *  the PLAN.md revisions that conversation produced. The open-source CLI never writes
+   *  here, so each `<thread-id>` directory is validated at runtime before it is claimed. */
+  get plans(): string { return join(this.home, 'plans') }
   get computerUse(): string { return join(this.home, 'computer-use') }
 
   // --- Outside ~/.codex ---

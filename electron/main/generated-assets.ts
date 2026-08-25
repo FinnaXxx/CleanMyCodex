@@ -1,12 +1,13 @@
-import { existsSync, lstatSync, readdirSync, statSync } from 'node:fs'
+import { closeSync, existsSync, lstatSync, openSync, readSync, readdirSync, statSync } from 'node:fs'
 import { extname, join } from 'node:path'
 import type { GeneratedAssetItem, SessionItem } from '../../shared/types'
 import { CodexLocations } from './locations'
+import { isSystemJunk } from './workspace'
 
 const UUID_ONLY_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 interface AssetDirectory {
-  kind: 'imageGen' | 'visualization' | 'viewer'
+  kind: 'imageGen' | 'visualization' | 'viewer' | 'plan'
   path: string
   threadID: string | null
 }
@@ -52,6 +53,7 @@ function directoryFacts(root: string): { bytes: number; fileCount: number; forma
     let entries: string[]
     try { entries = readdirSync(directory) } catch { continue }
     for (const name of entries) {
+      if (isSystemJunk(name)) continue
       const path = join(directory, name)
       let stats
       try { stats = lstatSync(path) } catch { continue }
@@ -78,7 +80,11 @@ export function scanGeneratedAssets(
   const imageDirectories = directDirectories(locations.generatedImages, 'imageGen')
   const visualizationSources = visualizationDirectories(locations.visualizations)
   const visualizationViewers = directDirectories(locations.visualizationViewers, 'viewer')
-  const directories = [...imageDirectories, ...visualizationSources, ...visualizationViewers]
+  // Only claim plan directories whose name is a thread UUID: the open-source CLI never
+  // writes here, so anything else is an unknown shape and is left for the overview to
+  // surface (or to remain unclaimed) rather than shown as a plan asset.
+  const planDirectories = directDirectories(locations.plans, 'plan').filter((directory) => directory.threadID !== null)
+  const directories = [...imageDirectories, ...visualizationSources, ...visualizationViewers, ...planDirectories]
   const sessionsByThread = new Map(sessions.map((session) => [session.threadID.toLowerCase(), session]))
   const factsByPath = new Map<string, ReturnType<typeof directoryFacts>>()
   directories.forEach((directory, index) => {
@@ -94,6 +100,13 @@ export function scanGeneratedAssets(
     if (!facts) return []
     return [assetFromDirectories('imageGen', [directory], factsByPath, sessionsByThread)]
   })
+
+  // Each plan directory is one conversation's revisions; the H1 of its newest PLAN.md
+  // gives the row a title that survives the conversation being deleted.
+  for (const directory of planDirectories) {
+    if (!factsByPath.has(directory.path)) continue
+    assets.push(assetFromDirectories('plan', [directory], factsByPath, sessionsByThread, planTitle(directory.path)))
+  }
 
   // A Visualization's source fragments and rendered Viewer are two representations of
   // one result. Group them by thread so the UI cannot leave a half-broken pair behind.
@@ -115,7 +128,8 @@ function assetFromDirectories(
   kind: GeneratedAssetItem['kind'],
   directories: AssetDirectory[],
   factsByPath: Map<string, ReturnType<typeof directoryFacts>>,
-  sessionsByThread: Map<string, SessionItem>
+  sessionsByThread: Map<string, SessionItem>,
+  title: string | null = null
 ): GeneratedAssetItem {
   const primary = directories[0]
   const facts = directories.map((directory) => factsByPath.get(directory.path)!).filter(Boolean)
@@ -131,6 +145,34 @@ function assetFromDirectories(
     formats: [...formats].sort(),
     modifiedAt: Math.max(...facts.map((item) => item.modifiedAt)),
     sourceThreadID: primary.threadID,
-    sourceSessionID: session?.id ?? null
+    sourceSessionID: session?.id ?? null,
+    title
+  }
+}
+
+/**
+ * Picks the newest PLAN.md revision under a thread's plans directory and reads its H1.
+ * Revisions sit under `<planID>/PLAN.md` where `planID` is a UUIDv7, so the
+ * lexicographically greatest planID is the newest revision. The H1 of the first kilobyte
+ * names a plan even after its conversation is gone, so an orphaned plan is not just a UUID.
+ */
+function planTitle(threadDir: string): string | null {
+  let entries
+  try { entries = readdirSync(threadDir, { withFileTypes: true }) } catch { return null }
+  const planIDs = entries
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.') && UUID_ONLY_RE.test(entry.name))
+    .map((entry) => entry.name)
+    .sort((a, b) => b.localeCompare(a))
+  if (!planIDs.length) return null
+  let fd: number
+  try { fd = openSync(join(threadDir, planIDs[0], 'PLAN.md'), 'r') } catch { return null }
+  try {
+    const buffer = Buffer.alloc(1024)
+    const bytesRead = readSync(fd, buffer, 0, 1024, 0)
+    const head = buffer.subarray(0, bytesRead).toString('utf8')
+    const match = head.match(/^#[ \t]+(.+?)\r?$/m)
+    return match ? match[1].trim() : null
+  } finally {
+    closeSync(fd)
   }
 }

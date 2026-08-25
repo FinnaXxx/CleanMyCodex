@@ -43,7 +43,7 @@ function snapshot(): ScanSnapshot {
     generatedAssets: [{
       id: '/codex/generated_images/active', kind: 'imageGen', path: '/codex/generated_images/active',
       companionPaths: [], bytes: 25, fileCount: 1, formats: ['png'], modifiedAt: 0,
-      sourceThreadID: 'active', sourceSessionID: '/codex/sessions/active.jsonl'
+      sourceThreadID: 'active', sourceSessionID: '/codex/sessions/active.jsonl', title: null
     }],
     pluginVersions: [
       { marketplace: 'm', plugin: 'p', version: '1', directoryURL: '/codex/plugins/current', bytes: 10, environmentBytes: 0, modifiedAt: 0, status: 'current' },
@@ -163,7 +163,7 @@ describe('trusted cleanup planner', () => {
     const child = folder('/docs/Codex/day/task')
     const parent = folder('/docs/Codex/day', [child])
     const workspace = { root: '/docs/Codex', isScanned: true, entries: [parent] }
-    const tasks = buildTrustedTasks({ kind: 'workspace', ids: [parent.id, child.id] }, snap, workspace)
+    const tasks = buildTrustedTasks({ kind: 'workspace', ids: [parent.id, child.id], deleteRelatedSessions: false }, snap, workspace)
     // Picking the date row must not swallow the output listed beside it, so both
     // choices survive: the loose file for one, the whole output directory for the other.
     expect(tasks.map((task) => task.url)).toEqual(['/docs/Codex/day/loose.txt', child.path])
@@ -175,8 +175,61 @@ describe('trusted cleanup planner', () => {
     const nested = folder('/docs/Codex/day/task/inner')
     const output = folder('/docs/Codex/day/task')
     const workspace = { root: '/docs/Codex', isScanned: true, entries: [folder('/docs/Codex/day', [output, nested])] }
-    const tasks = buildTrustedTasks({ kind: 'workspace', ids: [output.id, nested.id] }, snap, workspace)
+    const tasks = buildTrustedTasks({ kind: 'workspace', ids: [output.id, nested.id], deleteRelatedSessions: false }, snap, workspace)
     expect(tasks.map((task) => task.url)).toEqual([output.path])
+  })
+
+  it('does not drag a child output conversation into a date folder that only deletes loose files', () => {
+    const snap = snapshot()
+    const output = folder('/docs/Codex/day/output')
+    output.sourceThreads = [{ id: 'in-output', title: 'In output', archived: false, isSubagent: false, modifiedAt: 1 }]
+    const day = folder('/docs/Codex/day', [output])
+    day.sourceThreads = [{ id: 'in-day', title: 'In day', archived: false, isSubagent: false, modifiedAt: 1 }]
+    const workspace = { root: '/docs/Codex', isScanned: true, entries: [day] }
+    snap.sessions = [
+      session('in-day', { workingDirectory: '/docs/Codex/day' }),
+      session('in-output', { workingDirectory: '/docs/Codex/day/output' })
+    ]
+    // Choosing the date row alone takes only its loose files, so a conversation whose work
+    // lives in the child output directory is left alone — only the one that ran loose in
+    // the date folder itself is deleted with it.
+    const tasks = buildTrustedTasks({ kind: 'workspace', ids: [day.id], deleteRelatedSessions: true }, snap, workspace)
+    expect(tasks.some((task) => task.id === `workspace:${day.id}`)).toBe(true)
+    expect(tasks.some((task) => task.id === `workspace:${output.id}`)).toBe(false)
+    expect(tasks.map((task) => task.threadID)).toContain('in-day')
+    expect(tasks.map((task) => task.threadID)).not.toContain('in-output')
+  })
+
+  it('deletes a conversation whose working directory sits in a selected workspace output', () => {
+    const snap = snapshot()
+    const output = folder('/docs/Codex/day/output')
+    output.sourceThreads = [{ id: 'in-output', title: 'In output', archived: false, isSubagent: false, modifiedAt: 1 }]
+    const day = folder('/docs/Codex/day', [output])
+    const workspace = { root: '/docs/Codex', isScanned: true, entries: [day] }
+    snap.sessions = [session('in-output', { workingDirectory: '/docs/Codex/day/output' })]
+    const tasks = buildTrustedTasks({ kind: 'workspace', ids: [output.id], deleteRelatedSessions: true }, snap, workspace)
+    expect(tasks.map((task) => task.threadID)).toContain('in-output')
+  })
+
+  it('warns before a pinned conversation dragged in by workspace related-session deletion', () => {
+    const snap = snapshot()
+    const output = folder('/docs/Codex/day/output')
+    output.sourceThreads = [{ id: 'pinned', title: 'Pinned', archived: false, isSubagent: false, modifiedAt: 1 }]
+    const day = folder('/docs/Codex/day', [output])
+    const workspace = { root: '/docs/Codex', isScanned: true, entries: [day] }
+    const pinnedSession = session('pinned', { workingDirectory: '/docs/Codex/day/output', isPinned: true, blocksAutomaticCleanup: true })
+    snap.sessions = [pinnedSession]
+    const selection: CleanupSelection = { kind: 'workspace', ids: [output.id], deleteRelatedSessions: true }
+    const tasks = buildTrustedTasks(selection, snap, workspace)
+    const preview = makeCleanupPreview(selection, tasks, {
+      running: false, detectionKnown: true, desktopRunning: false,
+      cliCommands: [], canQuit: false, blockers: []
+    }, snap, workspace)
+    expect(preview.warnings).toContainEqual(message('warning.pinnedSessions', { count: 1 }))
+    // The conversation's bytes roll into the output row, so the preview stays one item.
+    const conversationBytes = pinnedSession.fileBytes + pinnedSession.assetBytes
+    expect(preview.items).toHaveLength(1)
+    expect(preview.items[0].expectedBytes).toBe(output.bytes + conversationBytes)
   })
 
   it('explains direct session deletion and exclusive-access blockers in the preview', () => {
@@ -211,7 +264,7 @@ describe('trusted cleanup planner', () => {
       id: '/codex/visualizations/2026/08/24/active', kind: 'visualization' as const,
       path: '/codex/visualizations/2026/08/24/active', companionPaths: ['/codex/visualization-viewers/active'],
       bytes: 75, fileCount: 3, formats: ['html', 'png'], modifiedAt: 0,
-      sourceThreadID: 'active', sourceSessionID: '/codex/sessions/active.jsonl'
+      sourceThreadID: 'active', sourceSessionID: '/codex/sessions/active.jsonl', title: null
     }
     snap.generatedAssets = [visualization]
     const tasks = buildTrustedTasks({ kind: 'generated-assets', ids: [visualization.id] }, snap, snap.workspace)
@@ -223,6 +276,43 @@ describe('trusted cleanup planner', () => {
     }])
   })
 
+  it('names a plan by its H1 and warns when an orphan plan may be its only copy', () => {
+    const snap = snapshot()
+    const linkedPlan = {
+      id: '/codex/plans/active', kind: 'plan' as const, path: '/codex/plans/active',
+      companionPaths: [], bytes: 40, fileCount: 2, formats: ['md'], modifiedAt: 0,
+      sourceThreadID: 'active', sourceSessionID: '/codex/sessions/active.jsonl', title: 'Linked plan title'
+    }
+    const orphanPlan = {
+      id: '/codex/plans/orphan', kind: 'plan' as const, path: '/codex/plans/orphan',
+      companionPaths: [], bytes: 30, fileCount: 1, formats: ['md'], modifiedAt: 0,
+      sourceThreadID: 'orphan', sourceSessionID: null, title: 'Orphan plan title'
+    }
+    snap.generatedAssets = [linkedPlan, orphanPlan]
+
+    // A plan still linked to its conversation is titled by that conversation, while an
+    // orphan falls back to its own H1 rather than a bare UUID.
+    const linkedTask = buildTrustedTasks({ kind: 'generated-assets', ids: [linkedPlan.id] }, snap, snap.workspace)[0]
+    expect(linkedTask.title).toBe('active')
+    const orphanTask = buildTrustedTasks({ kind: 'generated-assets', ids: [orphanPlan.id] }, snap, snap.workspace)[0]
+    expect(orphanTask.title).toBe('Orphan plan title')
+
+    // Only the orphan — whose conversation is already gone — carries the only-copy warning.
+    const environment = { running: false, detectionKnown: true, desktopRunning: false, cliCommands: [], canQuit: false, blockers: [] }
+    const linkedPreview = makeCleanupPreview({ kind: 'generated-assets', ids: [linkedPlan.id] }, [linkedTask], environment, snap)
+    expect(linkedPreview.warnings).not.toContainEqual(message('warning.planOnlyCopy'))
+    const orphanPreview = makeCleanupPreview({ kind: 'generated-assets', ids: [orphanPlan.id] }, [orphanTask], environment, snap)
+    expect(orphanPreview.warnings).toContainEqual(message('warning.planOnlyCopy'))
+  })
+
+  it('carries a session plan directory as a companion of session deletion', () => {
+    const snap = snapshot()
+    const planDir = '/codex/plans/active'
+    snap.sessions = [session('active', { assetURLs: [planDir] })]
+    const tasks = buildTrustedTasks({ kind: 'sessions-delete', ids: [snap.sessions[0].id] }, snap, snap.workspace)
+    expect(tasks[0].companionURLs).toContain(planDir)
+  })
+
   it('uses the source conversation title for generated assets and workspace outputs', () => {
     const snap = snapshot()
     snap.sessions[0].title = '表格里的生成资产题目'
@@ -231,7 +321,7 @@ describe('trusted cleanup planner', () => {
     const output = folder('/docs/Codex/day/output')
     output.sourceThreads = [{ id: 'active', title: '表格里的工作产出题目', archived: false, isSubagent: false, modifiedAt: 1 }]
     const workspace = { root: '/docs/Codex', isScanned: true, entries: [folder('/docs/Codex/day', [output])] }
-    const workspaceTask = buildTrustedTasks({ kind: 'workspace', ids: [output.id] }, snap, workspace)[0]
+    const workspaceTask = buildTrustedTasks({ kind: 'workspace', ids: [output.id], deleteRelatedSessions: false }, snap, workspace)[0]
 
     expect(assetTask.title).toBe('表格里的生成资产题目')
     expect(workspaceTask.title).toBe('表格里的工作产出题目')
@@ -381,5 +471,18 @@ describe('automatic cleanup planner', () => {
         .warnings.map((warning) => warning.key)
     expect(keys(clean)).toEqual(['warning.permanent'])
     expect(keys(dirty)).toEqual(['warning.permanentWorktreeGit'])
+  })
+
+  it('never schedules a plan asset or its directory in the automatic run', () => {
+    const snap = snapshot()
+    snap.generatedAssets.push({
+      id: '/codex/plans/active', kind: 'plan', path: '/codex/plans/active',
+      companionPaths: [], bytes: 40, fileCount: 2, formats: ['md'], modifiedAt: 0,
+      sourceThreadID: 'active', sourceSessionID: '/codex/sessions/active.jsonl', title: 'Plan'
+    })
+    const tasks = buildAutomaticTasks(snap, settings, 100 * 86_400_000)
+    // Plans are session assets, never a scheduled cache category, and the planner does
+    // not turn generated assets into automatic tasks at all.
+    expect(tasks.some((task) => task.url.includes('plans'))).toBe(false)
   })
 })

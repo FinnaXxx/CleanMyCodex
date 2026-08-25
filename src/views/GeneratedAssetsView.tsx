@@ -45,7 +45,7 @@ export default function GeneratedAssetsView({ snapshot, cleaning, actionsDisable
       if (scope !== 'all' && asset.kind !== scope) return false
       const session = asset.sourceSessionID ? sessionsByID.get(asset.sourceSessionID) : undefined
       if (!needle) return true
-      return [asset.path, asset.sourceThreadID, session ? sessionDisplayName(session) : null]
+      return [asset.path, asset.title, asset.sourceThreadID, session ? sessionDisplayName(session) : null]
         .filter(Boolean).join(' ').toLocaleLowerCase().includes(needle)
     })
     return assets.sort((a, b) => {
@@ -71,6 +71,7 @@ export default function GeneratedAssetsView({ snapshot, cleaning, actionsDisable
         <div><small>{t('总占用', 'Total')}</small><strong>{formatBytes(generatedAssetBytes(snapshot.generatedAssets))}</strong></div>
         <div><small>ImageGen</small><strong>{snapshot.generatedAssets.filter((asset) => asset.kind === 'imageGen').length}</strong></div>
         <div><small>Visualization</small><strong>{snapshot.generatedAssets.filter((asset) => asset.kind === 'visualization').length}</strong></div>
+        <div><small>Plan</small><strong>{snapshot.generatedAssets.filter((asset) => asset.kind === 'plan').length}</strong></div>
       </section>
 
       <section className="filters">
@@ -78,6 +79,7 @@ export default function GeneratedAssetsView({ snapshot, cleaning, actionsDisable
           <option value="all">{t('全部类型', 'All types')} {snapshot.generatedAssets.length}</option>
           <option value="imageGen">ImageGen {snapshot.generatedAssets.filter((asset) => asset.kind === 'imageGen').length}</option>
           <option value="visualization">Visualization {snapshot.generatedAssets.filter((asset) => asset.kind === 'visualization').length}</option>
+          <option value="plan">Plan {snapshot.generatedAssets.filter((asset) => asset.kind === 'plan').length}</option>
         </select>
         <select value={sort} onChange={(event) => setSort(event.target.value as Sort)} aria-label={t('排序方式', 'Sort by')}>
           <option value="size">{t('按占用大小', 'Size')}</option>
@@ -96,7 +98,7 @@ export default function GeneratedAssetsView({ snapshot, cleaning, actionsDisable
               for (const asset of visible) allVisibleSelected ? next.delete(asset.id) : next.add(asset.id)
               return next
             })} />
-          <span>{t('生成资产', 'Generated asset')}</span>
+          <span>{t('会话资产', 'Session asset')}</span>
           <span>{t('类型', 'Type')}</span>
           <span className="col-num">{t('文件', 'Files')}</span>
           <span>{t('最后修改', 'Modified')}</span>
@@ -108,13 +110,13 @@ export default function GeneratedAssetsView({ snapshot, cleaning, actionsDisable
             checked={selected.has(asset.id)} locale={locale} onToggle={() => toggle(asset.id)} />)}
         </ul>
         {!visible.length && <p className="empty-inline">{snapshot.generatedAssets.length
-          ? t('没有符合筛选条件的生成资产', 'No generated assets match these filters')
-          : t('没有扫描到本地生成资产', 'No local generated assets found')}</p>}
+          ? t('没有符合筛选条件的会话资产', 'No session assets match these filters')
+          : t('没有扫描到本地会话资产', 'No local session assets found')}</p>}
       </div>
     </div>
 
     {chosen.length > 0 && <div className="action-bar">
-      <span>{t(`已选 ${chosen.length} 项生成资产`, `${chosen.length} generated assets selected`)} · {formatBytes(chosenBytes)}</span>
+      <span>{t(`已选 ${chosen.length} 项会话资产`, `${chosen.length} session assets selected`)} · {formatBytes(chosenBytes)}</span>
       <button className="btn danger" disabled={cleaning || actionsDisabled}
         onClick={() => onCleanup({ kind: 'generated-assets', ids: chosen.map((asset) => asset.id) })}>
         {cleaning
@@ -157,5 +159,6 @@ function assetSession(asset: GeneratedAssetItem, sessionsByID: Map<string, Sessi
 
 function assetKindLabel(kind: GeneratedAssetKind): string {
   if (kind === 'imageGen') return 'ImageGen'
+  if (kind === 'plan') return 'Plan'
   return 'Visualization'
 }

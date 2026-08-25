@@ -102,13 +102,14 @@ export const categorySection = (c: StorageCategory): StorageSection => StorageKi
 
 export type SessionLocation = 'active' | 'archived'
 
-export type SessionTag = 'browser' | 'computerUse' | 'imageGen' | 'worktree'
+export type SessionTag = 'browser' | 'computerUse' | 'imageGen' | 'plan' | 'worktree'
 
 /** Codex' own feature names; identical in both languages. */
 export const SessionTagLabel: Record<SessionTag, string> = {
   browser: 'Browser',
   computerUse: 'Computer Use',
   imageGen: 'ImageGen',
+  plan: 'Plan',
   worktree: 'Worktree'
 }
 
@@ -178,10 +179,13 @@ export const sessionDisplayName = (s: SessionItem): string => {
   return s.threadID.slice(0, 12)
 }
 
-export type GeneratedAssetKind = 'imageGen' | 'visualization'
+export type GeneratedAssetKind = 'imageGen' | 'visualization' | 'plan'
 
 /** A thread-scoped asset directory. The directory is the smallest safe deletion unit:
- *  Visualization viewers contain several cooperating files and must stay together. */
+ *  Visualization viewers contain several cooperating files and must stay together.
+ *
+ *  Code name `generatedAssets`/`GeneratedAssetItem`; shown in the UI as "会话资产"/
+ *  "Session Assets" — directories removed along with the conversation that owned them. */
 export interface GeneratedAssetItem {
   id: string
   kind: GeneratedAssetKind
@@ -198,15 +202,20 @@ export interface GeneratedAssetItem {
   sourceThreadID: string | null
   /** The matching rollout row, or null for an orphaned asset directory. */
   sourceSessionID: string | null
+  /** A human title parsed from the asset itself (a Plan's first H1), shown before the
+   *  directory UUID when the source conversation is gone. */
+  title: string | null
 }
 
 export const generatedAssetBytes = (assets: GeneratedAssetItem[]): number =>
   assets.reduce((sum, asset) => sum + asset.bytes, 0)
 
-/** The title shared by the generated-assets table and every cleanup surface. */
+/** The title shared by the generated-assets table and every cleanup surface. A Plan
+ *  carries its own H1 title, so an orphaned plan directory is still named by what it
+ *  contained rather than by a bare UUID. */
 export const generatedAssetDisplayName = (asset: GeneratedAssetItem, session?: SessionItem): string =>
   session ? sessionDisplayName(session) :
-    asset.sourceThreadID ?? asset.path.split(/[/\\]/).filter(Boolean).at(-1) ?? asset.path
+    asset.title ?? asset.sourceThreadID ?? asset.path.split(/[/\\]/).filter(Boolean).at(-1) ?? asset.path
 
 export type PluginStatus = 'builtin' | 'current' | 'outdated' | 'orphaned' | 'unconfirmed'
 
@@ -268,6 +277,8 @@ export interface WorkspaceFolder {
   children: WorkspaceFolder[]
 }
 
+/** User work product under ~/Documents/Codex. Code name `workspace`/`WorkspaceSnapshot`;
+ *  shown in the UI as "工作区"/"Workspace" — never preselected or auto-cleaned. */
 export interface WorkspaceSnapshot {
   root: string
   isScanned: boolean
@@ -449,7 +460,7 @@ export type CleanupSelection =
   | { kind: 'sessions-delete'; ids: string[] }
   | { kind: 'generated-assets'; ids: string[] }
   | { kind: 'plugins'; ids: string[] }
-  | { kind: 'workspace'; ids: string[] }
+  | { kind: 'workspace'; ids: string[]; deleteRelatedSessions: boolean }
   | { kind: 'worktrees'; ids: string[]; deleteRelatedSessions: boolean }
 
 export interface CleanupRequest {

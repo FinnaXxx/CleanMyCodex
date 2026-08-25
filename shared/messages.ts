@@ -66,7 +66,7 @@ export type MessageKey =
   | 'scanNote.appServerUnavailable' | 'scanNote.noSessionTitles'
   // Cleanup preview warnings
   | 'warning.permanent' | 'warning.permanentWorktreeGit' | 'warning.pluginManagement' | 'warning.workspaceGit' | 'warning.pinnedSessions' | 'warning.generatedAssetLocalCopy'
-  | 'warning.worktreeRelatedSessions'
+  | 'warning.worktreeRelatedSessions' | 'warning.planOnlyCopy'
   // Codex runtime blockers
   | 'blocker.detectionFailed' | 'blocker.desktopRunning' | 'blocker.cliRunning'
   // Guard rejections
@@ -210,8 +210,8 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'stage.caches': ['缓存与临时文件', 'Caches & temporary files'],
   'stage.plugins': ['插件', 'Plugins'],
   'stage.sessions': ['会话', 'Sessions'],
-  'stage.assets': ['资产目录', 'Asset folders'],
-  'stage.workspace': ['工作产出', 'Workspace output'],
+  'stage.assets': ['会话资产', 'Session assets'],
+  'stage.workspace': ['工作区', 'Workspace'],
   'stage.worktrees': ['Worktree', 'Worktrees'],
   'stage.done': ['完成', 'Done'],
 
@@ -231,8 +231,9 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'warning.pluginManagement': ['当前插件将通过 Codex 正式卸载；旧版本和卸载残留会被永久删除。', 'Current plugins will be uninstalled through Codex; old versions and uninstalled leftovers will be deleted permanently.'],
   'warning.workspaceGit': ['请确认未提交或未推送的内容已经保存。', 'Make sure anything uncommitted or unpushed has been saved.'],
   'warning.pinnedSessions': ['所选会话中有 {count} 个是置顶会话，删除后不会恢复', '{count} of the selected conversations are pinned; deleting them is permanent'],
-  'warning.generatedAssetLocalCopy': ['会话会保留，但所选生成资产的本地路径将失效；依赖这些路径的打开、复制或继续编辑操作可能失败。', 'Conversations remain, but the selected generated-asset paths will stop working; open, copy, or edit operations that rely on them may fail.'],
-  'warning.worktreeRelatedSessions': ['同时永久删除关联会话及其生成资产', 'Also permanently delete related conversations and their generated assets'],
+  'warning.generatedAssetLocalCopy': ['会话会保留，但所选会话资产的本地路径将失效；依赖这些路径的打开、复制或继续编辑操作可能失败。', 'Conversations remain, but the selected session-asset paths will stop working; open, copy, or edit operations that rely on them may fail.'],
+  'warning.worktreeRelatedSessions': ['同时永久删除关联会话及其会话资产', 'Also permanently delete related conversations and their session assets'],
+  'warning.planOnlyCopy': ['所选 Plan 的来源会话已删除，可能是该计划的唯一副本。', 'The conversation that produced a selected Plan is already gone, so this may be its only copy.'],
 
   'blocker.detectionFailed': ['无法确认 Codex 是否正在运行', 'Cannot determine whether Codex is running'],
   'blocker.desktopRunning': ['ChatGPT/Codex 桌面应用或会话服务正在运行', 'The ChatGPT/Codex desktop app or its session service is running'],

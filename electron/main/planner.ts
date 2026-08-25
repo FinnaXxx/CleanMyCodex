@@ -125,13 +125,22 @@ export function buildTrustedTasks(
       return [...worktreeTasks, ...tasksForSessionDeletion(relatedSessions)]
     }
     case 'workspace': {
+      if (typeof selection.deleteRelatedSessions !== 'boolean') throw new MessageError(message('error.invalidSelection'))
       const all = flattenWorkspace(workspace.entries)
       const selected = ids.map((id) => all.find((entry) => entry.id === id)).filter((entry): entry is WorkspaceFolder => !!entry)
       // Containment is judged on what each choice actually deletes: a date folder gives
       // up only its loose files, so choosing it no longer swallows the outputs below it.
       const outermost = selected.filter((entry) => !selected.some((other) => other !== entry &&
         workspaceDeletionTargets(other).some((target) => ProtectedPaths.contains(target, entry.path))))
-      return tasksForWorkspace(outermost)
+      const workspaceTasks = tasksForWorkspace(outermost)
+      if (!selection.deleteRelatedSessions) return workspaceTasks
+      // Resolve related conversations against what is actually being deleted (`outermost`),
+      // not the raw selection: a date folder chosen beside one of its outputs drops out of
+      // `outermost`, so the conversation that ran in that output is not dragged in through
+      // a folder whose deletion only takes loose files.
+      const relatedSessions = snapshot.sessions.filter((session) =>
+        outermost.some((entry) => sessionBelongsToWorkspaceFolder(session, entry)))
+      return [...workspaceTasks, ...tasksForSessionDeletion(relatedSessions)]
     }
     default:
       throw new MessageError(message('error.unsupportedSelection'))
@@ -146,7 +155,8 @@ export function makeCleanupPreview(
   selection: CleanupSelection,
   tasks: CleanupTask[],
   environment: CodexEnvironment,
-  snapshot: ScanSnapshot | null = null
+  snapshot: ScanSnapshot | null = null,
+  workspace: WorkspaceSnapshot | null = null
 ): CleanupPreview {
   const blocked = environment.running
     ? tasks.filter((task) => task.requiresCodexStopped)
@@ -162,11 +172,19 @@ export function makeCleanupPreview(
   // said about Codex' own restore: whether it keeps a snapshot is unverified, and a
   // recovery route this app has not seen work is not one to promise.
   if (selection.kind === 'generated-assets') warnings.push(message('warning.generatedAssetLocalCopy'))
+  // A plan whose conversation is already gone may be the only surviving copy of that plan,
+  // so say so before a manual delete removes it alongside the rest of the selection.
+  if (selection.kind === 'generated-assets' && snapshot) {
+    const ids = new Set(selection.ids)
+    if (snapshot.generatedAssets.some((asset) => ids.has(asset.id) && asset.kind === 'plan' && asset.sourceSessionID === null)) {
+      warnings.push(message('warning.planOnlyCopy'))
+    }
+  }
   // Pinning only holds off the scheduled run. Deleting one by hand is allowed, but the
   // confirmation says so rather than letting a pin quietly disappear.
   const pinned = pinnedSelection(selection, tasks, snapshot)
   if (pinned) warnings.push(message('warning.pinnedSessions', { count: pinned }))
-  const items = cleanupPreviewItems(selection, tasks, snapshot)
+  const items = cleanupPreviewItems(selection, tasks, snapshot, workspace)
   return {
     selection,
     items,
@@ -180,14 +198,16 @@ export function makeCleanupPreview(
 }
 
 /**
- * Related conversations are an option on a worktree deletion, not separate choices in
- * the confirmation dialog. Keep one preview row per worktree and roll the bytes of each
- * conversation deletion into the worktree that referenced it.
+ * Related conversations are an option on a worktree or workspace deletion, not separate
+ * choices in the confirmation dialog. Keep one preview row per container (worktree or
+ * workspace folder) and roll the bytes of each conversation deletion into the container
+ * that referenced it.
  */
 function cleanupPreviewItems(
   selection: CleanupSelection,
   tasks: CleanupTask[],
-  snapshot: ScanSnapshot | null
+  snapshot: ScanSnapshot | null,
+  workspace: WorkspaceSnapshot | null
 ): CleanupPreview['items'] {
   const item = (task: CleanupTask, expectedBytes = task.expectedBytes) => ({
     id: task.id,
@@ -195,19 +215,17 @@ function cleanupPreviewItems(
     detail: task.detail,
     expectedBytes
   })
-  if (selection.kind !== 'worktrees' || !selection.deleteRelatedSessions || !snapshot) {
-    return tasks.map((task) => item(task))
-  }
+  const config = relatedContainerConfig(selection, snapshot, workspace)
+  if (!config || !snapshot) return tasks.map((task) => item(task))
 
-  const worktrees = new Map(snapshot.worktrees.map((worktree) => [worktree.id, worktree]))
   const sessions = new Map(snapshot.sessions.map((session) => [session.threadID, session]))
   const conversationTasks = tasks.filter((task) => task.threadID !== null)
   const claimed = new Set<string>()
-  return tasks.filter((task) => task.removal === 'gitWorktree').map((task) => {
-    const worktree = worktrees.get(task.url)
+  return tasks.filter(config.isContainer).map((task) => {
+    const container = config.resolve(task)
     const relatedBytes = conversationTasks.reduce((sum, conversation) => {
       const session = conversation.threadID ? sessions.get(conversation.threadID) : undefined
-      if (!worktree || !session || !sessionBelongsToWorktree(session, worktree) || claimed.has(conversation.id)) return sum
+      if (!container || !session || !config.belongsTo(session, container) || claimed.has(conversation.id)) return sum
       claimed.add(conversation.id)
       return sum + conversation.expectedBytes
     }, 0)
@@ -215,11 +233,58 @@ function cleanupPreviewItems(
   })
 }
 
+interface RelatedContainer {
+  isContainer: (task: CleanupTask) => boolean
+  resolve: (task: CleanupTask) => WorktreeItem | WorkspaceFolder | undefined
+  belongsTo: (session: SessionItem, container: WorktreeItem | WorkspaceFolder) => boolean
+}
+
+/** Tells `cleanupPreviewItems` how to find the container each related conversation rolls
+ *  into. Worktrees resolve by `task.url`; workspace folders by the `workspace:`-prefixed
+ *  task id, because a workspace row is identified by its path, not a single URL. Each
+ *  branch's `resolve` only ever returns its own container type, so the cast inside
+ *  `belongsTo` is narrowed to that type. */
+function relatedContainerConfig(
+  selection: CleanupSelection,
+  snapshot: ScanSnapshot | null,
+  workspace: WorkspaceSnapshot | null
+): RelatedContainer | null {
+  if (selection.kind === 'worktrees' && selection.deleteRelatedSessions && snapshot) {
+    const worktrees = new Map(snapshot.worktrees.map((worktree) => [worktree.id, worktree]))
+    return {
+      isContainer: (task) => task.removal === 'gitWorktree',
+      resolve: (task) => worktrees.get(task.url),
+      belongsTo: (session, container) => sessionBelongsToWorktree(session, container as WorktreeItem)
+    }
+  }
+  if (selection.kind === 'workspace' && selection.deleteRelatedSessions && workspace) {
+    const entries = new Map(flattenWorkspace(workspace.entries).map((entry) => [entry.id, entry]))
+    return {
+      isContainer: (task) => task.id.startsWith('workspace:'),
+      resolve: (task) => entries.get(task.id.slice('workspace:'.length)),
+      belongsTo: (session, container) => sessionBelongsToWorkspaceFolder(session, container as WorkspaceFolder)
+    }
+  }
+  return null
+}
+
 /** Match both indexes Codex gives us. The state database supplies thread IDs for labels,
  * while the rollout is the authority for the working directory that will be deleted. */
 function sessionBelongsToWorktree(session: SessionItem, worktree: WorktreeItem): boolean {
   if (worktree.sourceThreads.some((thread) => thread.id === session.threadID)) return true
   return !!session.workingDirectory && ProtectedPaths.contains(worktree.path, session.workingDirectory)
+}
+
+/** A conversation belongs to a workspace row when the thread index put it there, or when
+ *  its working directory sits inside what that row's checkbox actually removes. The path
+ *  test uses `workspaceDeletionTargets`, not `entry.path`, on purpose: a date folder gives
+ *  up only its loose files, and a conversation whose output is a child directory below it
+ *  must not be dragged in — its working directory cannot lie beneath one of those loose
+ *  files, so the date row correctly only takes conversations the index tied to it directly. */
+function sessionBelongsToWorkspaceFolder(session: SessionItem, entry: WorkspaceFolder): boolean {
+  if (entry.sourceThreads.some((thread) => thread.id === session.threadID)) return true
+  return !!session.workingDirectory && workspaceDeletionTargets(entry)
+    .some((target) => ProtectedPaths.contains(target, session.workingDirectory!))
 }
 
 export function buildAutomaticTasks(
@@ -255,8 +320,10 @@ function selectedWorktreesAreUnsafe(selection: CleanupSelection, snapshot: ScanS
 }
 
 function pinnedSelection(selection: CleanupSelection, tasks: CleanupTask[], snapshot: ScanSnapshot | null): number {
-  if (!snapshot || (selection.kind !== 'sessions-delete' &&
-    !(selection.kind === 'worktrees' && selection.deleteRelatedSessions))) return 0
+  if (!snapshot) return 0
+  const relatedDeletion = (selection.kind === 'worktrees' && selection.deleteRelatedSessions) ||
+    (selection.kind === 'workspace' && selection.deleteRelatedSessions)
+  if (selection.kind !== 'sessions-delete' && !relatedDeletion) return 0
   const selected = new Set(tasks.flatMap((task) => task.threadID ? [task.threadID] : []))
   return snapshot.sessions.filter((session) => session.isPinned && selected.has(session.threadID)).length
 }

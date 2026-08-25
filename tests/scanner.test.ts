@@ -416,4 +416,79 @@ describe('storage scanner semantics', () => {
     expect(session?.fileBytes).toBeGreaterThan(0)
     expect(session?.fileBytes).toBeLessThan(snapshot.worktrees[0].bytes)
   })
+
+  it('groups plan revisions under a thread and names them by the newest H1', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-scan-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const thread = '22222222-2222-7222-8222-222222222222'
+    const rollout = join(locations.sessions, '2026', '08', `rollout-${thread}.jsonl`)
+    write(rollout)
+    writeFileSync(rollout, `${JSON.stringify({ type: 'session_meta', payload: { id: thread, title: 'Plan session' } })}\n`)
+
+    // Two revisions of one plan: the lexicographically greater planID is the newest.
+    // A .DS_Store sits beside them and must not be counted as a file.
+    const planDir = (planID: string): string => join(locations.plans, thread, planID)
+    mkdirSync(planDir('01990000-0000-7000-8000-00000000000a'), { recursive: true })
+    writeFileSync(join(planDir('01990000-0000-7000-8000-00000000000a'), 'PLAN.md'), '# 旧标题\n\n## Summary\nold\n')
+    mkdirSync(planDir('01990000-0000-7000-8000-00000000000b'), { recursive: true })
+    writeFileSync(join(planDir('01990000-0000-7000-8000-00000000000b'), 'PLAN.md'), '# Session 素材二维码分享\n\n## Summary\nnew\n')
+    writeFileSync(join(locations.plans, thread, '.DS_Store'), Buffer.alloc(8))
+
+    const snapshot = await scanSnapshot(locations, [])
+    const plans = snapshot.generatedAssets.filter((asset) => asset.kind === 'plan')
+    expect(plans).toHaveLength(1)
+    const plan = plans[0]
+    expect(plan.path).toBe(join(locations.plans, thread))
+    expect(plan.sourceThreadID).toBe(thread)
+    expect(plan.sourceSessionID).toBe(rollout)
+    expect(plan.fileCount).toBe(2)
+    expect(plan.formats).toEqual(['md'])
+    expect(plan.title).toBe('Session 素材二维码分享')
+
+    const session = snapshot.sessions.find((item) => item.threadID === thread)
+    expect(session?.tags).toContain('plan')
+    expect(session?.assetURLs).toContain(join(locations.plans, thread))
+    expect(session?.assetBytes).toBeGreaterThan(0)
+    // `plans` is a claimed home entry, so it never shows up as unrecognized.
+    const unrecognized = snapshot.categories.find((category) => category.kind === 'unrecognized')?.entries.map((entry) => entry.url) ?? []
+    expect(unrecognized).not.toContain(locations.plans)
+  })
+
+  it('names an orphaned plan by its H1 even when the source conversation is gone', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-scan-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    const orphan = '33333333-3333-7333-8333-333333333333'
+    mkdirSync(join(locations.plans, orphan, '01990000-0000-7000-8000-00000000000a'), { recursive: true })
+    writeFileSync(join(locations.plans, orphan, '01990000-0000-7000-8000-00000000000a', 'PLAN.md'), '# Orphan plan title\n\n## Summary\nx\n')
+
+    const snapshot = await scanSnapshot(locations, [])
+    const plan = snapshot.generatedAssets.find((asset) => asset.kind === 'plan')
+    expect(plan?.sourceThreadID).toBe(orphan)
+    expect(plan?.sourceSessionID).toBeNull()
+    expect(plan?.title).toBe('Orphan plan title')
+  })
+
+  it('leaves a non-UUID plans subdirectory unclaimed rather than showing it as a plan', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-scan-')); roots.push(root)
+    const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
+    // A non-UUID subdirectory: not a thread shape the scanner can validate, so it is not
+    // claimed as a plan asset. Because `plans` is a claimed home entry, the subdir is not
+    // surfaced as unrecognized either — it simply stays out of the asset list.
+    mkdirSync(join(locations.plans, 'not-a-thread-id', '01990000-0000-7000-8000-00000000000a'), { recursive: true })
+    writeFileSync(join(locations.plans, 'not-a-thread-id', '01990000-0000-7000-8000-00000000000a', 'PLAN.md'), '# Not a plan\n')
+    // A UUID-named plan alongside, to confirm the scanner still works.
+    const thread = '44444444-4444-7444-8444-444444444444'
+    const rollout = join(locations.sessions, '2026', '08', `rollout-${thread}.jsonl`)
+    write(rollout)
+    writeFileSync(rollout, `${JSON.stringify({ type: 'session_meta', payload: { id: thread, title: 'Real' } })}\n`)
+    mkdirSync(join(locations.plans, thread, '01990000-0000-7000-8000-00000000000a'), { recursive: true })
+    writeFileSync(join(locations.plans, thread, '01990000-0000-7000-8000-00000000000a', 'PLAN.md'), '# Real plan\n')
+
+    const snapshot = await scanSnapshot(locations, [])
+    const planPaths = snapshot.generatedAssets.filter((asset) => asset.kind === 'plan').map((asset) => asset.path)
+    expect(planPaths).toEqual([join(locations.plans, thread)])
+    expect(planPaths).not.toContain(join(locations.plans, 'not-a-thread-id'))
+    const unrecognized = snapshot.categories.find((category) => category.kind === 'unrecognized')?.entries.map((entry) => entry.url) ?? []
+    expect(unrecognized).not.toContain(join(locations.plans, 'not-a-thread-id'))
+  })
 })

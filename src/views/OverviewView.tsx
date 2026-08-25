@@ -83,9 +83,9 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
   const distribution = useMemo(() => {
     const result = storageDistribution(snapshot)
     const label = (kind: StorageDistributionKind): string => {
-      if (kind === 'workspace') return t('工作产出', 'Workspace Output')
+      if (kind === 'workspace') return t('工作区', 'Workspace')
       if (kind === 'sessions') return t('会话记录', 'Sessions')
-      if (kind === 'generatedAssets') return t('生成资产', 'Generated Assets')
+      if (kind === 'generatedAssets') return t('会话资产', 'Session Assets')
       if (kind === 'worktrees') return t('Worktree', 'Worktrees')
       if (kind === 'other') return t('其他 Codex 数据', 'Other Codex Data')
       return m(message(`section.${kind}`))
@@ -97,7 +97,7 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
         label: label(item.kind),
         fraction: item.bytes / Math.max(result.total, 1),
         details: item.kind === 'other'
-          ? [t('未被扫描器归入缓存、日志、插件、会话、生成资产或工作产出的 Codex 文件', 'Codex files not classified as caches, logs, plugins, sessions, generated assets, or workspace output')]
+          ? [t('未被扫描器归入缓存、日志、插件、会话、会话资产或工作区的 Codex 文件', 'Codex files not classified as caches, logs, plugins, sessions, session assets, or workspace')]
           : undefined
       }))
     }
@@ -170,9 +170,9 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
                     ? t(`找到 ${suggestedSessionCount} 个建议检查的旧归档会话`, `${suggestedSessionCount} old archived conversations suggested for review`)
                     : t(`${sessionCount} 个会话需要手动确认`, `${sessionCount} conversations require your review`)
                   : manualSelectionTarget === 'generatedAssets'
-                    ? t('生成资产需要手动确认', 'Generated assets require your review')
+                    ? t('会话资产需要手动确认', 'Session assets require your review')
                     : manualSelectionTarget === 'workspace'
-                      ? t('工作产出需要手动确认', 'Workspace output requires your review')
+                      ? t('工作区需要手动确认', 'Workspace requires your review')
                     : t('没有发现建议清理项', 'No recommended cleanup found')}</span>
             </div>
           </div>
@@ -190,9 +190,9 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
                     ? t('查看建议清理的会话', 'Review Suggested Conversations')
                     : t('选择要清理的会话', 'Choose Conversations')
                   : manualSelectionTarget === 'generatedAssets'
-                    ? t('选择要清理的生成资产', 'Choose Generated Assets')
+                    ? t('选择要清理的会话资产', 'Choose Session Assets')
                     : manualSelectionTarget === 'workspace'
-                      ? t('选择要清理的工作产出', 'Choose Workspace Output')
+                      ? t('选择要清理的工作区', 'Choose Workspace')
                     : t('暂无建议清理项', 'Nothing Recommended')}
           </button>
         </div>
@@ -268,11 +268,22 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
       </section>
 
       <PageSection
+        glyph="generatedAssets"
+        title={t('会话资产', 'Session Assets')}
+        bytes={generatedAssetTotalBytes}
+        rowDetail={generatedAssetCount
+          ? t(`${generatedAssetCount} 项 ImageGen、Visualization 与 Plan 资产，在会话资产页管理`, `${generatedAssetCount} ImageGen, Visualization, and Plan assets, managed on the Session Assets page`)
+          : t('没有扫描到本地会话资产', 'No local session assets found')}
+        value={generatedAssetCount ? formatBytes(generatedAssetTotalBytes) : '—'}
+        onOpen={onOpenGeneratedAssets}
+      />
+
+      <PageSection
         glyph="workspace"
-        title={t('工作产出', 'Workspace Output')}
+        title={t('工作区', 'Workspace')}
         bytes={workspaceTotalBytes}
         rowDetail={snapshot.workspace.isScanned
-          ? t('Codex 生成的文件和仓库，在工作产出页删除', 'Files and repositories Codex produced, confirmed on the Workspace page')
+          ? t('Codex 生成的文件和仓库，在工作区页删除', 'Files and repositories Codex produced, confirmed on the Workspace page')
           : t('尚未完成统计，重新扫描后可查看', 'Not measured yet; scan again to see it')}
         value={snapshot.workspace.isScanned ? formatBytes(workspaceTotalBytes) : '—'}
         onOpen={onOpenWorkspace}
@@ -287,17 +298,6 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
           : t('没有扫描到 Codex worktree', 'No Codex worktrees found')}
         value={worktreeCount ? formatBytes(worktreeTotalBytes) : '—'}
         onOpen={onOpenWorktrees}
-      />
-
-      <PageSection
-        glyph="generatedAssets"
-        title={t('生成资产', 'Generated Assets')}
-        bytes={generatedAssetTotalBytes}
-        rowDetail={generatedAssetCount
-          ? t(`${generatedAssetCount} 项 ImageGen 与 Visualization 资产，在生成资产页管理`, `${generatedAssetCount} ImageGen and Visualization assets, managed on the Generated Assets page`)
-          : t('没有扫描到本地生成资产', 'No local generated assets found')}
-        value={generatedAssetCount ? formatBytes(generatedAssetTotalBytes) : '—'}
-        onOpen={onOpenGeneratedAssets}
       />
 
       {sections.map(({ section, categories }) => {
@@ -388,7 +388,7 @@ function NothingFound({ snapshot, onRescan }: { snapshot: ScanSnapshot; onRescan
 }
 
 /**
- * Sessions and workspace output stand beside the storage sections rather than inside
+ * Sessions and workspace stand beside the storage sections rather than inside
  * them: they are cleaned per item on their own page, so the row here only leads there.
  */
 function PageSection({ glyph, title, bytes, rowDetail, value, onOpen }: {

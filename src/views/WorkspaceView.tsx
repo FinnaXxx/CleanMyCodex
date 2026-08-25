@@ -33,8 +33,9 @@ export default function WorkspaceView({ snapshot, cleaning, actionsDisabled, cle
   return <>
     <div className="detail-content">
     <section className="workspace-metrics card"><div><small>{t('总占用', 'Total')}</small><strong>{formatBytes(workspaceBytes(snapshot))}</strong></div><div><small>{t('已选择', 'Selected')}</small><strong>{formatBytes(chosenBytes)}</strong></div></section>
-    {!snapshot.isScanned && <p className="empty-panel">{t('工作产出尚未完成统计，请在首页重新扫描', 'Workspace output has not been scanned. Scan again from Home.')}<br/><code>{snapshot.root}</code></p>}
-    {snapshot.isScanned && !rows.length && <p className="empty-panel">{t('没有找到工作产出目录', 'No workspace output folders found')}<br/><code>{snapshot.root}</code></p>}
+    {snapshot.isScanned && <p className="notice">{t('这里是你的工作成果：Codex 在该目录产出的文件与仓库。工作区不参与定时清理，仅在你手动勾选时删除。', 'Your work product lives here — the files and repositories Codex produced under this directory. The workspace is never part of scheduled cleanup and is only removed when you tick it yourself.')}</p>}
+    {!snapshot.isScanned && <p className="empty-panel">{t('工作区尚未完成统计，请在首页重新扫描', 'Workspace has not been scanned. Scan again from Home.')}<br/><code>{snapshot.root}</code></p>}
+    {snapshot.isScanned && !rows.length && <p className="empty-panel">{t('没有找到工作区目录', 'No workspace folders found')}<br/><code>{snapshot.root}</code></p>}
     {!!rows.length && <section className="card workspace-tree">
       <div className="table-head workspace-head">
         <input type="checkbox" aria-label={t('全选', 'Select all')} checked={allSelected}
@@ -45,7 +46,7 @@ export default function WorkspaceView({ snapshot, cleaning, actionsDisabled, cle
       {rows.map((entry) => <WorkspaceRow key={entry.id} entry={entry} checked={selected.has(entry.id)} onToggle={() => toggle(entry)} date={formatShortDate(entry.modifiedAt, locale)} />)}
     </section>}
     </div>
-    <div className="page-footer"><span className={targets.some(workspaceFolderIsUnsafe) ? 'unsafe' : ''}>{targets.some(workspaceFolderIsUnsafe) ? t('⚠ 所选内容包含未提交、未推送或状态未知的 git 仓库', '⚠ Selection contains uncommitted, unpushed, or unknown Git repositories') : snapshot.root}</span><button className="btn danger" disabled={!targets.length || cleaning || actionsDisabled} onClick={() => onCleanup({ kind: 'workspace', ids: targets.map((entry) => entry.id) })}>{cleaning ? t(`处理中… ${cleanProgress?.completed ?? 0}/${targets.length}`, `Processing… ${cleanProgress?.completed ?? 0}/${targets.length}`) : t(`永久删除 · ${formatBytes(chosenBytes)}`, `Delete Permanently · ${formatBytes(chosenBytes)}`)}</button></div>
+    <div className="page-footer"><span className={targets.some(workspaceFolderIsUnsafe) ? 'unsafe' : ''}>{targets.some(workspaceFolderIsUnsafe) ? t('⚠ 所选内容包含未提交、未推送或状态未知的 git 仓库', '⚠ Selection contains uncommitted, unpushed, or unknown Git repositories') : snapshot.root}</span><button className="btn danger" disabled={!targets.length || cleaning || actionsDisabled} onClick={() => onCleanup({ kind: 'workspace', ids: targets.map((entry) => entry.id), deleteRelatedSessions: false })}>{cleaning ? t(`处理中… ${cleanProgress?.completed ?? 0}/${targets.length}`, `Processing… ${cleanProgress?.completed ?? 0}/${targets.length}`) : t(`删除 · ${formatBytes(chosenBytes)}`, `Delete · ${formatBytes(chosenBytes)}`)}</button></div>
   </>
 }
 

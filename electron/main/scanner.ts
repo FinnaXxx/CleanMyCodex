@@ -56,7 +56,7 @@ const HOME_LEFTOVER_PATTERNS: Array<{ pattern: RegExp; note: MessageKey; keepNew
  */
 const SCANNED_HOME_ENTRIES = [
   'sessions', 'archived_sessions', 'plugins', 'generated_images', 'visualizations',
-  'visualization-viewers', 'computer-use', '.tmp', 'tmp', 'worktrees', 'packages'
+  'visualization-viewers', 'plans', 'computer-use', '.tmp', 'tmp', 'worktrees', 'packages'
 ]
 
 /** Same idea for the desktop application's own data directory. */

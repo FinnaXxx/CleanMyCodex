@@ -140,7 +140,7 @@ export default function PluginsView({ snapshot, cleaning, actionsDisabled, canUn
         onClick={() => onCleanup({ kind: 'plugins', ids: chosen.map((item) => item.directoryURL) })}>
         {cleaning
           ? t(`处理中… ${cleanProgress?.completed ?? 0}/${chosen.length}`, `Processing… ${cleanProgress?.completed ?? 0}/${chosen.length}`)
-          : t(`删除 · ${formatBytes(selectedBytes)}`, `Delete Permanently · ${formatBytes(selectedBytes)}`)}
+          : t(`删除 · ${formatBytes(selectedBytes)}`, `Delete · ${formatBytes(selectedBytes)}`)}
       </button></div>
   </>
 }

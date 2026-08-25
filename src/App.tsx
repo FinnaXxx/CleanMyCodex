@@ -120,7 +120,7 @@ function App() {
   )
 
   const setDeleteRelatedSessions = useCallback(async (value: boolean) => {
-    if (!cleanupPreview || cleanupPreview.selection.kind !== 'worktrees' || updatingCleanupPreview) return
+    if (!cleanupPreview || (cleanupPreview.selection.kind !== 'worktrees' && cleanupPreview.selection.kind !== 'workspace') || updatingCleanupPreview) return
     setUpdatingCleanupPreview(true)
     setError(null)
     try {
@@ -181,8 +181,8 @@ function App() {
   const titles: Record<Page, string> = {
     overview: t('总览', 'Overview'),
     sessions: t('会话记录', 'Sessions'),
-    generatedAssets: t('生成资产', 'Generated Assets'),
-    workspace: t('工作产出', 'Workspace Output'),
+    generatedAssets: t('会话资产', 'Session Assets'),
+    workspace: t('工作区', 'Workspace'),
     worktrees: t('Worktree', 'Worktrees'),
     plugins: t('插件版本', 'Plugin Versions'),
     settings: t('设置', 'Settings'),
@@ -246,9 +246,9 @@ function Sidebar({ page, snapshot, workspace, onNavigate }: {
   const items: Array<{ page: Page; glyph: NavGlyphName; label: string; value: string }> = [
     { page: 'overview', glyph: 'overview', label: t('总览', 'Overview'), value: formatBytes(storageDistribution(workspace ? { ...snapshot, workspace } : snapshot).total) },
     { page: 'sessions', glyph: 'sessions', label: t('会话记录', 'Sessions'), value: sessionCount ? formatBytes(snapshotSessionBytes(snapshot)) : '—' },
-    { page: 'workspace', glyph: 'workspace', label: t('工作产出', 'Workspace'), value: workspace?.isScanned ? formatBytes(workspaceBytes(workspace)) : '—' },
+    { page: 'generatedAssets', glyph: 'generatedAssets', label: t('会话资产', 'Session Assets'), value: snapshot.generatedAssets.length ? formatBytes(snapshotGeneratedAssetBytes(snapshot)) : '—' },
+    { page: 'workspace', glyph: 'workspace', label: t('工作区', 'Workspace'), value: workspace?.isScanned ? formatBytes(workspaceBytes(workspace)) : '—' },
     { page: 'worktrees', glyph: 'worktrees', label: t('Worktree', 'Worktrees'), value: (snapshot.worktrees ?? []).length ? formatBytes(snapshotWorktreeBytes(snapshot)) : '—' },
-    { page: 'generatedAssets', glyph: 'generatedAssets', label: t('生成资产', 'Generated Assets'), value: snapshot.generatedAssets.length ? formatBytes(snapshotGeneratedAssetBytes(snapshot)) : '—' },
     { page: 'plugins', glyph: 'plugins', label: t('插件版本', 'Plugins'), value: formatBytes(snapshotPluginBytes(snapshot)) }
   ]
   return <aside className="sidebar">
@@ -329,13 +329,13 @@ function CleanupDialog({ preview, quitCodex, forceQuit, requireQuitConfirmation,
   return <div className="modal-backdrop"><section className="cleanup-dialog" role="dialog" aria-modal="true">
     <><h2>{t(`确认清理 ${preview.items.length} 项`, `Confirm cleanup of ${preview.items.length} items`)}</h2>
       <p className="dialog-lead">{t(`预计释放 ${formatBytes(preview.expectedBytes)}`, `About ${formatBytes(preview.expectedBytes)} will be freed.`)}</p>
-      <ul className="preview-list">{preview.items.map((item) => <li key={item.id}><span><strong>{item.title} <em className="method-badge">{t('永久删除', 'Delete Permanently')}</em></strong><small>{item.detail}</small></span><b>{formatBytes(item.expectedBytes)}</b></li>)}</ul>
-      {preview.selection.kind === 'worktrees' && <label className={`worktree-session-option${preview.selection.deleteRelatedSessions ? ' selected' : ''}`}><input type="checkbox"
+      <ul className="preview-list">{preview.items.map((item) => <li key={item.id}><span><strong>{item.title} <em className="method-badge">{t('删除', 'Delete')}</em></strong><small>{item.detail}</small></span><b>{formatBytes(item.expectedBytes)}</b></li>)}</ul>
+      {(preview.selection.kind === 'worktrees' || preview.selection.kind === 'workspace') && <label className={`worktree-session-option${preview.selection.deleteRelatedSessions ? ' selected' : ''}`}><input type="checkbox"
         checked={preview.selection.deleteRelatedSessions} disabled={updating}
         onChange={(event) => onDeleteRelatedSessions(event.target.checked)}/><strong>{m(message('warning.worktreeRelatedSessions'))}</strong></label>}
       {preview.warnings.map((warning) => <p className="notice warning" key={warning.key}>{m(warning)}</p>)}
       {!!preview.blockedTitles.length && <div className="notice warning"><strong>{t('需要 Codex 完全退出', 'Codex must quit completely')}</strong><br/>
-        {preview.canQuitCodex ? <><label><input type="checkbox" checked={quitCodex} onChange={(event) => { onQuitCodex(event.target.checked); if (!event.target.checked) onForceQuit(false) }}/> {t('先退出 Codex，清理完成后保持关闭', 'Quit Codex first and keep it closed after cleanup')}</label>
+        {preview.canQuitCodex ? <><label><input type="checkbox" checked={quitCodex} onChange={(event) => { onQuitCodex(event.target.checked); if (!event.target.checked) onForceQuit(false) }}/> {t('先退出 Codex', 'Quit Codex first')}</label>
           {quitCodex && <label><input type="checkbox" checked={forceQuit} onChange={(event) => onForceQuit(event.target.checked)}/> {t('正常退出超时后强制结束（可能丢失未保存内容）', 'Force quit after timeout (unsaved work may be lost)')}</label>}</>
           : <small>{preview.blockers.map(m).join(t('；', '; '))}{t('，这些项目本次不会执行；退出 Codex 后需重新清理。', '. These items will be skipped. Quit Codex and run cleanup again.')}</small>}</div>}
     </>

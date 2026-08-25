@@ -232,7 +232,7 @@ ipcMain.handle('cleanup:prepare', async (_event, selection: CleanupSelection) =>
   // Current-plugin uninstall is validated by Codex CLI, while old and residual
   // versions remain constrained to the exact paths captured by the scan.
   const tasks = trustedTasks(selection)
-  return makeCleanupPreview(selection, tasks, codexEnvironment(), latestSnapshot)
+  return makeCleanupPreview(selection, tasks, codexEnvironment(), latestSnapshot, latestWorkspace)
 })
 
 ipcMain.handle('cleanup:run', async (_event, request: CleanupRequest) => {

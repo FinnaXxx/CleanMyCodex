@@ -169,6 +169,7 @@ function assetBytesForThread(
   const candidates = [
     join(locations.generatedImages, threadID),
     join(locations.visualizationViewers, threadID),
+    join(locations.plans, threadID),
     ...(visualizations.get(threadID.toLowerCase()) ?? [])
   ]
   for (const dir of new Set(candidates)) {
@@ -316,6 +317,7 @@ export async function scanSessions(
     const assets = assetBytesForThread(locations, threadID, visualizationIndex)
     const tags = [...content.tags]
     if (assets.urls.includes(join(locations.generatedImages, threadID))) tags.push('imageGen')
+    if (assets.urls.includes(join(locations.plans, threadID))) tags.push('plan')
     items.push({
       id: file.url, threadID, fileURL: file.url, segmentURLs: [], location: file.location, modifiedAt: before.modifiedAt,
       fileBytes: before.bytes, assetBytes: assets.bytes, assetURLs: assets.urls,

@@ -79,7 +79,7 @@ export default function WorktreesView({ snapshot, cleaning, actionsDisabled, cle
         onClick={() => onCleanup({ kind: 'worktrees', ids: chosen.map((worktree) => worktree.id), deleteRelatedSessions: false })}>
         {cleaning
           ? t(`处理中… ${cleanProgress?.completed ?? 0}/${chosen.length}`, `Processing… ${cleanProgress?.completed ?? 0}/${chosen.length}`)
-          : t(`永久删除 · ${formatBytes(chosenBytes)}`, `Delete Permanently · ${formatBytes(chosenBytes)}`)}
+          : t(`删除 · ${formatBytes(chosenBytes)}`, `Delete · ${formatBytes(chosenBytes)}`)}
       </button>
     </div>
   </>
