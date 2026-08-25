@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { realpathSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
-import { join, relative } from 'node:path'
+import { join, normalize, relative, resolve } from 'node:path'
 import type { CleanupTask } from '../shared/types'
 import { runCleanup } from '../electron/main/cleanup'
 import { ProtectedPaths } from '../electron/main/guard'
 import { CodexLocations } from '../electron/main/locations'
-import { removeCodexWorktree } from '../electron/main/worktrees'
+import { readWorktreeAdmin, removeCodexWorktree } from '../electron/main/worktrees'
 
 const roots: string[] = []
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
@@ -332,6 +333,20 @@ describe('cleanup engine', () => {
       removal: 'gitWorktree', repositoryPath: repository
     }
     const guards = new ProtectedPaths(locations)
+    // DEBUG: Windows-only "repository changed since the last scan" — capture the two
+    // repository paths the production code compares, their realpath resolution, and the
+    // raw git pointer/commondir contents, so the assertion message prints them on failure.
+    const debugAdmin = readWorktreeAdmin(checkout)
+    const debugAdminRepo = debugAdmin?.repositoryPath ?? null
+    const canon = (p: string) => { try { return normalize(realpathSync(p)) } catch (e) { return `ERR(${String(e)})` } }
+    const debugDump = JSON.stringify({
+      adminRepoPath: debugAdminRepo,
+      testRepo: repository,
+      canonAdminRepoPath: debugAdminRepo ? canon(debugAdminRepo) : null,
+      canonTestRepo: canon(repository),
+      checkoutGitPointer: readFileSync(join(checkout, '.git'), 'utf8'),
+      adminCommondir: readFileSync(join(repository, '.git', 'worktrees', 'repo', 'commondir'), 'utf8')
+    })
     const report = await runCleanup([task], guards, {
       remove: async (path) => rmSync(path, { recursive: true, force: true }),
       removeWorktree: (path, repositoryPath) =>
@@ -342,7 +357,7 @@ describe('cleanup engine', () => {
     // Surface the git failure reason in the assertion message so a Windows-only failure
     // (this is the one test that exercises a real `git worktree remove`) reports what git
     // actually said, not just "failed".
-    expect(report.outcomes[0].status.kind, `worktree outcome: ${JSON.stringify(report.outcomes[0].status)}`).toBe('succeeded')
+    expect(report.outcomes[0].status.kind, `worktree outcome: ${JSON.stringify(report.outcomes[0].status)}\nDEBUG: ${debugDump}`).toBe('succeeded')
     expect(existsSync(worktree)).toBe(false)
     // The point of going through git: the repository no longer lists it, and the
     // administrative directory inside the repository is gone with it.
