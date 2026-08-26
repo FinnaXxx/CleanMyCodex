@@ -256,7 +256,7 @@ function Sidebar({ page, snapshot, workspace, onNavigate }: {
     { page: 'overview', glyph: 'overview', label: t('总览', 'Overview'), value: formatBytes(storageDistribution(workspace ? { ...snapshot, workspace } : snapshot).total) },
     { page: 'sessions', glyph: 'sessions', label: t('会话记录', 'Sessions'), value: sessionCount ? formatBytes(snapshotSessionBytes(snapshot)) : '—' },
     { page: 'generatedAssets', glyph: 'generatedAssets', label: t('会话资产', 'Session Assets'), value: snapshot.generatedAssets.length ? formatBytes(snapshotGeneratedAssetBytes(snapshot)) : '—' },
-    { page: 'workspace', glyph: 'workspace', label: t('工作区', 'Workspace'), value: workspace?.isScanned ? formatBytes(workspaceBytes(workspace)) : '—' },
+    { page: 'workspace', glyph: 'workspace', label: t('工作区', 'Workspace'), value: workspace?.entries.length ? formatBytes(workspaceBytes(workspace)) : '—' },
     { page: 'worktrees', glyph: 'worktrees', label: t('Worktree', 'Worktrees'), value: (snapshot.worktrees ?? []).length ? formatBytes(snapshotWorktreeBytes(snapshot)) : '—' },
     { page: 'plugins', glyph: 'plugins', label: t('插件版本', 'Plugins'), value: formatBytes(snapshotPluginBytes(snapshot)) }
   ]
