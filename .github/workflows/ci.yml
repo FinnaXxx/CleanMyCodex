@@ -12,6 +12,9 @@ concurrency:
 jobs:
   test:
     strategy:
+      # One platform's failure must not cancel the other's: the Windows leg is where the
+      # installer payload check runs, and it is worth seeing even when macOS is red.
+      fail-fast: false
       matrix:
         os: [xcode-27, windows-latest]
     runs-on: ${{ matrix.os }}
@@ -27,6 +30,44 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
+      # A test that spawns Electron can die from a signal, which carries no message. macOS
+      # writes the real reason to a crash report; without this the failure is just a signal
+      # name. DIAGNOSTIC — remove once the macOS crash is understood.
+      - name: Report macOS crash logs
+        if: failure() && runner.os == 'macOS'
+        run: |
+          sleep 10
+          python3 - <<'PY'
+          import glob, json, os
+          paths = glob.glob(os.path.expanduser('~/Library/Logs/DiagnosticReports/*.ips'))
+          paths += glob.glob('/Library/Logs/DiagnosticReports/*.ips')
+          paths.sort(key=os.path.getmtime)
+          if not paths:
+              print('no crash reports found')
+          for path in paths[-3:]:
+              print('=' * 70)
+              print(path)
+              head, _, rest = open(path, errors='replace').read().partition('\n')
+              try:
+                  meta, body = json.loads(head), json.loads(rest)
+              except ValueError:
+                  print(head)
+                  print(rest[:4000])
+                  continue
+              print('process   ', meta.get('app_name'), meta.get('app_version'), meta.get('bug_type'))
+              print('exception ', body.get('exception'))
+              print('termination', body.get('termination'))
+              images = body.get('usedImages', [])
+              faulting = body.get('faultingThread')
+              for index, thread in enumerate(body.get('threads', [])):
+                  if faulting is not None and index != faulting:
+                      continue
+                  print('faulting thread', index, thread.get('name') or thread.get('queue') or '')
+                  for frame in thread.get('frames', [])[:30]:
+                      where = frame.get('imageIndex', -1)
+                      image = images[where] if 0 <= where < len(images) else {}
+                      print('   ', image.get('name', '?'), hex(frame.get('imageOffset', 0)), frame.get('symbol', ''))
+          PY
       - run: pnpm build
       - name: Package (without publishing)
         if: runner.os != 'Windows'
