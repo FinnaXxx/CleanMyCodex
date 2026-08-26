@@ -1,10 +1,19 @@
+# better-sqlite3 is a Node-API addon that ships prebuilt binaries for every platform it
+# supports, so letting node-gyp run would only produce a host-only copy nothing loads;
+# electron-winstaller comes in through electron-builder for a target this app does not use.
+# pnpm rewrites the block below, so keep explanations above it.
 allowBuilds:
+  better-sqlite3: false
   electron: true
+  electron-winstaller: false
   esbuild: true
-  better-sqlite3: true
 
 # Keep fresh transitive releases behind pnpm's minimum-release-age window so a clean
 # install works with supply-chain policy enforcement enabled.
 overrides:
   "@xmldom/xmldom": 0.9.11
+  # app-builder-lib pins plist 3.1.0, which calls parseFromString without a mime type — an
+  # error in xmldom 0.9, and the override above forces every copy to 0.9.11. 3.1.1 is the
+  # release that adopted 0.9, so pulling both plist copies up to it keeps mac packaging working.
+  plist: 3.1.1
   baseline-browser-mapping: 2.11.16

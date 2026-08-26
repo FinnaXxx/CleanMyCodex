@@ -29,8 +29,12 @@ describe('Codex state database thread index in Electron', () => {
       encoding: 'utf8',
       timeout: 30_000
     })
-    expect(result.signal).toBeNull()
-    expect(result.status, result.stderr).toBe(0)
-    expect(result.stdout).toContain('THREAD_INDEX_OK')
+    // A child killed by a signal reports neither an exit code nor a message, so put
+    // everything it managed to write into the assertion itself — otherwise a crash reads
+    // only as "expected 'SIGABRT' to be null" and the reason dies with the process.
+    const transcript = `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`
+    expect(result.signal, transcript).toBeNull()
+    expect(result.status, transcript).toBe(0)
+    expect(result.stdout, transcript).toContain('THREAD_INDEX_OK')
   })
 })

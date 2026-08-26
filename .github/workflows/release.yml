@@ -31,7 +31,7 @@ jobs:
           version: 11.19.0
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Verify tag
@@ -40,10 +40,10 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
-      # Native modules are rebuilt in-place. Building both architectures in one
-      # workspace can mutate a hard-linked module after the first app was signed.
+      # Each arch is signed in its own workspace, so one build can never touch an
+      # app another job already signed.
       - name: Package macOS (${{ matrix.electron_arch }})
-        run: pnpm exec electron-builder --mac dmg --${{ matrix.electron_arch }} --publish never
+        run: node scripts/electron-builder.cjs --mac dmg --${{ matrix.electron_arch }} --publish never
       - name: Verify packaged macOS app
         shell: bash
         env:
@@ -87,7 +87,7 @@ jobs:
           version: 11.19.0
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Verify tag
@@ -96,7 +96,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
-      - run: pnpm exec electron-builder --win nsis --x64 --publish never
+      - run: node scripts/electron-builder.cjs --win nsis --x64 --publish never
       - uses: actions/upload-artifact@v4
         with:
           name: windows-x64

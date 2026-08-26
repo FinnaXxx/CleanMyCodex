@@ -12,6 +12,9 @@ concurrency:
 jobs:
   test:
     strategy:
+      # One platform's failure must not cancel the other's: the Windows leg is where the
+      # installer payload check runs, and it is worth seeing even when macOS is red.
+      fail-fast: false
       matrix:
         os: [xcode-27, windows-latest]
     runs-on: ${{ matrix.os }}
@@ -22,11 +25,61 @@ jobs:
           version: 11.19.0
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
+      # Tests spawn real Electron binaries, and a process killed by a signal reports no
+      # message of its own. macOS writes the reason to a crash report instead, so decode it
+      # here rather than leaving a future failure as the bare word "SIGABRT".
+      - name: Report macOS crash logs
+        if: failure() && runner.os == 'macOS'
+        run: |
+          sleep 10
+          python3 - <<'PY'
+          import glob, json, os
+          paths = glob.glob(os.path.expanduser('~/Library/Logs/DiagnosticReports/*.ips'))
+          paths += glob.glob('/Library/Logs/DiagnosticReports/*.ips')
+          paths.sort(key=os.path.getmtime)
+          if not paths:
+              print('no crash reports found')
+          for path in paths[-3:]:
+              print('=' * 70)
+              print(path)
+              head, _, rest = open(path, errors='replace').read().partition('\n')
+              try:
+                  meta, body = json.loads(head), json.loads(rest)
+              except ValueError:
+                  print(head)
+                  print(rest[:4000])
+                  continue
+              print('process   ', meta.get('app_name'), meta.get('app_version'), meta.get('bug_type'))
+              print('exception ', body.get('exception'))
+              print('termination', body.get('termination'))
+              images = body.get('usedImages', [])
+              faulting = body.get('faultingThread')
+              for index, thread in enumerate(body.get('threads', [])):
+                  if faulting is not None and index != faulting:
+                      continue
+                  print('faulting thread', index, thread.get('name') or thread.get('queue') or '')
+                  for frame in thread.get('frames', [])[:30]:
+                      where = frame.get('imageIndex', -1)
+                      image = images[where] if 0 <= where < len(images) else {}
+                      print('   ', image.get('name', '?'), hex(frame.get('imageOffset', 0)), frame.get('symbol', ''))
+          PY
       - run: pnpm build
       - name: Package (without publishing)
-        run: pnpm exec electron-builder --dir
+        if: runner.os != 'Windows'
+        run: node scripts/electron-builder.cjs --dir
+      # Build the real installers on Windows rather than just the unpacked app: an app payload
+      # the NSIS extractor cannot unpack is invisible until an installer exists to inspect,
+      # which is what scripts/verify-windows-installer.cjs checks. arm64 is packaged here on an
+      # x64 runner on purpose — the payload is inspected, never executed, so no ARM runner is
+      # needed to catch a filter the installer could not decode.
+      - name: Package Windows x64 installer (without publishing)
+        if: runner.os == 'Windows'
+        run: node scripts/electron-builder.cjs --win nsis --x64 --publish never
+      - name: Package Windows arm64 installer (without publishing)
+        if: runner.os == 'Windows'
+        run: node scripts/electron-builder.cjs --win nsis --arm64 --publish never

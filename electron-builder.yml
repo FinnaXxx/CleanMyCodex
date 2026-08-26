@@ -9,9 +9,14 @@ files:
   - "!**/node_modules/*/{CHANGELOG.md,README.md,readme.md,readme}"
 asar: true
 afterPack: ./scripts/adhoc-sign.cjs
+# Catches an installer whose payload the NSIS extractor cannot unpack — the failure that
+# otherwise only shows up as a successfully installed app with no exe. See the script.
+afterAllArtifactBuild: ./scripts/verify-windows-installer.cjs
 asarUnpack:
   - "**/*.node"
-npmRebuild: true
+# better-sqlite3 is a Node-API addon that ships prebuilt binaries for every platform it supports,
+# so there is nothing to rebuild against Electron's headers.
+npmRebuild: false
 mac:
   category: public.app-category.utilities
   target:
@@ -21,11 +26,19 @@ mac:
   gatekeeperAssess: false
   artifactName: ${productName}-${version}-${arch}.${ext}
   icon: Support/AppIcon.icns
+  # Ship only the prebuilt binary this artifact can load; the other seven are dead weight
+  # (~17MB) and would break the Mach-O arch check in the release workflow. It has to be a
+  # single exclusion: for files under node_modules electron-builder honours "!" patterns
+  # only, so anything excluded can never be added back by a later positive pattern.
+  files:
+    - "!**/node_modules/better-sqlite3/prebuilds/!(darwin-${arch}).node"
 win:
   icon: Assets/AppIcon.ico
   target:
     - nsis
   artifactName: ${productName}-${version}-${arch}.${ext}
+  files:
+    - "!**/node_modules/better-sqlite3/prebuilds/!(win32-${arch}).node"
 nsis:
   oneClick: false
   perMachine: false

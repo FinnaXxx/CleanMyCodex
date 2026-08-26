@@ -10,7 +10,7 @@ Thanks for helping improve Clean My Codex. Bug reports, focused fixes and well-s
 
 ## Development
 
-The project requires Node.js 22 and pnpm 11.19.
+The project requires Node.js 24 and pnpm 11.19.
 
 ```bash
 pnpm install

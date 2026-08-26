@@ -152,7 +152,7 @@ Cleanup is written to a log — cache and leftover removals record the path and 
 
 ## Development
 
-Requires Node.js 22 and pnpm 11.19.
+Requires Node.js 24 and pnpm 11.19. Built on Electron 43, which runs on macOS 12+ and Windows 10+.
 
 ```bash
 pnpm install
@@ -170,6 +170,7 @@ Packaging:
 ```bash
 pnpm build:mac
 pnpm build:win
+pnpm build:win-arm64
 ```
 
 ## Contributing and support
