@@ -181,15 +181,16 @@ export function makeCleanupPreview(
     : []
   const unsafeWorktree = selection.kind === 'worktrees' && selectedWorktreesAreUnsafe(selection, snapshot)
   const uninstallsPlugin = selection.kind === 'plugins' && tasks.some((task) => task.removal === 'codexPlugin')
-  // Keep the worktree's repository reminder in the permanent-deletion notice so the
+  // Keep the resource-specific consequence in the permanent-deletion notice so the
   // confirmation reads as one warning rather than two competing lines.
-  const warnings: Message[] = [message(unsafeWorktree ? 'warning.permanentWorktreeGit'
-    : uninstallsPlugin ? 'warning.pluginManagement' : 'warning.permanent')]
-  if (selection.kind === 'workspace') warnings.push(message('warning.workspaceGit'))
-  // A worktree is a checkout like any other, so the same reminder applies. Nothing is
-  // said about Codex' own restore: whether it keeps a snapshot is unverified, and a
-  // recovery route this app has not seen work is not one to promise.
-  if (selection.kind === 'generated-assets') warnings.push(message('warning.generatedAssetLocalCopy'))
+  const warning = selection.kind === 'workspace' || unsafeWorktree
+    ? 'warning.permanentGit'
+    : selection.kind === 'generated-assets'
+      ? 'warning.permanentGeneratedAssetLocalCopy'
+      : uninstallsPlugin
+        ? 'warning.pluginManagement'
+        : 'warning.permanent'
+  const warnings: Message[] = [message(warning)]
   // A plan whose conversation is already gone may be the only surviving copy of that plan,
   // so say so before a manual delete removes it alongside the rest of the selection.
   if (selection.kind === 'generated-assets' && snapshot) {

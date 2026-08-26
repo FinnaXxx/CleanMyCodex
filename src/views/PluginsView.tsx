@@ -5,7 +5,7 @@ import { message } from '../../shared/messages'
 import { FolderIcon } from '../icons'
 import { formatShortDate } from '../format'
 import { usePreferences } from '../preferences'
-import { FunnelFilter, SortHeader, useSortState, type SortDir } from '../components/list-controls'
+import { CleanupSelectionBar, DetailSummary, FunnelFilter, SelectAllCheckbox, SortHeader, useSortState, type SortDir } from '../components/list-controls'
 
 interface Props {
   snapshot: ScanSnapshot
@@ -16,10 +16,11 @@ interface Props {
   onCleanup: (selection: CleanupSelection) => void
 }
 
-type Scope = 'all' | PluginStatus
+type OriginScope = 'all' | 'official' | 'personal'
+type VersionScope = 'all' | Exclude<PluginStatus, 'builtin'>
 type SortKey = 'name' | 'date' | 'size'
 
-const STATUSES: PluginStatus[] = ['current', 'builtin', 'outdated', 'orphaned', 'unconfirmed']
+const VERSION_STATUSES: Array<Exclude<PluginStatus, 'builtin'>> = ['current', 'outdated', 'orphaned', 'unconfirmed']
 const defaultSortDir = (key: SortKey): SortDir => (key === 'name' ? 'asc' : 'desc')
 
 const selectable = (plugin: PluginVersionItem, canUninstall: boolean): boolean =>
@@ -28,10 +29,20 @@ const selectable = (plugin: PluginVersionItem, canUninstall: boolean): boolean =
 const pluginName = (item: PluginVersionItem): string =>
   item.marketplace ? `${item.marketplace} / ${item.plugin}` : item.plugin
 
+/** The scanner's `builtin` status is the authoritative official-marketplace signal. */
+const pluginIsOfficial = (item: PluginVersionItem): boolean => item.status === 'builtin'
+
+const pluginMatchesVersionScope = (item: PluginVersionItem, scope: VersionScope): boolean => {
+  if (scope === 'all') return true
+  if (scope === 'current') return item.status === 'current' || pluginIsOfficial(item)
+  return item.status === scope
+}
+
 export default function PluginsView({ snapshot, cleaning, actionsDisabled, canUninstall, cleanProgress, onCleanup }: Props) {
   const { t, m, locale } = usePreferences()
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [scope, setScope] = useState<Scope>('all')
+  const [originScope, setOriginScope] = useState<OriginScope>('all')
+  const [versionScope, setVersionScope] = useState<VersionScope>('all')
   const { sortKey, sortDir, cycleSort } = useSortState<SortKey>('size', defaultSortDir)
   const [query, setQuery] = useState('')
 
@@ -43,7 +54,9 @@ export default function PluginsView({ snapshot, cleaning, actionsDisabled, canUn
   const visible = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase()
     const filtered = snapshot.pluginVersions.filter((plugin) => {
-      if (scope !== 'all' && plugin.status !== scope) return false
+      if (originScope === 'official' && !pluginIsOfficial(plugin)) return false
+      if (originScope === 'personal' && pluginIsOfficial(plugin)) return false
+      if (!pluginMatchesVersionScope(plugin, versionScope)) return false
       if (needle && ![plugin.plugin, plugin.marketplace, plugin.version, plugin.directoryURL]
         .filter(Boolean).join(' ').toLocaleLowerCase().includes(needle)) return false
       return true
@@ -55,7 +68,7 @@ export default function PluginsView({ snapshot, cleaning, actionsDisabled, canUn
       else cmp = a.bytes - b.bytes
       return sortDir === 'asc' ? cmp : -cmp
     })
-  }, [query, scope, snapshot.pluginVersions, sortKey, sortDir])
+  }, [originScope, query, snapshot.pluginVersions, sortKey, sortDir, versionScope])
 
   const selectedUninstalls = useMemo(() => {
     const map = new Map<string, PluginVersionItem>()
@@ -70,7 +83,6 @@ export default function PluginsView({ snapshot, cleaning, actionsDisabled, canUn
   const selectedBytes = total(selectedVersions) + snapshot.pluginVersions
     .filter((item) => selectedUninstalls.has(pluginIdentity(item)))
     .reduce((sum, item) => sum + item.bytes, 0)
-  const totalBytes = total(snapshot.pluginVersions)
   const uninstallCount = selectedUninstalls.size
 
   const isItemSelected = (item: PluginVersionItem): boolean =>
@@ -110,19 +122,29 @@ export default function PluginsView({ snapshot, cleaning, actionsDisabled, canUn
     return next
   })
 
-  const scopeOptions: { value: Scope; label: string; count: number }[] = [
-    { value: 'all', label: t('全部', 'All'), count: snapshot.pluginVersions.length },
-    ...STATUSES.map((status) => ({
-      value: status, label: m(message(`pluginStatus.${status}`)), count: snapshot.pluginVersions.filter((item) => item.status === status).length
+  const officialPlugins = snapshot.pluginVersions.filter(pluginIsOfficial)
+  const personalPlugins = snapshot.pluginVersions.filter((item) => !pluginIsOfficial(item))
+  const originOptions: { value: OriginScope; label: string; count: number }[] = [
+    { value: 'all', label: t('全部来源', 'All sources'), count: snapshot.pluginVersions.length },
+    { value: 'official', label: t('官方', 'Official'), count: officialPlugins.length },
+    { value: 'personal', label: t('个人', 'Personal'), count: personalPlugins.length },
+  ]
+  const versionOptions: { value: VersionScope; label: string; count: number }[] = [
+    { value: 'all', label: t('全部状态', 'All statuses'), count: snapshot.pluginVersions.length },
+    ...VERSION_STATUSES.map((status) => ({
+      value: status,
+      label: m(message(`pluginStatus.${status}`)),
+      count: snapshot.pluginVersions.filter((item) => pluginMatchesVersionScope(item, status)).length
     })),
   ]
 
   return <>
     <div className="detail-content">
-      <section className="workspace-metrics plugin-metrics card">
-        <div><small>{t('总占用', 'Total')}</small><strong>{formatBytes(totalBytes)}</strong></div>
-        <div><small>{t('已选择', 'Selected')}</small><strong>{formatBytes(selectedBytes)}</strong></div>
-      </section>
+      <DetailSummary items={[
+        { label: t('总占用', 'Total'), value: formatBytes(total(snapshot.pluginVersions)) },
+        { label: t('官方', 'Official'), value: formatBytes(total(officialPlugins)) },
+        { label: t('个人', 'Personal'), value: formatBytes(total(personalPlugins)) },
+      ]} />
 
       <section className="filters">
         <input className="search" value={query} onChange={(event) => setQuery(event.target.value)}
@@ -134,20 +156,26 @@ export default function PluginsView({ snapshot, cleaning, actionsDisabled, canUn
 
       <div className="card plugin-table">
         <div className="table-head plugin-head">
-          <input type="checkbox" aria-label={t('全选', 'Select all')} checked={allVisibleSelected}
-            ref={(input) => { if (input) input.indeterminate = selectableVisible.some(isItemSelected) && !allVisibleSelected }}
-            onChange={toggleAll} />
+          <SelectAllCheckbox ariaLabel={t('全选', 'Select all')} allSelected={allVisibleSelected}
+            someSelected={selectableVisible.some(isItemSelected)} onToggle={toggleAll} />
           <span className="col-sortable">
             <SortHeader active={sortKey === 'name'} dir={sortDir} onClick={() => cycleSort('name')}>
               {t('插件', 'Plugin')}
             </SortHeader>
           </span>
           <span>{t('版本', 'Version')}</span>
+          <span className="col-status plugin-origin">
+            <span className="status-head">
+              {t('来源', 'Source')}
+              <FunnelFilter ariaLabel={t('筛选来源', 'Filter source')} active={originScope !== 'all'}
+                options={originOptions} value={originScope} onChange={setOriginScope} />
+            </span>
+          </span>
           <span className="col-status">
             <span className="status-head">
-              {t('类型', 'Type')}
-              <FunnelFilter ariaLabel={t('筛选类型', 'Filter type')} active={scope !== 'all'}
-                options={scopeOptions} value={scope} onChange={setScope} />
+              {t('版本状态', 'Version status')}
+              <FunnelFilter ariaLabel={t('筛选版本状态', 'Filter version status')} active={versionScope !== 'all'}
+                options={versionOptions} value={versionScope} onChange={setVersionScope} />
             </span>
           </span>
           <span className="col-date col-sortable">
@@ -174,15 +202,12 @@ export default function PluginsView({ snapshot, cleaning, actionsDisabled, canUn
           : t('没有找到本地插件', 'No local plugins found')}</p>}
       </div>
     </div>
-    <div className="page-footer"><span>{chosen.length
-      ? t(`已选择 ${chosen.length} 项${uninstallCount ? `，其中卸载 ${uninstallCount} 个插件` : ''}`, `${chosen.length} selected${uninstallCount ? `, including ${uninstallCount} plugin uninstalls` : ''}`)
-      : t('选择当前插件以卸载，或选择旧版本与残留以清理', 'Select current plugins to uninstall, or old versions and leftovers to clean')}</span>
-      <button className="btn danger" disabled={!chosen.length || cleaning || actionsDisabled}
-        onClick={() => onCleanup({ kind: 'plugins', ids: chosen.map((item) => item.directoryURL) })}>
-        {cleaning
-          ? t(`处理中… ${cleanProgress?.completed ?? 0}/${chosen.length}`, `Processing… ${cleanProgress?.completed ?? 0}/${chosen.length}`)
-          : t(`删除 · ${formatBytes(selectedBytes)}`, `Delete · ${formatBytes(selectedBytes)}`)}
-      </button></div>
+    <CleanupSelectionBar count={chosen.length} summary={<>{t(
+      `已选 ${chosen.length} 项插件版本${uninstallCount ? `，其中卸载 ${uninstallCount} 个插件` : ''}`,
+      `${chosen.length} plugin versions selected${uninstallCount ? `, including ${uninstallCount} plugin uninstalls` : ''}`
+    )} · {formatBytes(selectedBytes)}</>}
+      cleaning={cleaning} actionsDisabled={actionsDisabled} progress={cleanProgress}
+      onDelete={() => onCleanup({ kind: 'plugins', ids: chosen.map((item) => item.directoryURL) })} />
   </>
 }
 
@@ -210,7 +235,13 @@ function PluginRow({ item, locale, uninstallSelected, removableSelected, canUnin
       {detail && <small>{detail}</small>}
     </div>
     <span className="plugin-version" title={item.version}><code>{item.version}</code></span>
-    <span className="col-status"><span className={`pill status-${item.status}`}>{m(message(`pluginStatus.${item.status}`))}</span></span>
+    <span className="col-status plugin-origin"><span className={`pill${pluginIsOfficial(item) ? ' status-builtin' : ''}`}>
+      {pluginIsOfficial(item) ? t('官方', 'Official') : t('个人', 'Personal')}
+    </span></span>
+    <span className="col-status">{pluginIsOfficial(item)
+      ? <span className="pill status-current">{m(message('pluginStatus.current'))}</span>
+      : <span className={`pill status-${item.status}`}>{m(message(`pluginStatus.${item.status}`))}</span>}
+    </span>
     <span className="col-date" title={new Date(item.modifiedAt).toLocaleString(locale)}>{formatShortDate(item.modifiedAt, locale)}</span>
     <span className="col-num">{formatBytes(item.bytes)}</span>
     <button className="icon-button" title={t('在文件管理器中显示', 'Show in file manager')} aria-label={t('在文件管理器中显示', 'Show in file manager')} onClick={() => window.cleanmycodex.revealPath(item.directoryURL)}><FolderIcon /></button>

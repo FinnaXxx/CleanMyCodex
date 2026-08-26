@@ -5,7 +5,7 @@ import { message } from '../../shared/messages'
 import { FolderIcon } from '../icons'
 import { formatShortDate } from '../format'
 import { usePreferences } from '../preferences'
-import { FunnelFilter, SortHeader, useSortState, type SortDir } from '../components/list-controls'
+import { CleanupSelectionBar, DetailSummary, FunnelFilter, SelectAllCheckbox, SortHeader, useListSelection, useSortState, type SortDir } from '../components/list-controls'
 
 interface Props { snapshot: WorkspaceSnapshot; cleaning: boolean; actionsDisabled: boolean; cleanProgress: CleanupProgress | null; onCleanup: (selection: CleanupSelection) => void }
 
@@ -15,10 +15,10 @@ type WsStatus = Exclude<Scope, 'all'>
 
 /** Always desc: newest first by default for date, largest first for size. */
 const defaultSortDir = (_key: SortKey): SortDir => 'desc'
+const workspaceRowID = (row: { entry: WorkspaceFolder }): string => row.entry.id
 
 export default function WorkspaceView({ snapshot, cleaning, actionsDisabled, cleanProgress, onCleanup }: Props) {
   const { t, locale } = usePreferences()
-  const [selected, setSelected] = useState<Set<string>>(new Set())
   const [scope, setScope] = useState<Scope>('all')
   const { sortKey, sortDir, cycleSort } = useSortState<SortKey>('size', defaultSortDir)
 
@@ -30,6 +30,7 @@ export default function WorkspaceView({ snapshot, cleaning, actionsDisabled, cle
       ? [...entry.children, ...(entry.fileCount ? [entry] : [])]
       : [entry])
     .map((entry) => ({ entry, status: workspaceStatusKey(entry) })), [snapshot])
+  const selection = useListSelection({ items: baseRows, getID: workspaceRowID })
 
   const scopeOptions = [
     { value: 'all' as const, label: t('全部', 'All'), count: baseRows.length },
@@ -46,26 +47,24 @@ export default function WorkspaceView({ snapshot, cleaning, actionsDisabled, cle
     })
   }, [baseRows, scope, sortKey, sortDir])
 
-  const targets = rows.filter((r) => selected.has(r.entry.id)).map((r) => r.entry)
+  const targets = selection.selectedItems.map((row) => row.entry)
   const chosenBytes = targets.reduce((sum, item) => sum + item.bytes, 0)
-  const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.entry.id))
-
-  const toggle = (entry: WorkspaceFolder) => setSelected((previous) => {
-    const next = new Set(previous); next.has(entry.id) ? next.delete(entry.id) : next.add(entry.id); return next
-  })
+  const allSelected = selection.allSelected(rows)
 
   return <>
     <div className="detail-content">
-    <section className="workspace-metrics card"><div><small>{t('总占用', 'Total')}</small><strong>{formatBytes(workspaceBytes(snapshot))}</strong></div><div><small>{t('已选择', 'Selected')}</small><strong>{formatBytes(chosenBytes)}</strong></div></section>
+    <DetailSummary items={[
+      { label: t('总占用', 'Total'), value: formatBytes(workspaceBytes(snapshot)) },
+      ...scopeOptions.slice(1).map((option) => ({ label: option.label, value: option.count })),
+    ]} />
     {!snapshot.isScanned && <p className="empty-panel">{t('工作区尚未完成统计，请在首页重新扫描', 'Workspace has not been scanned. Scan again from Home.')}<br/><code>{snapshot.root}</code></p>}
     {snapshot.isScanned && !rows.length && <p className="empty-panel">{scope === 'all'
       ? t('没有找到工作区目录', 'No workspace folders found')
       : t('没有符合筛选条件的工作区目录', 'No workspace folders match these filters')}<br/><code>{snapshot.root}</code></p>}
     {!!rows.length && <section className="card workspace-tree">
       <div className="table-head workspace-head">
-        <input type="checkbox" aria-label={t('全选', 'Select all')} checked={allSelected}
-          ref={(input) => { if (input) input.indeterminate = rows.some((r) => selected.has(r.entry.id)) && !allSelected }}
-          onChange={() => setSelected(() => allSelected ? new Set() : new Set(rows.map((r) => r.entry.id)))}/>
+        <SelectAllCheckbox ariaLabel={t('全选', 'Select all')} allSelected={allSelected}
+          someSelected={selection.someSelected(rows)} onToggle={() => selection.toggleAll(rows)} />
         <span>{t('产出', 'Output')}</span>
         <span className="col-status">
           <span className="status-head">
@@ -86,10 +85,15 @@ export default function WorkspaceView({ snapshot, cleaning, actionsDisabled, cle
         </span>
         <span/>
       </div>
-      {rows.map((r) => <WorkspaceRow key={r.entry.id} entry={r.entry} status={r.status} checked={selected.has(r.entry.id)} onToggle={() => toggle(r.entry)} date={formatShortDate(r.entry.modifiedAt, locale)} />)}
+      {rows.map((r) => <WorkspaceRow key={r.entry.id} entry={r.entry} status={r.status} checked={selection.isSelected(r)} onToggle={() => selection.toggle(r)} date={formatShortDate(r.entry.modifiedAt, locale)} />)}
     </section>}
     </div>
-    <div className="page-footer"><span className={targets.some(workspaceFolderIsUnsafe) ? 'unsafe' : ''}>{targets.some(workspaceFolderIsUnsafe) ? t('⚠ 所选内容包含未提交、未推送或状态未知的 git 仓库', '⚠ Selection contains uncommitted, unpushed, or unknown Git repositories') : snapshot.root}</span><button className="btn danger" disabled={!targets.length || cleaning || actionsDisabled} onClick={() => onCleanup({ kind: 'workspace', ids: targets.map((entry) => entry.id), deleteRelatedSessions: false })}>{cleaning ? t(`处理中… ${cleanProgress?.completed ?? 0}/${targets.length}`, `Processing… ${cleanProgress?.completed ?? 0}/${targets.length}`) : t(`删除 · ${formatBytes(chosenBytes)}`, `Delete · ${formatBytes(chosenBytes)}`)}</button></div>
+    <CleanupSelectionBar count={targets.length} warning={targets.some(workspaceFolderIsUnsafe)}
+      summary={targets.some(workspaceFolderIsUnsafe)
+        ? t(`⚠ 已选 ${targets.length} 项工作区内容 · ${formatBytes(chosenBytes)} · 包含未提交、未推送或状态未知的 git 仓库`, `⚠ ${targets.length} workspace items selected · ${formatBytes(chosenBytes)} · Contains uncommitted, unpushed, or unknown Git repositories`)
+        : t(`已选 ${targets.length} 项工作区内容`, `${targets.length} workspace items selected`) + ` · ${formatBytes(chosenBytes)}`}
+      cleaning={cleaning} actionsDisabled={actionsDisabled} progress={cleanProgress}
+      onDelete={() => onCleanup({ kind: 'workspace', ids: targets.map((entry) => entry.id), deleteRelatedSessions: false })} />
   </>
 }
 

@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import type { CleanupProgress, CleanupSelection, ScanSnapshot, WorktreeItem } from '../../shared/types'
 import { formatBytes, repositoryStateIsSafe, worktreeBytes, worktreeDisplayName, worktreeIsRemovable, worktreeIsUnsafe } from '../../shared/types'
 import { message } from '../../shared/messages'
 import { FolderIcon } from '../icons'
 import { formatShortDate } from '../format'
 import { usePreferences } from '../preferences'
+import { CleanupSelectionBar, DetailSummary, useListSelection } from '../components/list-controls'
 
 interface Props {
   snapshot: ScanSnapshot
@@ -14,10 +15,10 @@ interface Props {
   onCleanup: (selection: CleanupSelection) => void
 }
 
+const worktreeID = (worktree: WorktreeItem): string => worktree.id
+
 export default function WorktreesView({ snapshot, cleaning, actionsDisabled, cleanProgress, onCleanup }: Props) {
   const { t } = usePreferences()
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  useEffect(() => { setSelected(new Set()) }, [snapshot])
 
   const worktrees = useMemo(() => snapshot.worktrees ?? [], [snapshot])
   // Grouped by the repository they were cut from, which is how someone thinks about
@@ -35,24 +36,18 @@ export default function WorktreesView({ snapshot, cleaning, actionsDisabled, cle
       .sort((a, b) => total(b.items) - total(a.items))
   }, [worktrees])
 
-  const removable = worktrees.filter(worktreeIsRemovable)
-  const chosen = removable.filter((worktree) => selected.has(worktree.id))
+  const removable = useMemo(() => worktrees.filter(worktreeIsRemovable), [worktrees])
+  const selection = useListSelection({ items: removable, getID: worktreeID })
+  const chosen = selection.selectedItems
   const chosenBytes = total(chosen)
   const artifactBytes = worktrees.reduce((sum, worktree) => sum + worktree.artifactBytes, 0)
 
-  const toggle = (worktree: WorktreeItem) => setSelected((previous) => {
-    const next = new Set(previous)
-    next.has(worktree.id) ? next.delete(worktree.id) : next.add(worktree.id)
-    return next
-  })
-
   return <>
     <div className="detail-content">
-    <section className="workspace-metrics worktree-metrics card">
-      <div><small>{t('总占用', 'Total')}</small><strong>{formatBytes(worktreeBytes(worktrees))}</strong></div>
-      <div><small>{t('其中构建产物', 'Build output')}</small><strong>{formatBytes(artifactBytes)}</strong></div>
-      <div><small>{t('已选择', 'Selected')}</small><strong>{formatBytes(chosenBytes)}</strong></div>
-    </section>
+    <DetailSummary items={[
+      { label: t('总占用', 'Total'), value: formatBytes(worktreeBytes(worktrees)) },
+      { label: t('构建产物', 'Build output'), value: formatBytes(artifactBytes) },
+    ]} />
     {!!worktrees.length && <p className="notice">{t(
       'Codex 会自动删除较早的 worktree，保留数量可在 Codex 设置 → Worktrees 中调整。',
       'Codex deletes older worktrees on its own; how many it keeps is set in Codex under Settings → Worktrees.'
@@ -65,23 +60,16 @@ export default function WorktreesView({ snapshot, cleaning, actionsDisabled, cle
           <span>{formatBytes(total(group.items))}</span>
         </div>
         {group.items.map((worktree) => <WorktreeRow key={worktree.id} worktree={worktree}
-          checked={selected.has(worktree.id)} onToggle={() => toggle(worktree)} />)}
+          checked={selection.isSelected(worktree)} onToggle={() => selection.toggle(worktree)} />)}
       </section>)}
     </div>
     </div>
-    <div className="page-footer">
-      <span className={chosen.some(worktreeIsUnsafe) ? 'unsafe' : ''}>{chosen.some(worktreeIsUnsafe)
-        ? t('⚠ 所选 worktree 有未提交、未推送或状态未知的改动', '⚠ Selected worktrees have uncommitted, unpushed, or unknown changes')
-        : chosen.length
-          ? t(`已选择 ${chosen.length} 个`, `${chosen.length} selected`)
-          : t(`可清理 ${removable.length} 个`, `${removable.length} cleanable`)}</span>
-      <button className="btn danger" disabled={!chosen.length || cleaning || actionsDisabled}
-        onClick={() => onCleanup({ kind: 'worktrees', ids: chosen.map((worktree) => worktree.id), deleteRelatedSessions: false })}>
-        {cleaning
-          ? t(`处理中… ${cleanProgress?.completed ?? 0}/${chosen.length}`, `Processing… ${cleanProgress?.completed ?? 0}/${chosen.length}`)
-          : t(`删除 · ${formatBytes(chosenBytes)}`, `Delete · ${formatBytes(chosenBytes)}`)}
-      </button>
-    </div>
+    <CleanupSelectionBar count={chosen.length} warning={chosen.some(worktreeIsUnsafe)}
+      summary={chosen.some(worktreeIsUnsafe)
+        ? t(`⚠ 已选 ${chosen.length} 个 worktree · ${formatBytes(chosenBytes)} · 包含未提交、未推送或状态未知的改动`, `⚠ ${chosen.length} worktrees selected · ${formatBytes(chosenBytes)} · Contains uncommitted, unpushed, or unknown changes`)
+        : t(`已选 ${chosen.length} 个 worktree`, `${chosen.length} worktrees selected`) + ` · ${formatBytes(chosenBytes)}`}
+      cleaning={cleaning} actionsDisabled={actionsDisabled} progress={cleanProgress}
+      onDelete={() => onCleanup({ kind: 'worktrees', ids: chosen.map(worktreeID), deleteRelatedSessions: false })} />
   </>
 }
 

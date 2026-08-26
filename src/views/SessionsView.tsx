@@ -17,7 +17,7 @@ import { message } from '../../shared/messages'
 import { FolderIcon } from '../icons'
 import { formatShortDate } from '../format'
 import { usePreferences } from '../preferences'
-import { FunnelFilter, SortHeader, useSortState, type SortDir } from '../components/list-controls'
+import { CleanupSelectionBar, DetailSummary, FunnelFilter, SelectAllCheckbox, SortHeader, useListSelection, useSortState, type SortDir } from '../components/list-controls'
 
 interface Props {
   snapshot: ScanSnapshot
@@ -33,15 +33,19 @@ type SortKey = 'total' | 'date' | 'name'
 export type SessionInitialSelection = 'none' | 'suggested-archives'
 
 const defaultSortDir = (key: SortKey): SortDir => (key === 'name' ? 'asc' : 'desc')
+const sessionID = (session: SessionItem): string => session.id
 
 export default function SessionsView({ snapshot, cleaning, actionsDisabled, cleanProgress, onCleanup, initialSelection }: Props) {
   const { t, e, locale } = usePreferences()
-  const [selected, setSelected] = useState<Set<string>>(() => {
-    if (initialSelection !== 'suggested-archives') return new Set()
-    const now = Date.now()
-    return new Set(listableSessions(snapshot)
-      .filter((session) => sessionMatchesSuggestedArchivePreset(session, now))
-      .map((session) => session.id))
+  const listable = useMemo(() => listableSessions(snapshot), [snapshot])
+  const selection = useListSelection({
+    items: listable,
+    getID: sessionID,
+    initialSelectedIDs: () => {
+      if (initialSelection !== 'suggested-archives') return []
+      const now = Date.now()
+      return listable.filter((session) => sessionMatchesSuggestedArchivePreset(session, now)).map(sessionID)
+    }
   })
   const [scope, setScope] = useState<Scope>(initialSelection === 'suggested-archives' ? 'archived' : 'all')
   const { sortKey, sortDir, cycleSort } = useSortState<SortKey>('total', defaultSortDir)
@@ -54,11 +58,6 @@ export default function SessionsView({ snapshot, cleaning, actionsDisabled, clea
   const [leftovers, setLeftovers] = useState<{ count: number; logPath: string } | null>(null)
   const [repairing, setRepairing] = useState(false)
   const [repairError, setRepairError] = useState<string | null>(null)
-
-  useEffect(() => {
-    const current = new Set(snapshot.sessions.map((session) => session.id))
-    setSelected((previous) => new Set([...previous].filter((id) => current.has(id))))
-  }, [snapshot.scannedAt, snapshot.sessions])
 
   // Leftover rows are metadata, not files, so they are looked up separately from the
   // scan — and again after every scan, because a deletion may have produced new ones.
@@ -83,8 +82,6 @@ export default function SessionsView({ snapshot, cleaning, actionsDisabled, clea
     }
   }
 
-  const listable = useMemo(() => listableSessions(snapshot), [snapshot])
-
   const visible = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase()
     const days = Number(olderThanDays)
@@ -105,13 +102,10 @@ export default function SessionsView({ snapshot, cleaning, actionsDisabled, clea
     })
   }, [olderThanDays, query, scope, listable, sortKey, sortDir])
 
-  const selectedSessions = useMemo(() => snapshot.sessions.filter((session) => selected.has(session.id)), [snapshot.sessions, selected])
+  const selectedSessions = selection.selectedItems
   const selectedBytes = selectedSessions.reduce((sum, session) => sum + sessionTotalBytes(session), 0)
-  const allVisibleSelected = visible.length > 0 && visible.every((session) => selected.has(session.id))
-
-  const toggle = (id: string): void => setSelected((previous) => {
-    const next = new Set(previous); next.has(id) ? next.delete(id) : next.add(id); return next
-  })
+  const allVisibleSelected = selection.allSelected(visible)
+  const totalBytes = listable.reduce((sum, session) => sum + sessionTotalBytes(session), 0)
 
   const scopeOptions: { value: Scope; label: string; count: number }[] = [
     { value: 'all', label: t('全部', 'All'), count: listable.length },
@@ -121,6 +115,10 @@ export default function SessionsView({ snapshot, cleaning, actionsDisabled, clea
 
   return <>
     <div className="detail-content">
+    <DetailSummary items={[
+      { label: t('总占用', 'Total'), value: formatBytes(totalBytes) },
+      ...scopeOptions.slice(1).map((option) => ({ label: option.label, value: option.count })),
+    ]} />
     {leftovers && leftovers.count > 0 && <div className="notice warning leftover-notice">
       <div>
         <strong>{t(`发现 ${leftovers.count} 条残留会话记录`, `${leftovers.count} leftover session records`)}</strong>
@@ -150,13 +148,8 @@ export default function SessionsView({ snapshot, cleaning, actionsDisabled, clea
 
     <div className="card session-table">
       <div className="table-head">
-        <input type="checkbox" aria-label={t('全选', 'Select all')} checked={allVisibleSelected}
-          ref={(input) => { if (input) input.indeterminate = visible.some((session) => selected.has(session.id)) && !allVisibleSelected }}
-          onChange={() => setSelected((previous) => {
-            const next = new Set(previous)
-            for (const session of visible) allVisibleSelected ? next.delete(session.id) : next.add(session.id)
-            return next
-          })} />
+        <SelectAllCheckbox ariaLabel={t('全选', 'Select all')} allSelected={allVisibleSelected}
+          someSelected={selection.someSelected(visible)} onToggle={() => selection.toggleAll(visible)} />
         <span className="col-sortable">
           <SortHeader active={sortKey === 'name'} dir={sortDir} onClick={() => cycleSort('name')}>
             {t('会话', 'Session')}
@@ -183,7 +176,7 @@ export default function SessionsView({ snapshot, cleaning, actionsDisabled, clea
         <span />
       </div>
       <ul className="session-list">
-        {visible.map((session) => <SessionRow key={session.id} session={session} checked={selected.has(session.id)} onToggle={() => toggle(session.id)} locale={locale} />)}
+        {visible.map((session) => <SessionRow key={session.id} session={session} checked={selection.isSelected(session)} onToggle={() => selection.toggle(session)} locale={locale} />)}
       </ul>
       {!visible.length && <p className="empty-inline">{listable.length
         ? t('没有符合筛选条件的会话', 'No sessions match these filters')
@@ -191,15 +184,10 @@ export default function SessionsView({ snapshot, cleaning, actionsDisabled, clea
     </div>
     </div>
 
-    {selectedSessions.length > 0 && <div className="action-bar">
-      <span>{t(`已选 ${selectedSessions.length} 个会话`, `${selectedSessions.length} sessions selected`)} · {formatBytes(selectedBytes)}</span>
-      <div className="action-buttons">
-        <button className="btn danger" disabled={cleaning || actionsDisabled}
-          onClick={() => onCleanup({ kind: 'sessions-delete', ids: selectedSessions.map((session) => session.id) })}>
-          {cleaning ? t(`删除中… ${cleanProgress?.completed ?? 0}/${selectedSessions.length}`, `Deleting… ${cleanProgress?.completed ?? 0}/${selectedSessions.length}`) : t('删除所选会话', 'Delete Selected Sessions')}
-        </button>
-      </div>
-    </div>}
+    <CleanupSelectionBar count={selectedSessions.length}
+      summary={<>{t(`已选 ${selectedSessions.length} 项会话记录`, `${selectedSessions.length} sessions selected`)} · {formatBytes(selectedBytes)}</>}
+      cleaning={cleaning} actionsDisabled={actionsDisabled} progress={cleanProgress}
+      onDelete={() => onCleanup({ kind: 'sessions-delete', ids: selectedSessions.map(sessionID) })} />
 
   </>
 }

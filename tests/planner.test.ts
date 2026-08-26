@@ -225,6 +225,7 @@ describe('trusted cleanup planner', () => {
       running: false, detectionKnown: true, desktopRunning: false,
       cliCommands: [], desktopCommands: [], canQuit: false, blockers: []
     }, snap, workspace)
+    expect(preview.warnings[0]).toEqual(message('warning.permanentGit'))
     expect(preview.warnings).toContainEqual(message('warning.pinnedSessions', { count: 1 }))
     // The conversation's bytes roll into the output row, so the preview stays one item.
     const conversationBytes = pinnedSession.fileBytes + pinnedSession.assetBytes
@@ -255,7 +256,7 @@ describe('trusted cleanup planner', () => {
       running: false, detectionKnown: true, desktopRunning: false,
       cliCommands: [], desktopCommands: [], canQuit: false, blockers: []
     }, snap)
-    expect(preview.warnings).toContainEqual(message('warning.generatedAssetLocalCopy'))
+    expect(preview.warnings).toContainEqual(message('warning.permanentGeneratedAssetLocalCopy'))
   })
 
   it('deletes a Visualization source and Viewer as one generated asset', () => {
@@ -496,7 +497,7 @@ describe('automatic cleanup planner', () => {
       makeCleanupPreview(selection, buildTrustedTasks(selection, snap, snap.workspace), environment, snap)
         .warnings.map((warning) => warning.key)
     expect(keys(clean)).toEqual(['warning.permanent'])
-    expect(keys(dirty)).toEqual(['warning.permanentWorktreeGit'])
+    expect(keys(dirty)).toEqual(['warning.permanentGit'])
   })
 
   it('never schedules a plan asset or its directory in the automatic run', () => {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   formatBytes,
   generatedAssetDisplayName,
@@ -14,7 +14,7 @@ import {
 import { FolderIcon } from '../icons'
 import { formatShortDate } from '../format'
 import { usePreferences } from '../preferences'
-import { FunnelFilter, SortHeader, useSortState, type SortDir } from '../components/list-controls'
+import { CleanupSelectionBar, DetailSummary, FunnelFilter, SelectAllCheckbox, SortHeader, useListSelection, useSortState, type SortDir } from '../components/list-controls'
 
 interface Props {
   snapshot: ScanSnapshot
@@ -28,19 +28,15 @@ type Scope = 'all' | GeneratedAssetKind
 type SortKey = 'size' | 'date' | 'source'
 
 const defaultSortDir = (key: SortKey): SortDir => (key === 'source' ? 'asc' : 'desc')
+const assetID = (asset: GeneratedAssetItem): string => asset.id
 
 export default function GeneratedAssetsView({ snapshot, cleaning, actionsDisabled, cleanProgress, onCleanup }: Props) {
   const { t, locale } = usePreferences()
-  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const selection = useListSelection({ items: snapshot.generatedAssets, getID: assetID })
   const [scope, setScope] = useState<Scope>('all')
   const { sortKey, sortDir, cycleSort } = useSortState<SortKey>('size', defaultSortDir)
   const [query, setQuery] = useState('')
   const sessionsByID = useMemo(() => new Map(snapshot.sessions.map((session) => [session.id, session])), [snapshot.sessions])
-
-  useEffect(() => {
-    const current = new Set(snapshot.generatedAssets.map((asset) => asset.id))
-    setSelected((previous) => new Set([...previous].filter((id) => current.has(id))))
-  }, [snapshot.generatedAssets, snapshot.scannedAt])
 
   const visible = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase()
@@ -60,15 +56,9 @@ export default function GeneratedAssetsView({ snapshot, cleaning, actionsDisable
     })
   }, [query, scope, sessionsByID, snapshot.generatedAssets, sortKey, sortDir])
 
-  const chosen = useMemo(() => snapshot.generatedAssets.filter((asset) => selected.has(asset.id)), [selected, snapshot.generatedAssets])
+  const chosen = selection.selectedItems
   const chosenBytes = generatedAssetBytes(chosen)
-  const allVisibleSelected = visible.length > 0 && visible.every((asset) => selected.has(asset.id))
-
-  const toggle = (id: string): void => setSelected((previous) => {
-    const next = new Set(previous)
-    next.has(id) ? next.delete(id) : next.add(id)
-    return next
-  })
+  const allVisibleSelected = selection.allSelected(visible)
 
   const scopeOptions = [
     { value: 'all' as const, label: t('全部类型', 'All types'), count: snapshot.generatedAssets.length },
@@ -79,12 +69,10 @@ export default function GeneratedAssetsView({ snapshot, cleaning, actionsDisable
 
   return <>
     <div className="detail-content">
-      <section className="asset-metrics card">
-        <div><small>{t('总占用', 'Total')}</small><strong>{formatBytes(generatedAssetBytes(snapshot.generatedAssets))}</strong></div>
-        <div><small>ImageGen</small><strong>{snapshot.generatedAssets.filter((asset) => asset.kind === 'imageGen').length}</strong></div>
-        <div><small>Visualization</small><strong>{snapshot.generatedAssets.filter((asset) => asset.kind === 'visualization').length}</strong></div>
-        <div><small>Plan</small><strong>{snapshot.generatedAssets.filter((asset) => asset.kind === 'plan').length}</strong></div>
-      </section>
+      <DetailSummary items={[
+        { label: t('总占用', 'Total'), value: formatBytes(generatedAssetBytes(snapshot.generatedAssets)) },
+        ...scopeOptions.slice(1).map((option) => ({ label: option.label, value: option.count })),
+      ]} />
 
       <section className="filters">
         <input className="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('搜索来源会话或路径', 'Search source or path')} />
@@ -92,13 +80,8 @@ export default function GeneratedAssetsView({ snapshot, cleaning, actionsDisable
 
       <div className="card asset-table">
         <div className="table-head asset-head">
-          <input type="checkbox" aria-label={t('全选', 'Select all')} checked={allVisibleSelected}
-            ref={(input) => { if (input) input.indeterminate = visible.some((asset) => selected.has(asset.id)) && !allVisibleSelected }}
-            onChange={() => setSelected((previous) => {
-              const next = new Set(previous)
-              for (const asset of visible) allVisibleSelected ? next.delete(asset.id) : next.add(asset.id)
-              return next
-            })} />
+          <SelectAllCheckbox ariaLabel={t('全选', 'Select all')} allSelected={allVisibleSelected}
+            someSelected={selection.someSelected(visible)} onToggle={() => selection.toggleAll(visible)} />
           <span className="col-sortable">
             <SortHeader active={sortKey === 'source'} dir={sortDir} onClick={() => cycleSort('source')}>
               {t('会话资产', 'Session asset')}
@@ -124,7 +107,7 @@ export default function GeneratedAssetsView({ snapshot, cleaning, actionsDisable
         </div>
         <ul className="asset-list">
           {visible.map((asset) => <AssetRow key={asset.id} asset={asset} session={asset.sourceSessionID ? sessionsByID.get(asset.sourceSessionID) : undefined}
-            checked={selected.has(asset.id)} locale={locale} onToggle={() => toggle(asset.id)} />)}
+            checked={selection.isSelected(asset)} locale={locale} onToggle={() => selection.toggle(asset)} />)}
         </ul>
         {!visible.length && <p className="empty-inline">{snapshot.generatedAssets.length
           ? t('没有符合筛选条件的会话资产', 'No session assets match these filters')
@@ -132,15 +115,10 @@ export default function GeneratedAssetsView({ snapshot, cleaning, actionsDisable
       </div>
     </div>
 
-    {chosen.length > 0 && <div className="action-bar">
-      <span>{t(`已选 ${chosen.length} 项会话资产`, `${chosen.length} session assets selected`)} · {formatBytes(chosenBytes)}</span>
-      <button className="btn danger" disabled={cleaning || actionsDisabled}
-        onClick={() => onCleanup({ kind: 'generated-assets', ids: chosen.map((asset) => asset.id) })}>
-        {cleaning
-          ? t(`删除中… ${cleanProgress?.completed ?? 0}/${chosen.length}`, `Deleting… ${cleanProgress?.completed ?? 0}/${chosen.length}`)
-          : t('删除', 'Delete')}
-      </button>
-    </div>}
+    <CleanupSelectionBar count={chosen.length}
+      summary={<>{t(`已选 ${chosen.length} 项会话资产`, `${chosen.length} session assets selected`)} · {formatBytes(chosenBytes)}</>}
+      cleaning={cleaning} actionsDisabled={actionsDisabled} progress={cleanProgress}
+      onDelete={() => onCleanup({ kind: 'generated-assets', ids: chosen.map(assetID) })} />
   </>
 }
 

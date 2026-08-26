@@ -1,6 +1,61 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import type { CleanupProgress } from '../../shared/types'
+import { usePreferences } from '../preferences'
 
 export type SortDir = 'asc' | 'desc'
+
+/** Selection behavior shared by ordinary resource lists: retain valid choices across
+ *  rescans, preserve hidden choices across filters, and bulk-toggle only visible rows. */
+export function useListSelection<T>({ items, getID, initialSelectedIDs }: {
+  items: T[]
+  getID: (item: T) => string
+  initialSelectedIDs?: () => Iterable<string>
+}) {
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(initialSelectedIDs?.()))
+
+  useEffect(() => {
+    const current = new Set(items.map(getID))
+    setSelected((previous) => {
+      const next = new Set([...previous].filter((id) => current.has(id)))
+      return next.size === previous.size ? previous : next
+    })
+  }, [getID, items])
+
+  const selectedItems = useMemo(() => items.filter((item) => selected.has(getID(item))), [getID, items, selected])
+  const isSelected = (item: T): boolean => selected.has(getID(item))
+  const allSelected = (candidates: T[]): boolean => candidates.length > 0 && candidates.every(isSelected)
+  const someSelected = (candidates: T[]): boolean => candidates.some(isSelected)
+
+  const toggle = (item: T): void => setSelected((previous) => {
+    const next = new Set(previous)
+    const id = getID(item)
+    next.has(id) ? next.delete(id) : next.add(id)
+    return next
+  })
+
+  const toggleAll = (candidates: T[]): void => setSelected((previous) => {
+    const next = new Set(previous)
+    const remove = candidates.length > 0 && candidates.every((item) => previous.has(getID(item)))
+    for (const item of candidates) remove ? next.delete(getID(item)) : next.add(getID(item))
+    return next
+  })
+
+  return { selected, selectedItems, isSelected, allSelected, someSelected, toggle, toggleAll }
+}
+
+/** Checkbox with the native mixed state used by every filterable resource table. */
+export function SelectAllCheckbox({ allSelected, someSelected, ariaLabel, onToggle }: {
+  allSelected: boolean
+  someSelected: boolean
+  ariaLabel: string
+  onToggle: () => void
+}) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  useLayoutEffect(() => {
+    if (inputRef.current) inputRef.current.indeterminate = someSelected && !allSelected
+  }, [allSelected, someSelected])
+  return <input ref={inputRef} type="checkbox" aria-label={ariaLabel} checked={allSelected} onChange={onToggle} />
+}
 
 /** Sort state plus a cycle handler: clicking the active column flips direction,
  *  clicking a new column applies that column's default direction. */
@@ -48,6 +103,54 @@ export function SortHeader({ active, dir, onClick, align = 'start', children }: 
 }
 
 export interface FunnelOption<V extends string> { value: V; label: string; count: number }
+
+export interface DetailSummaryItem {
+  label: ReactNode
+  value: ReactNode
+}
+
+/** Shared overview card for resource detail pages. Pages supply their own useful
+ *  status/type breakdown; selection state belongs in SelectionActionBar instead. */
+export function DetailSummary({ items }: { items: DetailSummaryItem[] }) {
+  return <section className="detail-summary card" style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
+    {items.map((item, index) => <div key={index}>
+      <small>{item.label}</small>
+      <strong>{item.value}</strong>
+    </div>)}
+  </section>
+}
+
+/** Presentational bottom bar that keeps selection feedback next to its action. */
+export function SelectionActionBar({ summary, warning = false, children }: {
+  summary: ReactNode
+  warning?: boolean
+  children: ReactNode
+}) {
+  return <div className="selection-action-bar" aria-live="polite">
+    <span className={warning ? 'unsafe' : undefined}>{summary}</span>
+    <div className="selection-actions">{children}</div>
+  </div>
+}
+
+export function CleanupSelectionBar({ count, summary, warning = false, cleaning, actionsDisabled, progress, onDelete }: {
+  count: number
+  summary: ReactNode
+  warning?: boolean
+  cleaning: boolean
+  actionsDisabled: boolean
+  progress: CleanupProgress | null
+  onDelete: () => void
+}) {
+  const { t } = usePreferences()
+  if (count <= 0) return null
+  return <SelectionActionBar summary={summary} warning={warning}>
+    <button className="btn danger" disabled={cleaning || actionsDisabled} onClick={onDelete}>
+      {cleaning
+        ? t(`处理中… ${progress?.completed ?? 0}/${count}`, `Processing… ${progress?.completed ?? 0}/${count}`)
+        : t('删除', 'Delete')}
+    </button>
+  </SelectionActionBar>
+}
 
 /** A funnel icon that toggles a small filter popover; filled while a non-default
  *  filter is applied. Manages its own open/closed state and outside-click backdrop. */
