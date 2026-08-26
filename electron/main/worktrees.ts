@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path'
 import type { WorkspaceThreadReference, WorktreeItem, WorktreeStatus } from '../../shared/types'
@@ -6,6 +6,7 @@ import type { CodexWorkspaceThread } from './thread-index'
 import { GIT_INSPECTION_BUDGET, gitState } from './workspace'
 import { fileAllocatedSize } from './fs-size'
 import { MessageError, message } from '../../shared/messages'
+import { pathIdentityKey, uniquePaths } from './path-identity'
 
 /**
  * Codex-managed git worktrees.
@@ -51,11 +52,6 @@ function readFile(path: string): string | null {
 
 function isDirectory(path: string): boolean {
   try { return statSync(path).isDirectory() } catch { return false }
-}
-
-/** Resolve platform aliases such as macOS `/var` → `/private/var` before identity checks. */
-function canonicalExistingPath(path: string): string {
-  try { return normalize(realpathSync(path)) } catch { return normalize(path) }
 }
 
 /**
@@ -178,16 +174,16 @@ function measure(path: string, insideArtifact = false): Measured {
  * must never see that folder turn into a place this app offers to clean.
  */
 export function discoverWorktreeRoots(threads: CodexWorkspaceThread[]): string[] {
-  const roots = new Set<string>()
+  const roots = new Map<string, string>()
   for (const thread of threads) {
     const checkout = managedCheckoutAtOrAbove(thread.cwd)
     if (!checkout) continue
     const worktreeDirectory = dirname(checkout)
     const root = dirname(worktreeDirectory)
-    if (roots.has(root)) continue
-    roots.add(root)
+    const key = pathIdentityKey(root)
+    if (!roots.has(key)) roots.set(key, root)
   }
-  return [...roots]
+  return [...roots.values()]
 }
 
 /** A conversation may run in any project subdirectory, not just at the checkout root. */
@@ -213,11 +209,11 @@ export function resolveWorktreeRoots(
   threads: CodexWorkspaceThread[],
   configured: string | null
 ): string[] {
-  return [...new Set([
+  return uniquePaths([
     ...known.map(normalize),
     ...discoverWorktreeRoots(threads),
     ...(configured && isWorktreeRoot(configured) ? [normalize(configured)] : [])
-  ])]
+  ])
 }
 
 export interface WorktreeScanOptions {
@@ -233,7 +229,9 @@ export function scanWorktrees(
   options: WorktreeScanOptions = {}
 ): WorktreeItem[] {
   const budget = options.budget ?? { value: GIT_INSPECTION_BUDGET }
-  const directories = roots.flatMap((root) => worktreeDirectories(root))
+  // Root discovery is deduplicated too, but keep this final identity check at the scan
+  // boundary so callers cannot make one physical checkout count and measure twice.
+  const directories = uniquePaths(roots.flatMap((root) => worktreeDirectories(root)))
   const found: Described[] = []
   directories.forEach((directory, index) => {
     options.onProgress?.(directory, directories.length ? index / directories.length : 1)
@@ -387,7 +385,7 @@ export async function removeCodexWorktree(
   if (!admin?.repositoryPath || !repositoryPath) {
     throw new MessageError(message('cleanup.worktreeRemoveFailed', { reason: 'repository unavailable' }))
   }
-  if (canonicalExistingPath(admin.repositoryPath) !== canonicalExistingPath(repositoryPath)) {
+  if (pathIdentityKey(admin.repositoryPath) !== pathIdentityKey(repositoryPath)) {
     throw new MessageError(message('cleanup.worktreeRemoveFailed', { reason: 'repository changed since the last scan' }))
   }
 

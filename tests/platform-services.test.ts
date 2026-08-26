@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { isCodexDesktopActiveProcessCommand, isCodexDesktopMainProcessCommand, isCodexDesktopProcessCommand, isCodexDesktopSessionServiceCommand, isCodexProcessCommand } from '../electron/main/platform-services'
 
 describe('Codex process detection', () => {
@@ -52,5 +52,57 @@ describe('Codex process detection', () => {
   it('does not mistake CleanMyCodex for Codex', () => {
     expect(isCodexProcessCommand('C:\\Program Files\\CleanMyCodex\\CleanMyCodex.exe')).toBe(false)
     expect(isCodexProcessCommand('/Applications/Safari.app/Contents/MacOS/Safari')).toBe(false)
+  })
+})
+
+describe('Windows desktop detection', () => {
+  // The win32 branches of the classifiers gate on process.platform; stub it so the same
+  // assertions hold on every CI OS, not only the Windows runner.
+  const realPlatform = process.platform
+  beforeAll(() => { Object.defineProperty(process, 'platform', { value: 'win32', configurable: true }) })
+  afterAll(() => { Object.defineProperty(process, 'platform', { value: realPlatform, configurable: true }) })
+
+  // Real Codex desktop install on Windows: an MSIX under Program Files\WindowsApps\OpenAI.Codex_<ver>\.
+  const main = 'C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.818.8289.0_arm64__2p2nqsd0c76g0\\app\\ChatGPT.exe'
+  const helper = `${main} --type=renderer --lang=zh-CN`
+  const crashpad = `${main} --type=crashpad-handler --database=C:\\Users\\erinfan\\AppData\\Roaming\\Codex\\web\\Codex\\Crashpad`
+  const session = 'C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.818.8289.0_arm64__2p2nqsd0c76g0\\app\\resources\\codex.exe -c features.code_mode_host=true app-server --analytics-default-enabled'
+  const cli = 'C:\\Users\\erinfan\\AppData\\Roaming\\npm\\codex.exe exec task'
+
+  it('sees the ChatGPT.exe main and Electron helpers as Codex desktop processes', () => {
+    expect(isCodexProcessCommand(main)).toBe(true)
+    expect(isCodexDesktopProcessCommand(main)).toBe(true)
+    expect(isCodexDesktopMainProcessCommand(main)).toBe(true)
+    expect(isCodexDesktopActiveProcessCommand(main)).toBe(true)
+
+    expect(isCodexProcessCommand(helper)).toBe(true)
+    expect(isCodexDesktopProcessCommand(helper)).toBe(true)
+    expect(isCodexDesktopMainProcessCommand(helper)).toBe(false) // has --type=
+    expect(isCodexDesktopActiveProcessCommand(helper)).toBe(true)
+  })
+
+  it('counts the crashpad helper as desktop but not as active', () => {
+    expect(isCodexDesktopProcessCommand(crashpad)).toBe(true)
+    expect(isCodexDesktopActiveProcessCommand(crashpad)).toBe(false)
+    expect(isCodexDesktopMainProcessCommand(crashpad)).toBe(false)
+  })
+
+  it('classifies the app-server session service as desktop, never as the quit-able main', () => {
+    expect(isCodexProcessCommand(session)).toBe(true)
+    expect(isCodexDesktopProcessCommand(session)).toBe(true)
+    expect(isCodexDesktopMainProcessCommand(session)).toBe(false) // app-server present
+    expect(isCodexDesktopActiveProcessCommand(session)).toBe(true)
+  })
+
+  it('keeps a terminal codex CLI invocation out of the desktop bucket', () => {
+    expect(isCodexProcessCommand(cli)).toBe(true)
+    expect(isCodexDesktopProcessCommand(cli)).toBe(false)
+    expect(isCodexDesktopMainProcessCommand(cli)).toBe(false)
+  })
+
+  it('does not mistake CleanMyCodex for the Codex desktop app', () => {
+    const cmc = 'C:\\Users\\erinfan\\AppData\\Local\\Programs\\CleanMyCodex\\CleanMyCodex.exe'
+    expect(isCodexProcessCommand(cmc)).toBe(false)
+    expect(isCodexDesktopProcessCommand(cmc)).toBe(false)
   })
 })

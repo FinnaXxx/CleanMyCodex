@@ -68,7 +68,7 @@ export type MessageKey =
   | 'warning.permanent' | 'warning.permanentWorktreeGit' | 'warning.pluginManagement' | 'warning.workspaceGit' | 'warning.pinnedSessions' | 'warning.generatedAssetLocalCopy'
   | 'warning.worktreeRelatedSessions' | 'warning.planOnlyCopy'
   // Codex runtime blockers
-  | 'blocker.detectionFailed' | 'blocker.desktopRunning' | 'blocker.cliRunning'
+  | 'blocker.detectionFailed' | 'blocker.desktopRunning' | 'blocker.cliRunning' | 'blocker.quitHintWindows'
   // Guard rejections
   | 'guard.wholeDataRoot' | 'guard.outsideDataRoots' | 'guard.protectedPath' | 'guard.symlinkEscape'
   // Errors
@@ -238,6 +238,7 @@ const TRANSLATIONS: Record<MessageKey, [string, string]> = {
   'blocker.detectionFailed': ['无法确认 Codex 是否正在运行', 'Cannot determine whether Codex is running'],
   'blocker.desktopRunning': ['ChatGPT/Codex 桌面应用或会话服务正在运行', 'The ChatGPT/Codex desktop app or its session service is running'],
   'blocker.cliRunning': ['终端里有 {count} 个 codex 进程在运行', '{count} codex processes are running in a terminal'],
+  'blocker.quitHintWindows': ['Windows 请用菜单 File → Exit 退出', 'On Windows, quit via File → Exit'],
 
   'guard.wholeDataRoot': ['不能整体删除数据目录：{path}', 'Refusing to delete an entire data directory: {path}'],
   'guard.outsideDataRoots': ['不在 Codex 数据目录内：{path}', 'Not inside a Codex data directory: {path}'],

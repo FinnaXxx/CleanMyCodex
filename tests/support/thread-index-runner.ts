@@ -91,6 +91,17 @@ app.whenReady().then(async () => {
     if (unpinned?.blocksAutomaticCleanup) throw new Error('取消置顶的会话仍在阻止自动清理')
     const workspaceThreads = CodexThreadIndex.load(locations.home).workspaceThreads(locations.workspace)
     if (workspaceThreads[0]?.title !== '检查Electron重构功能交互对齐' || !workspaceThreads[0]?.archived) throw new Error('工作产出关联索引未生效')
+    // The real Windows data flow filters indexed threads before the workspace scanner
+    // attaches them. An extended-length cwd must survive that upstream filter when the
+    // configured workspace root uses the ordinary drive spelling.
+    const windowsIndex = new CodexThreadIndex()
+    windowsIndex.addWorkspace({
+      id: 'windows-workspace',
+      cwd: String.raw`\\?\C:\Users\erinfan\Documents\Codex\2026-08-26\v`,
+      title: '创建 Hello World 网页', archived: false, isSubagent: false, modifiedAt: 1
+    })
+    const windowsThreads = windowsIndex.workspaceThreads(String.raw`C:\Users\erinfan\Documents\Codex`)
+    if (windowsThreads[0]?.title !== '创建 Hello World 网页') throw new Error('Windows 长路径 cwd 在工作区预过滤时丢失')
     console.log('THREAD_INDEX_OK')
     app.exit(0)
   } catch (error) {

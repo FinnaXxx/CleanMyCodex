@@ -14,6 +14,7 @@ import {
 import { FolderIcon } from '../icons'
 import { formatShortDate } from '../format'
 import { usePreferences } from '../preferences'
+import { FunnelFilter, SortHeader, useSortState, type SortDir } from '../components/list-controls'
 
 interface Props {
   snapshot: ScanSnapshot
@@ -24,13 +25,15 @@ interface Props {
 }
 
 type Scope = 'all' | GeneratedAssetKind
-type Sort = 'size' | 'date' | 'source'
+type SortKey = 'size' | 'date' | 'source'
+
+const defaultSortDir = (key: SortKey): SortDir => (key === 'source' ? 'asc' : 'desc')
 
 export default function GeneratedAssetsView({ snapshot, cleaning, actionsDisabled, cleanProgress, onCleanup }: Props) {
   const { t, locale } = usePreferences()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [scope, setScope] = useState<Scope>('all')
-  const [sort, setSort] = useState<Sort>('size')
+  const { sortKey, sortDir, cycleSort } = useSortState<SortKey>('size', defaultSortDir)
   const [query, setQuery] = useState('')
   const sessionsByID = useMemo(() => new Map(snapshot.sessions.map((session) => [session.id, session])), [snapshot.sessions])
 
@@ -49,11 +52,13 @@ export default function GeneratedAssetsView({ snapshot, cleaning, actionsDisable
         .filter(Boolean).join(' ').toLocaleLowerCase().includes(needle)
     })
     return assets.sort((a, b) => {
-      if (sort === 'date') return b.modifiedAt - a.modifiedAt
-      if (sort === 'source') return generatedAssetDisplayName(a, assetSession(a, sessionsByID)).localeCompare(generatedAssetDisplayName(b, assetSession(b, sessionsByID)))
-      return b.bytes - a.bytes
+      let cmp: number
+      if (sortKey === 'date') cmp = a.modifiedAt - b.modifiedAt
+      else if (sortKey === 'source') cmp = generatedAssetDisplayName(a, assetSession(a, sessionsByID)).localeCompare(generatedAssetDisplayName(b, assetSession(b, sessionsByID)))
+      else cmp = a.bytes - b.bytes
+      return sortDir === 'asc' ? cmp : -cmp
     })
-  }, [query, scope, sessionsByID, snapshot.generatedAssets, sort])
+  }, [query, scope, sessionsByID, snapshot.generatedAssets, sortKey, sortDir])
 
   const chosen = useMemo(() => snapshot.generatedAssets.filter((asset) => selected.has(asset.id)), [selected, snapshot.generatedAssets])
   const chosenBytes = generatedAssetBytes(chosen)
@@ -65,6 +70,13 @@ export default function GeneratedAssetsView({ snapshot, cleaning, actionsDisable
     return next
   })
 
+  const scopeOptions = [
+    { value: 'all' as const, label: t('全部类型', 'All types'), count: snapshot.generatedAssets.length },
+    ...(['imageGen', 'visualization', 'plan'] as GeneratedAssetKind[]).map((kind) => ({
+      value: kind, label: assetKindLabel(kind), count: snapshot.generatedAssets.filter((asset) => asset.kind === kind).length
+    })),
+  ]
+
   return <>
     <div className="detail-content">
       <section className="asset-metrics card">
@@ -75,17 +87,6 @@ export default function GeneratedAssetsView({ snapshot, cleaning, actionsDisable
       </section>
 
       <section className="filters">
-        <select value={scope} onChange={(event) => setScope(event.target.value as Scope)}>
-          <option value="all">{t('全部类型', 'All types')} {snapshot.generatedAssets.length}</option>
-          <option value="imageGen">ImageGen {snapshot.generatedAssets.filter((asset) => asset.kind === 'imageGen').length}</option>
-          <option value="visualization">Visualization {snapshot.generatedAssets.filter((asset) => asset.kind === 'visualization').length}</option>
-          <option value="plan">Plan {snapshot.generatedAssets.filter((asset) => asset.kind === 'plan').length}</option>
-        </select>
-        <select value={sort} onChange={(event) => setSort(event.target.value as Sort)} aria-label={t('排序方式', 'Sort by')}>
-          <option value="size">{t('按占用大小', 'Size')}</option>
-          <option value="date">{t('按最后修改', 'Last modified')}</option>
-          <option value="source">{t('按来源会话', 'Source conversation')}</option>
-        </select>
         <input className="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('搜索来源会话或路径', 'Search source or path')} />
       </section>
 
@@ -98,11 +99,27 @@ export default function GeneratedAssetsView({ snapshot, cleaning, actionsDisable
               for (const asset of visible) allVisibleSelected ? next.delete(asset.id) : next.add(asset.id)
               return next
             })} />
-          <span>{t('会话资产', 'Session asset')}</span>
-          <span>{t('类型', 'Type')}</span>
+          <span className="col-sortable">
+            <SortHeader active={sortKey === 'source'} dir={sortDir} onClick={() => cycleSort('source')}>
+              {t('会话资产', 'Session asset')}
+            </SortHeader>
+          </span>
+          <span className="status-head">
+            {t('类型', 'Type')}
+            <FunnelFilter ariaLabel={t('筛选类型', 'Filter type')} active={scope !== 'all'}
+              options={scopeOptions} value={scope} onChange={setScope} />
+          </span>
           <span className="col-num">{t('文件', 'Files')}</span>
-          <span>{t('最后修改', 'Modified')}</span>
-          <span className="col-num">{t('占用', 'Size')}</span>
+          <span className="col-date col-sortable">
+            <SortHeader active={sortKey === 'date'} dir={sortDir} onClick={() => cycleSort('date')}>
+              {t('最后修改', 'Modified')}
+            </SortHeader>
+          </span>
+          <span className="col-num">
+            <SortHeader align="end" active={sortKey === 'size'} dir={sortDir} onClick={() => cycleSort('size')}>
+              {t('占用', 'Size')}
+            </SortHeader>
+          </span>
           <span />
         </div>
         <ul className="asset-list">

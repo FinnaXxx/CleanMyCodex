@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcessByStdio } from 'node:child_process'
 import { createInterface } from 'node:readline'
-import { statSync } from 'node:fs'
+import { readdirSync, statSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { homedir } from 'node:os'
 import { Writable, Readable } from 'node:stream'
@@ -20,39 +20,98 @@ export interface InstalledPlugin {
 }
 
 /** Locate the `codex` CLI, honouring `CODEX_BINARY` and the usual install paths. */
-export function locateCodexExecutable(env: NodeJS.ProcessEnv = process.env): string | null {
+export function locateCodexExecutable(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+  home: string = homedir()
+): string | null {
   const candidates: string[] = []
   if (env['CODEX_BINARY'] && env['CODEX_BINARY'].length) candidates.push(env['CODEX_BINARY'])
   // Prefer the desktop-bundled CLI because its app-server protocol matches the
   // installed desktop UI. A separately installed Homebrew/npm CLI can lag behind.
-  if (process.platform === 'darwin') {
+  if (platform === 'darwin') {
     candidates.push(
       '/Applications/ChatGPT.app/Contents/Resources/codex',
       '/Applications/Codex.app/Contents/Resources/codex',
-      join(homedir(), 'Applications/ChatGPT.app/Contents/Resources/codex'),
-      join(homedir(), 'Applications/Codex.app/Contents/Resources/codex')
+      join(home, 'Applications/ChatGPT.app/Contents/Resources/codex'),
+      join(home, 'Applications/Codex.app/Contents/Resources/codex')
     )
   }
-  if (process.platform === 'win32') {
-    const localAppData = env['LOCALAPPDATA'] ?? join(homedir(), 'AppData', 'Local')
-    candidates.push(
-      join(localAppData, 'Programs', 'ChatGPT', 'resources', 'codex.exe'),
-      join(localAppData, 'Programs', 'Codex', 'resources', 'codex.exe')
-    )
+  if (platform === 'win32') {
+    candidates.push(...windowsDesktopCodexCandidates(env, home))
     const located = spawnSync('where.exe', ['codex'], { encoding: 'utf8', windowsHide: true, timeout: 3_000 })
     if (located.status === 0) candidates.push(...located.stdout.split(/\r?\n/).filter(Boolean))
   }
-  for (const dir of (env['PATH'] ?? '').split(process.platform === 'win32' ? ';' : ':')) {
-    if (dir.length) candidates.push(join(dir, process.platform === 'win32' ? 'codex.exe' : 'codex'))
+  for (const dir of (env['PATH'] ?? '').split(platform === 'win32' ? ';' : ':')) {
+    if (dir.length) candidates.push(join(dir, platform === 'win32' ? 'codex.exe' : 'codex'))
   }
-  candidates.push('/opt/homebrew/bin/codex', '/usr/local/bin/codex', join(homedir(), '.codex/bin/codex'), join(homedir(), '.local/bin/codex'))
-  return candidates.find((p) => fileIsExecutable(p)) ?? null
+  candidates.push('/opt/homebrew/bin/codex', '/usr/local/bin/codex', join(home, '.codex/bin/codex'), join(home, '.local/bin/codex'))
+  return candidates.find((path) => fileIsExecutable(path, platform)) ?? null
 }
 
-function fileIsExecutable(path: string): boolean {
+/** Desktop-managed Windows installs use version/hash directories that are not on the
+ * normal user PATH. Return newest copies first when an upgrade left several behind. */
+export function windowsDesktopCodexCandidates(env: NodeJS.ProcessEnv, home: string = homedir()): string[] {
+  const localAppData = environmentValue(env, 'LOCALAPPDATA') ?? join(home, 'AppData', 'Local')
+  const candidates = childExecutablesByNewest(
+    join(localAppData, 'OpenAI', 'Codex', 'bin'),
+    () => true,
+    ['codex.exe']
+  )
+  candidates.push(
+    join(localAppData, 'Programs', 'ChatGPT', 'resources', 'codex.exe'),
+    join(localAppData, 'Programs', 'Codex', 'resources', 'codex.exe')
+  )
+
+  const systemDrive = environmentValue(env, 'SystemDrive') ?? 'C:'
+  const programFilesRoots = [
+    environmentValue(env, 'ProgramW6432'),
+    environmentValue(env, 'ProgramFiles'),
+    join(systemDrive, 'Program Files')
+  ].filter((root, index, roots): root is string => Boolean(root) && roots.indexOf(root) === index)
+  for (const root of programFilesRoots) {
+    candidates.push(...childExecutablesByNewest(
+      join(root, 'WindowsApps'),
+      (name) => name.toLowerCase().startsWith('openai.codex_'),
+      ['app', 'resources', 'codex.exe']
+    ))
+  }
+  return candidates
+}
+
+function childExecutablesByNewest(root: string, acceptsDirectory: (name: string) => boolean, suffix: string[]): string[] {
+  try {
+    return readdirSync(root)
+      .filter(acceptsDirectory)
+      .map((name) => join(root, name, ...suffix))
+      .filter((path) => fileIsExecutable(path, 'win32'))
+      .sort((left, right) => modifiedAt(right) - modifiedAt(left))
+  } catch {
+    // WindowsApps is commonly unreadable to unpackaged processes. It is only a
+    // fallback, so an inaccessible package directory must not block PATH lookup.
+    return []
+  }
+}
+
+function modifiedAt(path: string): number {
+  try {
+    return statSync(path).mtimeMs
+  } catch {
+    return 0
+  }
+}
+
+function environmentValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const direct = env[name]
+  if (direct) return direct
+  const key = Object.keys(env).find((candidate) => candidate.toLowerCase() === name.toLowerCase())
+  return key ? env[key] : undefined
+}
+
+function fileIsExecutable(path: string, platform: NodeJS.Platform = process.platform): boolean {
   try {
     const stats = statSync(path)
-    return stats.isFile() && (process.platform === 'win32' || (stats.mode & 0o111) !== 0)
+    return stats.isFile() && (platform === 'win32' || (stats.mode & 0o111) !== 0)
   } catch {
     return false
   }
@@ -176,25 +235,38 @@ export class AppServerSession {
 }
 
 export class AppServerClient {
-  readonly executable: string | null
+  private cachedExecutable: string | null
   private readonly codexHome: string
   private readonly clientVersion: string
   private readonly timeout: number
+  private readonly locateExecutable: () => string | null
 
-  constructor(codexHome: string, clientVersion: string, executable: string | null = null, timeout = 20_000) {
+  constructor(
+    codexHome: string,
+    clientVersion: string,
+    executable: string | null = null,
+    timeout = 20_000,
+    locateExecutable: () => string | null = locateCodexExecutable
+  ) {
     this.codexHome = codexHome
     this.clientVersion = clientVersion
-    this.executable = executable ?? locateCodexExecutable()
+    this.locateExecutable = locateExecutable
+    this.cachedExecutable = executable ?? this.locateExecutable()
     this.timeout = timeout
   }
 
+  get executable(): string | null {
+    return this.cachedExecutable
+  }
+
   get isAvailable(): boolean {
-    return this.executable !== null
+    return this.resolveExecutable() !== null
   }
 
   async openSession(signal?: AbortSignal): Promise<AppServerSession> {
-    if (!this.executable) throw new MessageError(message('error.codexBinaryMissing'))
-    const session = new AppServerSession(this.executable, this.codexHome, this.clientVersion, this.timeout)
+    const executable = this.resolveExecutable()
+    if (!executable) throw new MessageError(message('error.codexBinaryMissing'))
+    const session = new AppServerSession(executable, this.codexHome, this.clientVersion, this.timeout)
     const abort = () => session.close()
     signal?.addEventListener('abort', abort, { once: true })
     try {
@@ -208,6 +280,13 @@ export class AppServerClient {
     } finally {
       signal?.removeEventListener('abort', abort)
     }
+  }
+
+  private resolveExecutable(): string | null {
+    // Do not cache a failed startup lookup forever. Codex can be installed, upgraded,
+    // or added to PATH while CleanMyCodex remains open.
+    if (!this.cachedExecutable) this.cachedExecutable = this.locateExecutable()
+    return this.cachedExecutable
   }
 
   /**
@@ -248,13 +327,15 @@ export class AppServerClient {
 
   /** Prefer Codex's own deletion protocol. Each subagent is an independent thread,
    * so callers provide the complete root/subagent set in child-first order. */
-  async deleteThreads(threadIDs: string[]): Promise<boolean> {
+  async deleteThreads(threadIDs: string[], onFailure?: (reason: string) => void): Promise<boolean> {
     let session: AppServerSession | null = null
     try {
       session = await this.openSession()
       for (const threadID of threadIDs) await session.deleteThread(threadID)
       return true
-    } catch {
+    } catch (error) {
+      onFailure?.(error instanceof MessageError ? describeMessage(error.info)
+        : error instanceof Error ? error.message : String(error))
       return false
     } finally {
       session?.close()

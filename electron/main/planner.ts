@@ -122,7 +122,9 @@ export function buildTrustedTasks(
       // itself alter Codex's worktree metadata.
       const relatedSessions = snapshot.sessions.filter((session) =>
         selected.some((worktree) => sessionBelongsToWorktree(session, worktree)))
-      return [...worktreeTasks, ...tasksForSessionDeletion(relatedSessions)]
+      const sessionTasks = groupedSessionDeletionTasks(
+        relatedSessions, selected, sessionBelongsToWorktree, (worktree) => `worktree:${worktree.id}`)
+      return [...worktreeTasks, ...sessionTasks]
     }
     case 'workspace': {
       if (typeof selection.deleteRelatedSessions !== 'boolean') throw new MessageError(message('error.invalidSelection'))
@@ -140,11 +142,27 @@ export function buildTrustedTasks(
       // a folder whose deletion only takes loose files.
       const relatedSessions = snapshot.sessions.filter((session) =>
         outermost.some((entry) => sessionBelongsToWorkspaceFolder(session, entry)))
-      return [...workspaceTasks, ...tasksForSessionDeletion(relatedSessions)]
+      const sessionTasks = groupedSessionDeletionTasks(
+        relatedSessions, outermost, sessionBelongsToWorkspaceFolder, (entry) => `workspace:${entry.id}`)
+      return [...workspaceTasks, ...sessionTasks]
     }
     default:
       throw new MessageError(message('error.unsupportedSelection'))
   }
+}
+
+function groupedSessionDeletionTasks<T>(
+  sessions: SessionItem[],
+  containers: T[],
+  belongsTo: (session: SessionItem, container: T) => boolean,
+  groupID: (container: T) => string
+): CleanupTask[] {
+  const sessionsByThreadID = new Map(sessions.map((session) => [session.threadID, session]))
+  return tasksForSessionDeletion(sessions).map((task) => {
+    const session = task.threadID ? sessionsByThreadID.get(task.threadID) : undefined
+    const container = session ? containers.find((candidate) => belongsTo(session, candidate)) : undefined
+    return container === undefined ? task : { ...task, resultGroupID: groupID(container) }
+  })
 }
 
 function pluginIdentity(plugin: PluginVersionItem): string {

@@ -33,6 +33,8 @@ const api = {
   // Keeps the native window backdrop in step with the theme, so resizing never flashes
   // the opposite appearance behind the interface.
   applyWindowTheme: (dark: boolean): Promise<void> => ipcRenderer.invoke('window:theme', dark),
+  /** Persists renderer/React failures that would otherwise exist only in a hidden console. */
+  reportRendererError: (kind: string, detail: string): void => ipcRenderer.send('diagnostics:renderer', kind, detail),
   onCleanupProgress: (listener: (progress: CleanupProgress) => void): (() => void) => {
     const handler = (_event: unknown, progress: CleanupProgress): void => listener(progress)
     ipcRenderer.on('cleanup:progress', handler)

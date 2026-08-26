@@ -57,7 +57,7 @@ export default function SettingsView({ onOpenScheduledCleanup }: {
     <SettingsGroup title={t('诊断', 'Diagnostics')}>
       <button className="settings-navigation-row" onClick={() => void openLogs()}>
         <span><strong>{t('日志', 'Logs')}</strong>
-          <small className={logError ? 'settings-error' : undefined}>{logError ?? t('打开应用日志目录，其中记录了清理与定时任务的执行过程', 'Open the app log folder, which records what cleanups and scheduled runs did')}</small></span>
+          <small className={logError ? 'settings-error' : undefined}>{logError ?? t('打开应用日志目录，其中记录了运行过程、清理明细与异常堆栈', 'Open the app log folder, which records operations, cleanup details, and exception stacks')}</small></span>
         <span className="settings-navigation-value"><i className="settings-chevron" aria-hidden="true">›</i></span>
       </button>
     </SettingsGroup>

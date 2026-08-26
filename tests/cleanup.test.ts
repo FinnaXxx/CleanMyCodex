@@ -64,12 +64,13 @@ describe('cleanup engine', () => {
     const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
     const target = join(locations.home, '.tmp', 'stale')
     mkdirSync(target, { recursive: true }); writeFileSync(join(target, 'payload'), Buffer.alloc(8192))
-    const task: CleanupTask = { id: target, title: 'stale', detail: target, url: target, expectedBytes: 8192, threadID: null, companionURLs: [], minimumIdleSeconds: null, requiresCodexStopped: false }
+    const task: CleanupTask = { id: target, title: 'stale', detail: target, url: target, expectedBytes: 8192, threadID: null, companionURLs: [], minimumIdleSeconds: null, requiresCodexStopped: false, resultGroupID: 'worktree:parent' }
     const report = await runCleanup([task], new ProtectedPaths(locations), {
       remove: async (path) => rmSync(path, { recursive: true, force: true }), isCodexRunning: () => false
     })
     expect(report.outcomes[0].status.kind).toBe('succeeded')
     expect(report.outcomes[0].freedBytes).toBeGreaterThan(0)
+    expect(report.outcomes[0].resultGroupID).toBe('worktree:parent')
   })
 
   it('refuses a named application cache directory and leaves it in place', async () => {

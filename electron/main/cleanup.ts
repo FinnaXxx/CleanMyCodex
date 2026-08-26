@@ -195,7 +195,8 @@ function outcome(task: CleanupTask, status: CleanupStatus, freedBytes: number): 
     title: task.title,
     detail: task.detail,
     status,
-    freedBytes
+    freedBytes,
+    ...(task.resultGroupID ? { resultGroupID: task.resultGroupID } : {})
   }
 }
 

@@ -3,7 +3,9 @@ import type { CleanupProgress, CleanupSelection, PluginStatus, PluginVersionItem
 import { formatBytes, pluginStatusIsRemovable, pluginVersionCanUninstall } from '../../shared/types'
 import { message } from '../../shared/messages'
 import { FolderIcon } from '../icons'
+import { formatShortDate } from '../format'
 import { usePreferences } from '../preferences'
+import { FunnelFilter, SortHeader, useSortState, type SortDir } from '../components/list-controls'
 
 interface Props {
   snapshot: ScanSnapshot
@@ -14,15 +16,23 @@ interface Props {
   onCleanup: (selection: CleanupSelection) => void
 }
 
-type Scope = 'all' | 'current' | 'cleanable' | 'official' | 'nonBuiltin'
+type Scope = 'all' | PluginStatus
+type SortKey = 'name' | 'date' | 'size'
+
+const STATUSES: PluginStatus[] = ['current', 'builtin', 'outdated', 'orphaned', 'unconfirmed']
+const defaultSortDir = (key: SortKey): SortDir => (key === 'name' ? 'asc' : 'desc')
 
 const selectable = (plugin: PluginVersionItem, canUninstall: boolean): boolean =>
   pluginStatusIsRemovable(plugin.status) || (canUninstall && pluginVersionCanUninstall(plugin))
+
+const pluginName = (item: PluginVersionItem): string =>
+  item.marketplace ? `${item.marketplace} / ${item.plugin}` : item.plugin
 
 export default function PluginsView({ snapshot, cleaning, actionsDisabled, canUninstall, cleanProgress, onCleanup }: Props) {
   const { t, m, locale } = usePreferences()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [scope, setScope] = useState<Scope>('all')
+  const { sortKey, sortDir, cycleSort } = useSortState<SortKey>('size', defaultSortDir)
   const [query, setQuery] = useState('')
 
   useEffect(() => {
@@ -32,31 +42,20 @@ export default function PluginsView({ snapshot, cleaning, actionsDisabled, canUn
 
   const visible = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase()
-    return snapshot.pluginVersions.filter((plugin) => {
-      if (scope === 'current' && plugin.status !== 'current' && plugin.status !== 'builtin') return false
-      if (scope === 'cleanable' && !pluginStatusIsRemovable(plugin.status)) return false
-      if (scope === 'official' && plugin.status !== 'builtin') return false
-      if (scope === 'nonBuiltin' && plugin.status === 'builtin') return false
+    const filtered = snapshot.pluginVersions.filter((plugin) => {
+      if (scope !== 'all' && plugin.status !== scope) return false
       if (needle && ![plugin.plugin, plugin.marketplace, plugin.version, plugin.directoryURL]
         .filter(Boolean).join(' ').toLocaleLowerCase().includes(needle)) return false
       return true
     })
-  }, [query, scope, snapshot.pluginVersions])
-
-  const groups = useMemo(() => {
-    const map = new Map<string, PluginVersionItem[]>()
-    for (const plugin of visible) {
-      const key = plugin.marketplace ? `${plugin.marketplace} / ${plugin.plugin}` : plugin.plugin
-      map.set(key, [...(map.get(key) ?? []), plugin])
-    }
-    return [...map.entries()]
-      .map(([name, versions]) => ({
-        name,
-        official: versions.every((item) => item.status === 'builtin'),
-        versions: versions.slice().sort((a, b) => statusRank(a.status) - statusRank(b.status) || b.modifiedAt - a.modifiedAt)
-      }))
-      .sort((a, b) => Number(a.official) - Number(b.official) || a.name.localeCompare(b.name))
-  }, [visible])
+    return [...filtered].sort((a, b) => {
+      let cmp: number
+      if (sortKey === 'date') cmp = a.modifiedAt - b.modifiedAt
+      else if (sortKey === 'name') cmp = pluginName(a).localeCompare(pluginName(b))
+      else cmp = a.bytes - b.bytes
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+  }, [query, scope, snapshot.pluginVersions, sortKey, sortDir])
 
   const selectedUninstalls = useMemo(() => {
     const map = new Map<string, PluginVersionItem>()
@@ -73,6 +72,11 @@ export default function PluginsView({ snapshot, cleaning, actionsDisabled, canUn
     .reduce((sum, item) => sum + item.bytes, 0)
   const totalBytes = total(snapshot.pluginVersions)
   const uninstallCount = selectedUninstalls.size
+
+  const isItemSelected = (item: PluginVersionItem): boolean =>
+    pluginStatusIsRemovable(item.status) ? selected.has(item.directoryURL) : selectedUninstalls.has(pluginIdentity(item))
+  const selectableVisible = visible.filter((item) => selectable(item, canUninstall))
+  const allVisibleSelected = selectableVisible.length > 0 && selectableVisible.every(isItemSelected)
 
   const toggle = (id: string): void => setSelected((previous) => {
     const next = new Set(previous)
@@ -91,6 +95,28 @@ export default function PluginsView({ snapshot, cleaning, actionsDisabled, canUn
     return next
   })
 
+  const toggleAll = (): void => setSelected((previous) => {
+    const next = new Set(previous)
+    for (const item of selectableVisible) {
+      if (allVisibleSelected) {
+        if (pluginStatusIsRemovable(item.status)) next.delete(item.directoryURL)
+        else snapshot.pluginVersions
+          .filter((v) => pluginIdentity(v) === pluginIdentity(item) && pluginVersionCanUninstall(v))
+          .forEach((v) => next.delete(v.directoryURL))
+      } else {
+        next.add(item.directoryURL)
+      }
+    }
+    return next
+  })
+
+  const scopeOptions: { value: Scope; label: string; count: number }[] = [
+    { value: 'all', label: t('全部', 'All'), count: snapshot.pluginVersions.length },
+    ...STATUSES.map((status) => ({
+      value: status, label: m(message(`pluginStatus.${status}`)), count: snapshot.pluginVersions.filter((item) => item.status === status).length
+    })),
+  ]
+
   return <>
     <div className="detail-content">
       <section className="workspace-metrics plugin-metrics card">
@@ -99,38 +125,53 @@ export default function PluginsView({ snapshot, cleaning, actionsDisabled, canUn
       </section>
 
       <section className="filters">
-        <select value={scope} onChange={(event) => setScope(event.target.value as Scope)}>
-          <option value="all">{t('全部状态', 'All statuses')} {snapshot.pluginVersions.length}</option>
-          <option value="current">{t('当前版本', 'Current versions')} {statusCount(snapshot.pluginVersions, ['current', 'builtin'])}</option>
-          <option value="cleanable">{t('可清理版本', 'Cleanable versions')} {statusCount(snapshot.pluginVersions, ['outdated', 'orphaned'])}</option>
-          <option value="official">{t('官方插件', 'Official plugins')} {statusCount(snapshot.pluginVersions, ['builtin'])}</option>
-          <option value="nonBuiltin">{t('非内置插件', 'Non-built-in plugins')} {snapshot.pluginVersions.filter((item) => item.status !== 'builtin').length}</option>
-        </select>
         <input className="search" value={query} onChange={(event) => setQuery(event.target.value)}
           placeholder={t('搜索插件、市场或版本', 'Search plugin, marketplace, or version')} />
       </section>
 
       {snapshot.pluginVersions.some((item) => item.status === 'unconfirmed') && <p className="notice">{t('Codex 未提供部分插件市场的权威状态；相关版本已锁定，不会参与管理。', 'Codex did not provide authoritative status for some plugin marketplaces. Those versions are locked and cannot be managed.')}</p>}
       {!canUninstall && snapshot.pluginVersions.some(pluginVersionCanUninstall) && <p className="notice warning">{t('没有找到 Codex CLI；当前插件不可卸载，但旧版本和卸载残留仍可清理。', 'The Codex CLI was not found. Current plugins cannot be uninstalled, but old versions and uninstalled leftovers can still be cleaned.')}</p>}
-      {!snapshot.pluginVersions.length && <p className="empty-panel">{t('没有找到本地插件', 'No local plugins found')}</p>}
-      {!!snapshot.pluginVersions.length && !groups.length && <p className="empty-panel">{t('没有符合筛选条件的插件', 'No plugins match these filters')}</p>}
-      <div className="card-stack">
-        {groups.map(({ name, versions }) => <section className="card" key={name}>
-          <div className="panel-title"><strong>{name}</strong><span>{t(`${versions.length} 个版本`, `${versions.length} versions`)} · {formatBytes(total(versions))}</span></div>
-          {versions.map((item) => {
-            const uninstallSelected = selectedUninstalls.has(pluginIdentity(item))
-            return <div className="plugin-row" key={item.directoryURL}>
-            {canUninstall && pluginVersionCanUninstall(item)
-              ? <input type="checkbox" aria-label={`${item.plugin} ${item.version}`} checked={uninstallSelected} onChange={() => toggleUninstall(item)} />
-              : pluginStatusIsRemovable(item.status)
-                ? <input type="checkbox" aria-label={`${item.plugin} ${item.version}`} checked={uninstallSelected || selected.has(item.directoryURL)} disabled={uninstallSelected} onChange={() => toggle(item.directoryURL)} />
-              : <span className="checkbox-space" />}
-            <div className="grow"><code>{item.version}</code><small>{t('最后改动', 'Modified')} {new Date(item.modifiedAt).toLocaleDateString(locale)}{item.environmentBytes ? ` · ${t('Python 环境', 'Python environment')} ${formatBytes(item.environmentBytes)}` : ''}</small></div>
-            <span className={`pill status-${item.status}`}>{m(message(`pluginStatus.${item.status}`))}</span>
-            <span className="fixed-bytes">{formatBytes(item.bytes)}</span>
-            <button className="icon-button" title={t('在文件管理器中显示', 'Show in file manager')} aria-label={t('在文件管理器中显示', 'Show in file manager')} onClick={() => window.cleanmycodex.revealPath(item.directoryURL)}><FolderIcon /></button>
-          </div>})}
-        </section>)}
+
+      <div className="card plugin-table">
+        <div className="table-head plugin-head">
+          <input type="checkbox" aria-label={t('全选', 'Select all')} checked={allVisibleSelected}
+            ref={(input) => { if (input) input.indeterminate = selectableVisible.some(isItemSelected) && !allVisibleSelected }}
+            onChange={toggleAll} />
+          <span className="col-sortable">
+            <SortHeader active={sortKey === 'name'} dir={sortDir} onClick={() => cycleSort('name')}>
+              {t('插件', 'Plugin')}
+            </SortHeader>
+          </span>
+          <span>{t('版本', 'Version')}</span>
+          <span className="col-status">
+            <span className="status-head">
+              {t('类型', 'Type')}
+              <FunnelFilter ariaLabel={t('筛选类型', 'Filter type')} active={scope !== 'all'}
+                options={scopeOptions} value={scope} onChange={setScope} />
+            </span>
+          </span>
+          <span className="col-date col-sortable">
+            <SortHeader active={sortKey === 'date'} dir={sortDir} onClick={() => cycleSort('date')}>
+              {t('最后修改', 'Last modified')}
+            </SortHeader>
+          </span>
+          <span className="col-num">
+            <SortHeader align="end" active={sortKey === 'size'} dir={sortDir} onClick={() => cycleSort('size')}>
+              {t('占用', 'Size')}
+            </SortHeader>
+          </span>
+          <span />
+        </div>
+        <ul className="plugin-list">
+          {visible.map((item) => <PluginRow key={item.directoryURL} item={item} locale={locale}
+            uninstallSelected={selectedUninstalls.has(pluginIdentity(item))}
+            removableSelected={pluginStatusIsRemovable(item.status) && selected.has(item.directoryURL)}
+            canUninstall={canUninstall}
+            onToggle={() => toggle(item.directoryURL)} onToggleUninstall={() => toggleUninstall(item)} />)}
+        </ul>
+        {!visible.length && <p className="empty-inline">{snapshot.pluginVersions.length
+          ? t('没有符合筛选条件的插件', 'No plugins match these filters')
+          : t('没有找到本地插件', 'No local plugins found')}</p>}
       </div>
     </div>
     <div className="page-footer"><span>{chosen.length
@@ -145,8 +186,36 @@ export default function PluginsView({ snapshot, cleaning, actionsDisabled, canUn
   </>
 }
 
+function PluginRow({ item, locale, uninstallSelected, removableSelected, canUninstall, onToggle, onToggleUninstall }: {
+  item: PluginVersionItem
+  locale: string
+  uninstallSelected: boolean
+  removableSelected: boolean
+  canUninstall: boolean
+  onToggle: () => void
+  onToggleUninstall: () => void
+}) {
+  const { t, m } = usePreferences()
+  const label = `${item.plugin} ${item.version}`
+  const detail = [item.marketplace, item.environmentBytes ? `${t('Python 环境', 'Python env')} ${formatBytes(item.environmentBytes)}` : null]
+    .filter(Boolean).join(' · ')
+  return <li className="plugin-row">
+    {canUninstall && pluginVersionCanUninstall(item)
+      ? <input type="checkbox" aria-label={label} checked={uninstallSelected} onChange={onToggleUninstall} />
+      : pluginStatusIsRemovable(item.status)
+        ? <input type="checkbox" aria-label={label} checked={uninstallSelected || removableSelected} disabled={uninstallSelected} onChange={onToggle} />
+        : <span className="checkbox-space" />}
+    <div className="grow">
+      <strong>{pluginName(item)}</strong>
+      {detail && <small>{detail}</small>}
+    </div>
+    <span className="plugin-version" title={item.version}><code>{item.version}</code></span>
+    <span className="col-status"><span className={`pill status-${item.status}`}>{m(message(`pluginStatus.${item.status}`))}</span></span>
+    <span className="col-date" title={new Date(item.modifiedAt).toLocaleString(locale)}>{formatShortDate(item.modifiedAt, locale)}</span>
+    <span className="col-num">{formatBytes(item.bytes)}</span>
+    <button className="icon-button" title={t('在文件管理器中显示', 'Show in file manager')} aria-label={t('在文件管理器中显示', 'Show in file manager')} onClick={() => window.cleanmycodex.revealPath(item.directoryURL)}><FolderIcon /></button>
+  </li>
+}
+
 const total = (items: PluginVersionItem[]): number => items.reduce((sum, item) => sum + item.bytes, 0)
-const statusCount = (items: PluginVersionItem[], statuses: PluginStatus[]): number =>
-  items.filter((item) => statuses.includes(item.status)).length
-const statusRank = (status: PluginStatus): number => ({ current: 0, builtin: 0, outdated: 1, orphaned: 2, unconfirmed: 3 })[status]
 const pluginIdentity = (plugin: PluginVersionItem): string => `${plugin.marketplace ?? ''}\0${plugin.plugin}`

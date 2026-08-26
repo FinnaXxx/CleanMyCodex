@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { discoverWorktreeRoots, isCodexManagedWorktree, isWorktreeRoot, readWorktreeAdmin, scanWorktrees } from '../electron/main/worktrees'
+import { discoverWorktreeRoots, isCodexManagedWorktree, isWorktreeRoot, readWorktreeAdmin, resolveWorktreeRoots, scanWorktrees } from '../electron/main/worktrees'
 import type { CodexWorkspaceThread } from '../electron/main/thread-index'
 
 const roots: string[] = []
@@ -170,6 +170,23 @@ describe('Codex worktrees', () => {
     const after = buildWorktree(base, { root: newer, id: 'ab12', project: 'after' })
     const found = discoverWorktreeRoots([thread(before.checkout, 'a'), thread(after.checkout, 'b')])
     expect(found.sort()).toEqual([older, newer].sort())
+  })
+
+  it('treats normal and extended-length Windows spellings as the same root', () => {
+    const normal = String.raw`C:\Users\erinfan\.codex\worktrees`
+    const extended = String.raw`\\?\C:\USERS\ERINFAN\.CODEX\WORKTREES`
+    expect(resolveWorktreeRoots([normal, extended], [], null)).toEqual([normal])
+  })
+
+  it('describes a physical worktree only once when scan roots are aliases', () => {
+    const base = temporaryRoot()
+    const root = join(base, '.codex', 'worktrees')
+    buildWorktree(base, { root, id: 'ac13', project: 'once' })
+    const alias = join(base, 'worktrees-alias')
+    symlinkSync(root, alias, 'dir')
+
+    const found = scanWorktrees([root, alias])
+    expect(found.map((item) => item.project)).toEqual(['once'])
   })
 
   it('never turns a folder of the user\'s own worktrees into a root', () => {

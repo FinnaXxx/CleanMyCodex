@@ -3,8 +3,8 @@ import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { gitState, isSystemJunk, scanWorkspace } from '../electron/main/workspace'
-import { workspaceBytes, workspaceDeletionTargets } from '../shared/types'
+import { attachSourceThreads, gitState, isSystemJunk, scanWorkspace } from '../electron/main/workspace'
+import { workspaceBytes, workspaceDeletionTargets, workspaceDisplayName, type WorkspaceFolder } from '../shared/types'
 
 const roots: string[] = []
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
@@ -102,6 +102,28 @@ describe('workspace scanner', () => {
     // threads: doing so titled it with a child's session and gave it a status pill.
     expect(date.sourceThreads).toEqual([])
     expect(unmatchedFolder?.sourceThreads).toEqual([])
+  })
+
+  it('associates an extended-length Windows cwd with its ordinary workspace path', () => {
+    const root = String.raw`C:\Users\erinfan\Documents\Codex`
+    const datePath = String.raw`C:\Users\erinfan\Documents\Codex\2026-08-26`
+    const outputPath = String.raw`C:\Users\erinfan\Documents\Codex\2026-08-26\v`
+    const output: WorkspaceFolder = {
+      id: outputPath, path: outputPath, name: 'v', bytes: 1, fileCount: 1, modifiedAt: 0,
+      repositories: [], sourceThreads: [], looseFiles: [], children: []
+    }
+    const date: WorkspaceFolder = {
+      id: datePath, path: datePath, name: '2026-08-26', bytes: 0, fileCount: 0, modifiedAt: 0,
+      repositories: [], sourceThreads: [], looseFiles: [], children: [output]
+    }
+
+    attachSourceThreads(root, [date], [{
+      id: 'hello-world', cwd: String.raw`\\?\C:\Users\erinfan\Documents\Codex\2026-08-26\v`,
+      title: '创建 Hello World 网页', archived: false, isSubagent: false, modifiedAt: 1
+    }])
+
+    expect(output.sourceThreads.map((thread) => thread.id)).toEqual(['hello-world'])
+    expect(workspaceDisplayName(output)).toBe('创建 Hello World 网页')
   })
 
   it('skips a concrete worktree inside a mixed workspace directory without hiding its siblings', () => {

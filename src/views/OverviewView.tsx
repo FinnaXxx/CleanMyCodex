@@ -228,7 +228,7 @@ export default function OverviewView({ snapshot, appInfo, cleaning, actionsDisab
         </div>
       </section>
 
-      {appInfo?.codexRunning && <p className="notice warning">{appInfo.blockers.map(m).join(t('；', '; '))}{t('，需要独占文件的项目本次会跳过；退出 Codex 后需重新清理。', '. Items requiring exclusive file access will be skipped; quit Codex and run cleanup again.')}</p>}
+      {appInfo?.codexRunning && <p className="notice warning">{appInfo.blockers.map(m).join(t('，', ', '))}</p>}
       {snapshot.notes.map((note) => <p className="notice" key={note.key}>{m(note)}</p>)}
 
       <section className="section section-sessions">

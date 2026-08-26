@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { listableSessions, snapshotSessionBytes, type AutomationSettings, type CleanupRisk, type CleanupSelection, type ScanSnapshot, type SessionItem, type StorageEntry, type WorkspaceFolder, type WorktreeItem } from '../shared/types'
+import { groupedCleanupOutcomes, listableSessions, snapshotSessionBytes, type AutomationSettings, type CleanupRisk, type CleanupSelection, type ScanSnapshot, type SessionItem, type StorageEntry, type WorkspaceFolder, type WorktreeItem } from '../shared/types'
 import { buildAutomaticTasks, buildTrustedTasks, makeCleanupPreview } from '../electron/main/planner'
 import { message } from '../shared/messages'
 
@@ -78,7 +78,7 @@ describe('trusted cleanup planner', () => {
       expectedBytes: 20, companionURLs: ['/codex/plugins/old']
     })
     expect(makeCleanupPreview({ kind: 'plugins', ids: ['/codex/plugins/current'] }, [tasks[0]], {
-      running: false, detectionKnown: true, desktopRunning: false, cliCommands: [], canQuit: false, blockers: []
+      running: false, detectionKnown: true, desktopRunning: false, cliCommands: [], desktopCommands: [], canQuit: false, blockers: []
     }, snap).warnings).toEqual([message('warning.pluginManagement')])
   })
 
@@ -223,7 +223,7 @@ describe('trusted cleanup planner', () => {
     const tasks = buildTrustedTasks(selection, snap, workspace)
     const preview = makeCleanupPreview(selection, tasks, {
       running: false, detectionKnown: true, desktopRunning: false,
-      cliCommands: [], canQuit: false, blockers: []
+      cliCommands: [], desktopCommands: [], canQuit: false, blockers: []
     }, snap, workspace)
     expect(preview.warnings).toContainEqual(message('warning.pinnedSessions', { count: 1 }))
     // The conversation's bytes roll into the output row, so the preview stays one item.
@@ -238,7 +238,7 @@ describe('trusted cleanup planner', () => {
     const tasks = buildTrustedTasks(selection, snap, snap.workspace)
     const preview = makeCleanupPreview(selection, tasks, {
       running: true, detectionKnown: true, desktopRunning: false,
-      cliCommands: ['codex'], canQuit: false, blockers: [message('blocker.cliRunning', { count: 1 })]
+      cliCommands: ['codex'], desktopCommands: [], canQuit: false, blockers: [message('blocker.cliRunning', { count: 1 })]
     })
     expect(preview.blockers.map((item) => item.key)).toEqual(['blocker.cliRunning'])
     expect(preview.blockedTitles).toEqual(['active'])
@@ -253,7 +253,7 @@ describe('trusted cleanup planner', () => {
     expect(tasks[0].title).toBe('active')
     const preview = makeCleanupPreview(selection, tasks, {
       running: false, detectionKnown: true, desktopRunning: false,
-      cliCommands: [], canQuit: false, blockers: []
+      cliCommands: [], desktopCommands: [], canQuit: false, blockers: []
     }, snap)
     expect(preview.warnings).toContainEqual(message('warning.generatedAssetLocalCopy'))
   })
@@ -298,7 +298,7 @@ describe('trusted cleanup planner', () => {
     expect(orphanTask.title).toBe('Orphan plan title')
 
     // Only the orphan — whose conversation is already gone — carries the only-copy warning.
-    const environment = { running: false, detectionKnown: true, desktopRunning: false, cliCommands: [], canQuit: false, blockers: [] }
+    const environment = { running: false, detectionKnown: true, desktopRunning: false, cliCommands: [], desktopCommands: [], canQuit: false, blockers: [] }
     const linkedPreview = makeCleanupPreview({ kind: 'generated-assets', ids: [linkedPlan.id] }, [linkedTask], environment, snap)
     expect(linkedPreview.warnings).not.toContainEqual(message('warning.planOnlyCopy'))
     const orphanPreview = makeCleanupPreview({ kind: 'generated-assets', ids: [orphanPlan.id] }, [orphanTask], environment, snap)
@@ -371,7 +371,7 @@ describe('automatic cleanup planner', () => {
     expect(tasks.map((task) => task.threadID)).toEqual(['pinned', 'ordinary'])
     const preview = makeCleanupPreview(selection, tasks, {
       running: false, detectionKnown: true, desktopRunning: false,
-      cliCommands: [], canQuit: false, blockers: []
+      cliCommands: [], desktopCommands: [], canQuit: false, blockers: []
     }, snap)
     expect(preview.warnings).toContainEqual(message('warning.pinnedSessions', { count: 1 }))
   })
@@ -408,7 +408,9 @@ describe('automatic cleanup planner', () => {
 
     expect(tasks).toHaveLength(2)
     expect(tasks[0].removal).toBe('gitWorktree')
-    expect(tasks[1]).toMatchObject({ threadID: 'parent', url: parent.fileURL })
+    expect(tasks[1]).toMatchObject({
+      threadID: 'parent', url: parent.fileURL, resultGroupID: `worktree:${snap.worktrees[0].id}`
+    })
     expect(tasks[1].companionURLs).toEqual(parent.childURLs)
     expect(tasks.some((task) => task.threadID === 'unrelated')).toBe(false)
 
@@ -416,7 +418,7 @@ describe('automatic cleanup planner', () => {
       kind: 'worktrees', ids: [snap.worktrees[0].id], deleteRelatedSessions: true
     }, tasks, {
       running: false, detectionKnown: true, desktopRunning: false,
-      cliCommands: [], canQuit: false, blockers: []
+      cliCommands: [], desktopCommands: [], canQuit: false, blockers: []
     }, snap)
     expect(preview.items).toEqual([{
       id: `worktree:${snap.worktrees[0].id}`,
@@ -425,6 +427,30 @@ describe('automatic cleanup planner', () => {
       expectedBytes: snap.worktrees[0].bytes + 175
     }])
     expect(preview.expectedBytes).toBe(snap.worktrees[0].bytes + 175)
+  })
+
+  it('shows a worktree and its related conversation as one completed result', () => {
+    const groupID = 'worktree:/codex/worktrees/aa01'
+    const outcomes = groupedCleanupOutcomes([
+      { id: groupID, title: 'pgx · Understand the assistant', detail: '/worktree', status: { kind: 'succeeded' }, freedBytes: 500 },
+      { id: '/session', title: 'Understand the assistant', detail: '/session', status: { kind: 'succeeded' }, freedBytes: 100, resultGroupID: groupID }
+    ])
+
+    expect(outcomes).toEqual([{
+      id: groupID, title: 'pgx · Understand the assistant', detail: '/worktree',
+      status: { kind: 'succeeded' }, freedBytes: 600
+    }])
+  })
+
+  it('surfaces a related-conversation failure on the grouped worktree result', () => {
+    const groupID = 'worktree:/codex/worktrees/aa01'
+    const reason = message('cleanup.skipMissing')
+    const outcomes = groupedCleanupOutcomes([
+      { id: groupID, title: 'pgx · Thread', detail: '/worktree', status: { kind: 'succeeded' }, freedBytes: 500 },
+      { id: '/session', title: 'Thread', detail: '/session', status: { kind: 'skipped', reason }, freedBytes: 0, resultGroupID: groupID }
+    ])
+
+    expect(outcomes).toMatchObject([{ id: groupID, status: { kind: 'skipped', reason }, freedBytes: 500 }])
   })
 
   it('matches a related conversation by rollout cwd when the desktop index ID differs', () => {
@@ -442,7 +468,7 @@ describe('automatic cleanup planner', () => {
 
     const preview = makeCleanupPreview(selection, tasks, {
       running: false, detectionKnown: true, desktopRunning: false,
-      cliCommands: [], canQuit: false, blockers: []
+      cliCommands: [], desktopCommands: [], canQuit: false, blockers: []
     }, snap)
     expect(preview.items).toHaveLength(1)
     expect(preview.items[0].expectedBytes).toBe(snap.worktrees[0].bytes + related.fileBytes)
@@ -462,7 +488,7 @@ describe('automatic cleanup planner', () => {
     const snap = snapshot()
     const environment = {
       running: false, detectionKnown: true, desktopRunning: false,
-      cliCommands: [], canQuit: false, blockers: []
+      cliCommands: [], desktopCommands: [], canQuit: false, blockers: []
     }
     const clean: CleanupSelection = { kind: 'worktrees', ids: ['/codex/worktrees/aa01'], deleteRelatedSessions: false }
     const dirty: CleanupSelection = { kind: 'worktrees', ids: ['/codex/worktrees/cc03'], deleteRelatedSessions: false }

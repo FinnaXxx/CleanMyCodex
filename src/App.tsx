@@ -9,6 +9,7 @@ import {
   type AppInfo,
   type WorkspaceSnapshot,
   reportFreedBytes,
+  groupedCleanupOutcomes,
   cleanupStatusReason,
   snapshotSessionBytes,
   snapshotGeneratedAssetBytes,
@@ -51,6 +52,7 @@ function App() {
   const [forceQuitCodex, setForceQuitCodex] = useState(false)
   const [updatingCleanupPreview, setUpdatingCleanupPreview] = useState(false)
   const [cleanupStage, setCleanupStage] = useState<Message | null>(null)
+  const [cleanupError, setCleanupError] = useState<string | null>(null)
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null)
   const scanInFlight = useRef(false)
 
@@ -84,6 +86,7 @@ function App() {
       if (!preview.items.length) return
       setCleanupPreview(preview)
       setDialogReport(null)
+      setCleanupError(null)
       setQuitCodex(false)
       setForceQuitCodex(false)
     } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
@@ -104,13 +107,18 @@ function App() {
       if (!cleanupPreview || cleaning) return
       setCleaning(true)
       setDialogReport(null)
+      setCleanupError(null)
       setCleanProgress({ completed: 0, total: cleanupPreview.items.length, currentTitle: '' })
       try {
         const nextReport = await window.cleanmycodex.cleanup({ selection: cleanupPreview.selection, quitCodex, forceQuitCodex })
         await runScan()
         setDialogReport(nextReport)
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err))
+        // setError renders in the main pane (App.tsx pane-error) as well as the
+        // initial-scan view, so on a cleanup failure it would duplicate the message
+        // that cleanupError already surfaces inside the dialog. Surface it only there.
+        const text = err instanceof Error ? err.message : String(err)
+        setCleanupError(text)
       } finally {
         setCleaning(false)
         setCleanProgress(null)
@@ -129,6 +137,7 @@ function App() {
         deleteRelatedSessions: value
       })
       setCleanupPreview(preview)
+      setCleanupError(null)
       setQuitCodex(false)
       setForceQuitCodex(false)
     } catch (err) {
@@ -170,7 +179,7 @@ function App() {
       : <CleanupDialog preview={cleanupPreview} quitCodex={quitCodex} forceQuit={forceQuitCodex} requireQuitConfirmation={page !== 'overview'}
           onQuitCodex={setQuitCodex} onForceQuit={setForceQuitCodex}
           updating={updatingCleanupPreview} onDeleteRelatedSessions={setDeleteRelatedSessions}
-          onConfirm={runCleanup} onClose={() => setCleanupPreview(null)} />)}
+          onConfirm={runCleanup} onClose={() => setCleanupPreview(null)} error={cleanupError} />)}
   </>
 
   if (!snapshot) return <>
@@ -289,12 +298,18 @@ function InitialScanView({ progress, error, onRetry }: {
     <div className="initial-scan-shell">
       <div className="initial-scan-brand"><BrandMark /><strong>Clean My Codex</strong></div>
       <div className="scan-visual" aria-hidden="true">
-        <span className="scan-ring scan-ring-one" />
-        <span className="scan-ring scan-ring-two" />
-        <span className="scan-beam" />
+        <svg className="scan-orbits" viewBox="0 0 168 168" fill="none">
+          <circle className="scan-orbit scan-orbit-outer" cx="84" cy="84" r="75" strokeDasharray="92 42 118 54 74 91"/>
+          <circle className="scan-orbit scan-orbit-inner" cx="84" cy="84" r="50" strokeDasharray="54 44 92 56 34 34"/>
+          <g className="scan-tracer">
+            <circle cx="84" cy="84" r="63" strokeDasharray="76 320"/>
+            <circle className="scan-tracer-dot" cx="147" cy="84" r="2.4"/>
+          </g>
+        </svg>
         <span className="scan-core">
-          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <ellipse cx="16" cy="8" rx="8.5" ry="3.5"/><path d="M7.5 8v8c0 2 3.8 3.5 8.5 3.5s8.5-1.5 8.5-3.5V8M7.5 16v8c0 2 3.8 3.5 8.5 3.5s8.5-1.5 8.5-3.5v-8"/>
+          <svg viewBox="0 0 32 32" fill="currentColor">
+            <path d="M17.5 4.8c1.1 5.4 3.9 8.2 9.3 9.3-5.4 1.1-8.2 3.9-9.3 9.3-1.1-5.4-3.9-8.2-9.3-9.3 5.4-1.1 8.2-3.9 9.3-9.3Z"/>
+            <path className="scan-sparkle-small" d="M8.1 19.7c.5 2.3 1.7 3.5 4 4-2.3.5-3.5 1.7-4 4-.5-2.3-1.7-3.5-4-4 2.3-.5 3.5-1.7 4-4Z"/>
           </svg>
         </span>
       </div>
@@ -305,7 +320,6 @@ function InitialScanView({ progress, error, onRetry }: {
         <p className="initial-scan-lead">{e(error)}</p>
         <button className="btn primary btn-large" onClick={onRetry}>{t('重新扫描', 'Try Again')}</button>
       </> : <>
-        <span className="initial-scan-kicker">{t('首次空间分析', 'Initial storage analysis')}</span>
         <h1>{t('正在分析 Codex 空间', 'Analyzing Codex storage')}</h1>
         <p className="initial-scan-lead">{t('正在安全地统计缓存、会话与插件，首次扫描可能需要一点时间。', 'Safely measuring caches, sessions, and plugins. The first scan may take a moment.')}</p>
         <div className="initial-scan-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
@@ -319,12 +333,13 @@ function InitialScanView({ progress, error, onRetry }: {
   </section>
 }
 
-function CleanupDialog({ preview, quitCodex, forceQuit, requireQuitConfirmation, updating, onQuitCodex, onForceQuit, onDeleteRelatedSessions, onConfirm, onClose }: {
+function CleanupDialog({ preview, quitCodex, forceQuit, requireQuitConfirmation, updating, error, onQuitCodex, onForceQuit, onDeleteRelatedSessions, onConfirm, onClose }: {
   preview: CleanupPreview; quitCodex: boolean; forceQuit: boolean; requireQuitConfirmation: boolean; updating: boolean
+  error: string | null
   onQuitCodex: (value: boolean) => void; onForceQuit: (value: boolean) => void
   onDeleteRelatedSessions: (value: boolean) => void; onConfirm: () => void; onClose: () => void
 }) {
-  const { t, m } = usePreferences()
+  const { t, m, e } = usePreferences()
   const quitRequiredButUnchecked = requireQuitConfirmation && preview.blockedTitles.length > 0 && !quitCodex
   return <div className="modal-backdrop"><section className="cleanup-dialog" role="dialog" aria-modal="true">
     <><h2>{t(`确认清理 ${preview.items.length} 项`, `Confirm cleanup of ${preview.items.length} items`)}</h2>
@@ -334,10 +349,11 @@ function CleanupDialog({ preview, quitCodex, forceQuit, requireQuitConfirmation,
         checked={preview.selection.deleteRelatedSessions} disabled={updating}
         onChange={(event) => onDeleteRelatedSessions(event.target.checked)}/><strong>{m(message('warning.worktreeRelatedSessions'))}</strong></label>}
       {preview.warnings.map((warning) => <p className="notice warning" key={warning.key}>{m(warning)}</p>)}
+      {error && <p className="notice warning">{e(error)}</p>}
       {!!preview.blockedTitles.length && <div className="notice warning"><strong>{t('需要 Codex 完全退出', 'Codex must quit completely')}</strong><br/>
         {preview.canQuitCodex ? <><label><input type="checkbox" checked={quitCodex} onChange={(event) => { onQuitCodex(event.target.checked); if (!event.target.checked) onForceQuit(false) }}/> {t('先退出 Codex', 'Quit Codex first')}</label>
           {quitCodex && <label><input type="checkbox" checked={forceQuit} onChange={(event) => onForceQuit(event.target.checked)}/> {t('正常退出超时后强制结束（可能丢失未保存内容）', 'Force quit after timeout (unsaved work may be lost)')}</label>}</>
-          : <small>{preview.blockers.map(m).join(t('；', '; '))}{t('，这些项目本次不会执行；退出 Codex 后需重新清理。', '. These items will be skipped. Quit Codex and run cleanup again.')}</small>}</div>}
+          : <small>{preview.blockers.map(m).join(t('，', ', '))}</small>}</div>}
     </>
     <div className="dialog-actions"><button className="btn" disabled={updating} onClick={onClose}>{t('取消', 'Cancel')}</button>
       <button className="btn danger" disabled={updating || quitRequiredButUnchecked} onClick={onConfirm}>{updating ? t('更新中…', 'Updating…') : t('确认执行', 'Confirm')}</button></div>
@@ -354,9 +370,10 @@ function CleanupExperience({ preview, report, progress, scanProgress, stage, onD
 }) {
   const { t, m } = usePreferences()
   if (report) {
-    const succeeded = report.outcomes.filter((outcome) => outcome.status.kind === 'succeeded').length
-    const skipped = report.outcomes.filter((outcome) => outcome.status.kind === 'skipped').length
-    const failed = report.outcomes.filter((outcome) => outcome.status.kind === 'failed').length
+    const outcomes = groupedCleanupOutcomes(report.outcomes)
+    const succeeded = outcomes.filter((outcome) => outcome.status.kind === 'succeeded').length
+    const skipped = outcomes.filter((outcome) => outcome.status.kind === 'skipped').length
+    const failed = outcomes.filter((outcome) => outcome.status.kind === 'failed').length
     const seconds = Math.max(0, (report.finishedAt - report.startedAt) / 1000)
     const duration = seconds < 1 ? t('<1 秒', '<1 sec') : t(`${Math.round(seconds)} 秒`, `${Math.round(seconds)} sec`)
     return <div className="cleanup-flow cleanup-flow-complete" role="dialog" aria-modal="true" aria-labelledby="cleanup-result-title">
@@ -377,9 +394,9 @@ function CleanupExperience({ preview, report, progress, scanProgress, stage, onD
           <div className={failed ? 'result-has-problems' : ''}><strong>{skipped + failed}</strong><span>{t('需要留意', 'Needs attention')}</span></div>
         </div>
         <section className="cleanup-result-detail">
-          <div className="cleanup-result-heading"><h3>{t('处理明细', 'Details')}</h3><span>{t(`${report.outcomes.length} 项`, `${report.outcomes.length} items`)}</span></div>
+          <div className="cleanup-result-heading"><h3>{t('处理明细', 'Details')}</h3><span>{t(`${outcomes.length} 项`, `${outcomes.length} items`)}</span></div>
           <ul className="report-list">
-            {report.outcomes.map((outcome) => <li key={outcome.id} className={`report-row report-${outcome.status.kind}`}>
+            {outcomes.map((outcome) => <li key={outcome.id} className={`report-row report-${outcome.status.kind}`}>
               <span className="report-row-title">{outcome.title}</span>
               <span className="report-row-status">{m(message(`status.${outcome.status.kind}`))}</span>
               {cleanupStatusReason(outcome.status) && <span className="report-row-msg">{m(cleanupStatusReason(outcome.status)!)}</span>}

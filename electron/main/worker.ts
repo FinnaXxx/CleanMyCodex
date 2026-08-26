@@ -45,7 +45,11 @@ parentPort?.on('message', async (request: Request) => {
       parentPort?.close()
     }
   } catch (error) {
-    parentPort?.postMessage({ type: 'error', message: error instanceof Error ? error.message : String(error) })
+    parentPort?.postMessage({
+      type: 'error',
+      message: error instanceof Error ? error.message : String(error),
+      ...(error instanceof Error && error.stack ? { stack: error.stack } : {})
+    })
     parentPort?.close()
   }
 })

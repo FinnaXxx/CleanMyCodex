@@ -1,10 +1,11 @@
 import Database from 'better-sqlite3'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, isAbsolute, join, normalize, relative, sep } from 'node:path'
+import { basename, join, normalize } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { WorkspaceThreadReference } from '../../shared/types'
 import { cleanPreview } from './preview'
+import { relativePathSegments } from './path-identity'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -34,10 +35,9 @@ export class CodexThreadIndex {
   }
 
   workspaceThreads(root: string): CodexWorkspaceThread[] {
-    const base = normalize(root)
     return this.workspaceRows.filter((thread) => {
-      const rel = relative(base, normalize(thread.cwd))
-      return rel.length > 0 && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)
+      const parts = relativePathSegments(root, thread.cwd)
+      return parts !== null && parts.length > 0
     })
   }
 

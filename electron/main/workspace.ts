@@ -1,9 +1,10 @@
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
-import { basename, isAbsolute, join, normalize, relative, sep } from 'node:path'
+import { basename, join } from 'node:path'
 import type { WorkspaceFolder, WorkspaceRepository, WorkspaceRepositoryState, WorkspaceSnapshot, WorkspaceThreadReference } from '../../shared/types'
 import type { CodexWorkspaceThread } from './thread-index'
 import { fileAllocatedSize } from './fs-size'
+import { pathIdentityKey, relativePathSegments } from './path-identity'
 
 export function gitState(path: string): WorkspaceRepositoryState {
   const env = { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' }
@@ -91,8 +92,7 @@ function walk(path: string, recursive: boolean, excluded: string[] = []): WalkRe
 
 /** `root` itself, or anything below it. */
 function contains(root: string, candidate: string): boolean {
-  const rel = relative(normalize(root), normalize(candidate))
-  return rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel))
+  return relativePathSegments(root, candidate) !== null
 }
 
 function childDirectories(path: string): string[] {
@@ -145,20 +145,18 @@ export function scanWorkspace(
   return { root, isScanned: true, entries }
 }
 
-function attachSourceThreads(root: string, entries: WorkspaceFolder[], threads: CodexWorkspaceThread[]): void {
-  const base = normalize(root)
+export function attachSourceThreads(root: string, entries: WorkspaceFolder[], threads: CodexWorkspaceThread[]): void {
   const byPath = new Map<string, WorkspaceFolder>()
   for (const entry of entries) {
-    byPath.set(normalize(entry.path), entry)
-    for (const child of entry.children) byPath.set(normalize(child.path), child)
+    byPath.set(pathIdentityKey(entry.path), entry)
+    for (const child of entry.children) byPath.set(pathIdentityKey(child.path), child)
   }
 
   for (const thread of threads) {
-    const rel = relative(base, normalize(thread.cwd))
-    if (!rel || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) continue
-    const parts = rel.split(sep).filter(Boolean)
-    const targetPath = parts.length >= 2 ? join(base, parts[0], parts[1]) : join(base, parts[0])
-    const target = byPath.get(normalize(targetPath))
+    const parts = relativePathSegments(root, thread.cwd)
+    if (!parts?.length) continue
+    const targetPath = parts.length >= 2 ? join(root, parts[0], parts[1]) : join(root, parts[0])
+    const target = byPath.get(pathIdentityKey(targetPath))
     if (target) target.sourceThreads.push(reference(thread))
   }
 

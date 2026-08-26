@@ -17,6 +17,7 @@ import { message } from '../../shared/messages'
 import { FolderIcon } from '../icons'
 import { formatShortDate } from '../format'
 import { usePreferences } from '../preferences'
+import { FunnelFilter, SortHeader, useSortState, type SortDir } from '../components/list-controls'
 
 interface Props {
   snapshot: ScanSnapshot
@@ -28,8 +29,10 @@ interface Props {
 }
 
 type Scope = 'all' | 'active' | 'archived'
-type Sort = 'total' | 'date' | 'name'
+type SortKey = 'total' | 'date' | 'name'
 export type SessionInitialSelection = 'none' | 'suggested-archives'
+
+const defaultSortDir = (key: SortKey): SortDir => (key === 'name' ? 'asc' : 'desc')
 
 export default function SessionsView({ snapshot, cleaning, actionsDisabled, cleanProgress, onCleanup, initialSelection }: Props) {
   const { t, e, locale } = usePreferences()
@@ -41,7 +44,7 @@ export default function SessionsView({ snapshot, cleaning, actionsDisabled, clea
       .map((session) => session.id))
   })
   const [scope, setScope] = useState<Scope>(initialSelection === 'suggested-archives' ? 'archived' : 'all')
-  const [sort, setSort] = useState<Sort>('total')
+  const { sortKey, sortDir, cycleSort } = useSortState<SortKey>('total', defaultSortDir)
   const [query, setQuery] = useState('')
   /** Empty keeps every session; otherwise it is "last active more than N days ago". */
   const [olderThanDays, setOlderThanDays] = useState(initialSelection === 'suggested-archives'
@@ -94,11 +97,13 @@ export default function SessionsView({ snapshot, cleaning, actionsDisabled, clea
         .filter(Boolean).join(' ').toLocaleLowerCase().includes(needle)
     })
     return items.sort((a, b) => {
-      if (sort === 'date') return b.modifiedAt - a.modifiedAt
-      if (sort === 'name') return sessionDisplayName(a).localeCompare(sessionDisplayName(b))
-      return sessionTotalBytes(b) - sessionTotalBytes(a)
+      let cmp: number
+      if (sortKey === 'date') cmp = a.modifiedAt - b.modifiedAt
+      else if (sortKey === 'name') cmp = sessionDisplayName(a).localeCompare(sessionDisplayName(b))
+      else cmp = sessionTotalBytes(a) - sessionTotalBytes(b)
+      return sortDir === 'asc' ? cmp : -cmp
     })
-  }, [olderThanDays, query, scope, listable, sort])
+  }, [olderThanDays, query, scope, listable, sortKey, sortDir])
 
   const selectedSessions = useMemo(() => snapshot.sessions.filter((session) => selected.has(session.id)), [snapshot.sessions, selected])
   const selectedBytes = selectedSessions.reduce((sum, session) => sum + sessionTotalBytes(session), 0)
@@ -107,6 +112,12 @@ export default function SessionsView({ snapshot, cleaning, actionsDisabled, clea
   const toggle = (id: string): void => setSelected((previous) => {
     const next = new Set(previous); next.has(id) ? next.delete(id) : next.add(id); return next
   })
+
+  const scopeOptions: { value: Scope; label: string; count: number }[] = [
+    { value: 'all', label: t('全部', 'All'), count: listable.length },
+    { value: 'active', label: t('未归档', 'Active'), count: listable.filter((session) => session.location === 'active').length },
+    { value: 'archived', label: t('已归档', 'Archived'), count: listable.filter((session) => session.location === 'archived').length },
+  ]
 
   return <>
     <div className="detail-content">
@@ -129,20 +140,11 @@ export default function SessionsView({ snapshot, cleaning, actionsDisabled, clea
     </div>}
     {repairError && <p className="error">{repairError}</p>}
     <section className="filters">
-      <select value={scope} onChange={(event) => setScope(event.target.value as Scope)}>
-        <option value="all">{t('全部', 'All')} {listable.length}</option>
-        <option value="active">{t('未归档', 'Active')} {listable.filter((session) => session.location === 'active').length}</option>
-        <option value="archived">{t('已归档', 'Archived')} {listable.filter((session) => session.location === 'archived').length}</option>
-      </select>
       <label className="filter-days">
         <input className="number" type="number" min="0" max="3650" placeholder={t('不限', 'Any')} value={olderThanDays}
           onChange={(event) => setOlderThanDays(event.target.value.replace(/[^0-9]/g, ''))} />
         {t('天前', 'days ago')}
       </label>
-      <select value={sort} onChange={(event) => setSort(event.target.value as Sort)} aria-label={t('排序方式', 'Sort by')}>
-        <option value="total">{t('按总占用', 'Total size')}</option><option value="date">{t('按最后活动', 'Last active')}</option>
-        <option value="name">{t('按名称', 'Name')}</option>
-      </select>
       <input className="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('搜索标题或项目', 'Search title or project')} />
     </section>
 
@@ -155,8 +157,30 @@ export default function SessionsView({ snapshot, cleaning, actionsDisabled, clea
             for (const session of visible) allVisibleSelected ? next.delete(session.id) : next.add(session.id)
             return next
           })} />
-        <span>{t('会话', 'Session')}</span><span className="col-status">{t('状态', 'Status')}</span><span className="col-date">{t('最后活动', 'Last active')}</span>
-        <span className="col-num">{t('会话文件', 'Session file')}</span><span className="col-num">{t('总占用', 'Total')}</span><span />
+        <span className="col-sortable">
+          <SortHeader active={sortKey === 'name'} dir={sortDir} onClick={() => cycleSort('name')}>
+            {t('会话', 'Session')}
+          </SortHeader>
+        </span>
+        <span className="col-status">
+          <span className="status-head">
+            {t('状态', 'Status')}
+            <FunnelFilter ariaLabel={t('筛选状态', 'Filter status')} active={scope !== 'all'}
+              options={scopeOptions} value={scope} onChange={setScope} />
+          </span>
+        </span>
+        <span className="col-date col-sortable">
+          <SortHeader active={sortKey === 'date'} dir={sortDir} onClick={() => cycleSort('date')}>
+            {t('最后修改', 'Last modified')}
+          </SortHeader>
+        </span>
+        <span className="col-num">{t('会话文件', 'Session file')}</span>
+        <span className="col-num">
+          <SortHeader align="end" active={sortKey === 'total'} dir={sortDir} onClick={() => cycleSort('total')}>
+            {t('总占用', 'Total')}
+          </SortHeader>
+        </span>
+        <span />
       </div>
       <ul className="session-list">
         {visible.map((session) => <SessionRow key={session.id} session={session} checked={selected.has(session.id)} onToggle={() => toggle(session.id)} locale={locale} />)}

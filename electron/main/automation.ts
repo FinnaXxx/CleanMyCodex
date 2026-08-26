@@ -5,6 +5,15 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { AutomaticRunRecord, AutomationSettings, AutomationState } from '../../shared/types'
 import { MessageError, formatMessage, message, type Language, type Message } from '../../shared/messages'
+import {
+  WINDOWS_TASK_ARGUMENTS,
+  WINDOWS_TASK_NAME,
+  parseWindowsNextRunAt,
+  parseWindowsTaskMatch,
+  windowsNextRunPowerShell,
+  windowsTaskMatchesPowerShell,
+  windowsTaskSettingsPowerShell
+} from './windows-scheduled-task'
 
 export const DEFAULT_AUTOMATION_SETTINGS: AutomationSettings = {
   enabled: false,
@@ -21,7 +30,6 @@ export const DEFAULT_AUTOMATION_SETTINGS: AutomationSettings = {
 }
 
 const serviceLabel = 'com.finnaxxx.cleanmycodex.autoclean'
-const windowsTaskName = 'CleanMyCodex Automatic Cleanup'
 const storeDirectory = (): string => app.getPath('userData')
 const settingsPath = (): string => join(storeDirectory(), 'automation.json')
 const lastRunPath = (): string => join(storeDirectory(), 'last-run.json')
@@ -141,25 +149,54 @@ function runSchtasks(args: string[]): boolean {
   } catch { return false }
 }
 
+function windowsTaskArguments(): string {
+  return app.isPackaged ? WINDOWS_TASK_ARGUMENTS : `"${app.getAppPath()}" ${WINDOWS_TASK_ARGUMENTS}`
+}
+
 /** Windows knows the real next run time; ask it rather than estimating from a file. */
 function windowsNextRunAt(): number | null {
   try {
-    const output = execFileSync('schtasks.exe', ['/Query', '/TN', windowsTaskName, '/FO', 'LIST', '/V'],
-      { encoding: 'utf8', timeout: 10_000, windowsHide: true })
-    const line = output.split(/\r?\n/).find((row) => /^\s*Next Run Time:/i.test(row))
-    const value = line?.split(':').slice(1).join(':').trim()
-    if (!value || /N\/A/i.test(value)) return null
-    const parsed = Date.parse(value)
-    return Number.isFinite(parsed) ? parsed : null
+    const output = execFileSync('powershell.exe', [
+      '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', windowsNextRunPowerShell()
+    ], { encoding: 'utf8', timeout: 10_000, windowsHide: true })
+    return parseWindowsNextRunAt(output)
   } catch { return null }
+}
+
+/** Whether the installed task still launches this build with this saved interval. */
+function windowsTaskMatches(intervalDays: number): boolean {
+  try {
+    const output = execFileSync('powershell.exe', [
+      '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', windowsTaskMatchesPowerShell()
+    ], {
+      encoding: 'utf8',
+      timeout: 10_000,
+      windowsHide: true,
+      env: {
+        ...process.env,
+        CLEANMYCODEX_TASK_EXECUTABLE: process.execPath,
+        CLEANMYCODEX_TASK_ARGUMENTS: windowsTaskArguments(),
+        CLEANMYCODEX_TASK_INTERVAL_DAYS: String(Math.max(1, Math.floor(intervalDays)))
+      }
+    })
+    return parseWindowsTaskMatch(output)
+  } catch { return false }
+}
+
+function applyWindowsTaskSettings(): boolean {
+  try {
+    execFileSync('powershell.exe', [
+      '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', windowsTaskSettingsPowerShell()
+    ], { stdio: 'ignore', timeout: 10_000, windowsHide: true })
+    return true
+  } catch { return false }
 }
 
 function installWindowsTask(intervalDays: number): void {
   if (process.platform !== 'win32') throw new MessageError(message('error.schtasksUnsupported'))
-  const command = app.isPackaged
-    ? `"${process.execPath}" --auto-clean`
-    : `"${process.execPath}" "${app.getAppPath()}" --auto-clean`
-  if (!runSchtasks(['/Create', '/F', '/SC', 'DAILY', '/MO', String(Math.max(1, Math.floor(intervalDays))), '/TN', windowsTaskName, '/TR', command])) {
+  const command = `"${process.execPath}" ${windowsTaskArguments()}`
+  const created = runSchtasks(['/Create', '/F', '/SC', 'DAILY', '/MO', String(Math.max(1, Math.floor(intervalDays))), '/TN', WINDOWS_TASK_NAME, '/TR', command])
+  if (!created || !applyWindowsTaskSettings()) {
     throw new MessageError(message('error.schtasksFailed'))
   }
 }
@@ -171,51 +208,69 @@ function uninstallLaunchAgent(): void {
 }
 
 function uninstallWindowsTask(): void {
-  if (process.platform === 'win32') runSchtasks(['/Delete', '/F', '/TN', windowsTaskName])
+  if (process.platform === 'win32') runSchtasks(['/Delete', '/F', '/TN', WINDOWS_TASK_NAME])
 }
 
 /**
  * Brings the installed schedule back in line with this build, at startup.
  *
- * The agent names the executable it should launch, and it is only ever written when the
- * settings are saved. An app that has moved, or a build whose launch arguments changed,
- * leaves an agent pointing somewhere that no longer answers — and launchd fails quietly,
- * so the schedule reads as installed while nothing runs. Re-installing when the plist no
- * longer matches what this build would write costs one comparison per start.
+ * Both launchd's plist and Task Scheduler's action name the executable they should launch,
+ * and they are normally written only when settings are saved. An app that has moved, or a
+ * build whose launch arguments changed, leaves a schedule pointing somewhere that no
+ * longer answers. Compare the full macOS plist, or the Windows action, daily interval and
+ * missed-run/battery settings, and reinstall only when the definition no longer matches.
  *
  * Returns what it did, so a start that repaired something says so in the log.
  */
+export function repairAutomationSchedule(): string | null {
+  const settings = loadAutomationSettings()
+  if (!settings.enabled) return null
+  if (process.platform === 'darwin') {
+    const desired = launchAgentPlist(WAKE_INTERVAL_SECONDS)
+    let current: string | null = null
+    try { current = readFileSync(launchAgentPath(), 'utf8') } catch { /* not installed */ }
+    if (current === desired && launchAgentIsLoaded()) return null
+    try {
+      installLaunchAgent(WAKE_INTERVAL_SECONDS)
+      return current === null ? 'reinstalled a missing launch agent' : 'launch agent no longer matched this build; reinstalled'
+    } catch (error) {
+      return `launch agent could not be repaired: ${error instanceof MessageError ? error.info.key : String(error)}`
+    }
+  }
+  if (process.platform === 'win32') {
+    const installed = runSchtasks(['/Query', '/TN', WINDOWS_TASK_NAME])
+    if (installed && windowsTaskMatches(settings.intervalDays)) return null
+    try {
+      installWindowsTask(settings.intervalDays)
+      return installed
+        ? 'Windows scheduled task no longer matched this build; reinstalled'
+        : 'reinstalled a missing Windows scheduled task'
+    } catch (error) {
+      return `Windows scheduled task could not be repaired: ${error instanceof MessageError ? error.info.key : String(error)}`
+    }
+  }
+  return null
+}
+
 /**
  * Whether enough time has passed since the last completed run. launchd only promises a
- * wake; this is what makes `intervalDays` mean what the settings page says it means.
+ * daily wake, so this is what makes `intervalDays` mean what the settings page says. Task
+ * Scheduler already wakes Windows at the requested cadence; its NextRunTime advances to
+ * the following occurrence before this process starts, so every Windows wake is due.
  */
 export function automaticRunIsDue(now = Date.now()): { due: boolean; nextRunAt: number } {
+  if (process.platform === 'win32') return { due: true, nextRunAt: now }
   const settings = loadAutomationSettings()
   const lastRun = readJSON<AutomaticRunRecord>(lastRunPath())
   const nextRunAt = nextRunEstimate(settings, lastRun) ?? now
   return { due: now >= nextRunAt, nextRunAt }
 }
 
-export function repairAutomationSchedule(): string | null {
-  const settings = loadAutomationSettings()
-  if (!settings.enabled || process.platform !== 'darwin') return null
-  const desired = launchAgentPlist(WAKE_INTERVAL_SECONDS)
-  let current: string | null = null
-  try { current = readFileSync(launchAgentPath(), 'utf8') } catch { /* not installed */ }
-  if (current === desired && launchAgentIsLoaded()) return null
-  try {
-    installLaunchAgent(WAKE_INTERVAL_SECONDS)
-    return current === null ? 'reinstalled a missing launch agent' : 'launch agent no longer matched this build; reinstalled'
-  } catch (error) {
-    return `launch agent could not be repaired: ${error instanceof MessageError ? error.info.key : String(error)}`
-  }
-}
-
 export function getAutomationState(): AutomationState {
   const settings = loadAutomationSettings()
   const installed = process.platform === 'darwin'
     ? existsSync(launchAgentPath())
-    : process.platform === 'win32' && runSchtasks(['/Query', '/TN', windowsTaskName])
+    : process.platform === 'win32' && runSchtasks(['/Query', '/TN', WINDOWS_TASK_NAME])
   const loaded = process.platform === 'darwin' ? installed && launchAgentIsLoaded() : installed
   const lastRun = readJSON<AutomaticRunRecord>(lastRunPath())
   return {

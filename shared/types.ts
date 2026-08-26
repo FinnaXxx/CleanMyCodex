@@ -438,6 +438,12 @@ export interface CleanupTask {
   minimumIdleSeconds: number | null
   requiresCodexStopped: boolean
   /**
+   * Optional container task whose row should include this task in user-facing results.
+   * Related conversation deletion remains an independent operation, but a worktree or
+   * workspace selection is presented as the one choice the user made.
+   */
+  resultGroupID?: string
+  /**
    * How the target is removed. A git worktree cannot be deleted as a directory: its
    * administrative data lives inside the user's own repository, outside every root this
    * app may write to, so git has to take it down and clean up after itself.
@@ -587,6 +593,8 @@ export interface CleanupOutcome {
   detail: string
   status: CleanupStatus
   freedBytes: number
+  /** Container task ID copied from `CleanupTask.resultGroupID`. */
+  resultGroupID?: string
 }
 
 export interface CleanupReport {
@@ -597,6 +605,36 @@ export interface CleanupReport {
 
 export const reportFreedBytes = (r: CleanupReport): number =>
   r.outcomes.reduce((sum, o) => sum + o.freedBytes, 0)
+
+/**
+ * Collapse implementation-level child operations into the container choice shown in
+ * the confirmation dialog. Failure wins over skipped, and skipped wins over success, so
+ * grouping never hides a related operation that needs attention.
+ */
+export function groupedCleanupOutcomes(outcomes: CleanupOutcome[]): CleanupOutcome[] {
+  const parentIDs = new Set(outcomes.filter((outcome) => !outcome.resultGroupID).map((outcome) => outcome.id))
+  const children = new Map<string, CleanupOutcome[]>()
+  for (const outcome of outcomes) {
+    if (!outcome.resultGroupID || !parentIDs.has(outcome.resultGroupID)) continue
+    const group = children.get(outcome.resultGroupID) ?? []
+    group.push(outcome)
+    children.set(outcome.resultGroupID, group)
+  }
+
+  return outcomes.flatMap((outcome) => {
+    if (outcome.resultGroupID && parentIDs.has(outcome.resultGroupID)) return []
+    const related = children.get(outcome.id)
+    if (!related?.length) return [outcome]
+    const members = [outcome, ...related]
+    const failed = members.find((member) => member.status.kind === 'failed')
+    const skipped = members.find((member) => member.status.kind === 'skipped')
+    return [{
+      ...outcome,
+      status: failed?.status ?? skipped?.status ?? outcome.status,
+      freedBytes: members.reduce((sum, member) => sum + member.freedBytes, 0)
+    }]
+  })
+}
 
 export interface CleanupProgress {
   completed: number

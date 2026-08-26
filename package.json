@@ -18,6 +18,7 @@
     "check": "pnpm typecheck && pnpm test && pnpm build",
     "build:mac": "pnpm rebuild:native && pnpm build && electron-builder --mac",
     "build:win": "pnpm rebuild:native && pnpm build && electron-builder --win",
+    "build:win-arm64": "node scripts/rebuild-native.cjs win32 arm64 && pnpm build && pnpm exec electron-builder --win nsis --arm64 && node scripts/rebuild-native.cjs darwin arm64",
     "typecheck:test": "tsc --noEmit -p tsconfig.test.json"
   },
   "dependencies": {

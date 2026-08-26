@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, shell, ipcMain, nativeTheme, Notification, dialog, net, type MenuItemConstructorOptions } from 'electron'
+import { app, BrowserWindow, Menu, shell, ipcMain, nativeTheme, Notification, dialog, net, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from 'electron'
 import { dirname, join } from 'node:path'
 import { release } from 'node:os'
 import { rm } from 'node:fs/promises'
@@ -20,7 +20,7 @@ import {
   preflightSessionRecords,
   sessionProtocolThreadIDs
 } from './session-database'
-import { cleanupLogPath, ensureLogDirectory, logCleanup, logDirectory } from './diagnostics'
+import { cleanupLogPath, ensureLogDirectory, logCleanup, logDirectory, logException } from './diagnostics'
 import { removeCodexPlugin } from './plugins'
 import { newerReleaseVersion } from './release-update'
 import {
@@ -77,7 +77,33 @@ let quitting = false
 const LatestReleaseAPI = 'https://api.github.com/repos/FinnaXxx/CleanMyCodex/releases/latest'
 const LatestReleasePage = 'https://github.com/FinnaXxx/CleanMyCodex/releases/latest'
 
-ipcMain.handle('app:info', () => {
+/** Every renderer-visible rejection is persisted before Electron serializes its error. */
+function handle<TArgs extends unknown[], TResult>(
+  channel: string,
+  listener: (event: IpcMainInvokeEvent, ...args: TArgs) => TResult | Promise<TResult>
+): void {
+  ipcMain.handle(channel, async (event, ...args: unknown[]) => {
+    try {
+      return await listener(event, ...args as TArgs)
+    } catch (error) {
+      logException(`IPC ${channel} failed`, error)
+      throw error
+    }
+  })
+}
+
+// This observes fatal main-process exceptions without changing Node's normal crash policy.
+process.on('uncaughtExceptionMonitor', (error, origin) => {
+  logException(`main process uncaught exception (${origin})`, error)
+})
+
+ipcMain.on('diagnostics:renderer', (_event, kind: unknown, detail: unknown) => {
+  const safeKind = typeof kind === 'string' ? kind.replaceAll(/[\r\n]/g, ' ').slice(0, 80) : 'unknown error'
+  const safeDetail = typeof detail === 'string' ? detail.slice(0, 32_000) : String(detail).slice(0, 32_000)
+  logCleanup(`ERROR renderer ${safeKind}\n${safeDetail}`)
+})
+
+handle('app:info', () => {
   const environment = codexEnvironment()
   return {
     version: app.getVersion(),
@@ -88,9 +114,9 @@ ipcMain.handle('app:info', () => {
     blockers: environment.blockers
   }
 })
-ipcMain.handle('updates:check', () => checkForUpdates('manual'))
+handle('updates:check', () => checkForUpdates('manual'))
 
-ipcMain.handle('scan:run', () => runInteractiveScan(async (signal) => {
+handle('scan:run', () => runInteractiveScan(async (signal) => {
   const startedAt = Date.now()
   const installedPlugins = await appServer.installedPlugins(signal, reportPluginListFailure)
   logCleanup(`plugin/list: ${installedPlugins === null ? 'unavailable' : `${installedPlugins.length} rows`}`)
@@ -103,12 +129,12 @@ ipcMain.handle('scan:run', () => runInteractiveScan(async (signal) => {
   return snapshot
 }))
 
-ipcMain.handle('scan:cancel', () => {
+handle('scan:cancel', () => {
   scanRevision += 1
   return cancelActiveScan()
 })
 
-ipcMain.handle('workspace:scan', () => runInteractiveScan(async () => {
+handle('workspace:scan', () => runInteractiveScan(async () => {
   latestWorkspace = await runWorker<WorkspaceSnapshot>({ type: 'workspace' })
   return latestWorkspace
 }))
@@ -152,14 +178,16 @@ function runWorker<T>(request: object): Promise<T> {
       if (scanWorker === worker) scanWorker = null
       callback()
     }
-    worker.on('message', (event: { type: string; progress?: unknown; result?: T; message?: string }) => {
+    worker.on('message', (event: { type: string; progress?: unknown; result?: T; message?: string; stack?: string }) => {
       if (event.type === 'progress') mainWindow?.webContents.send('scan:progress', event.progress)
       // A completed worker closes its own parent port and exits naturally. Forcefully
       // terminating it from inside this message callback races V8's structured-clone and
       // background cleanup on Electron 33, which can take down the whole main process.
       else if (event.type === 'result') finish(() => resolve(event.result as T))
       else if (event.type === 'error') {
-        finish(() => reject(event.message ? new Error(event.message) : new MessageError(message('error.scanFailed'))))
+        const error = event.message ? new Error(event.message) : new MessageError(message('error.scanFailed'))
+        if (event.stack) error.stack = event.stack
+        finish(() => reject(error))
       }
     })
     worker.on('error', (error) => finish(() => reject(error)))
@@ -186,20 +214,20 @@ async function cancelActiveScan(): Promise<void> {
   await stopScanWorker()
 }
 
-ipcMain.handle('path:reveal', (_event, path: string) => {
+handle('path:reveal', (_event, path: string) => {
   assertTrustedDisplayPath(path)
   shell.showItemInFolder(path)
 })
-ipcMain.handle('path:open', async (_event, path: string) => {
+handle('path:open', async (_event, path: string) => {
   assertTrustedDisplayPath(path)
   const error = await shell.openPath(path)
-  if (error) throw new Error(error)
+  if (error) throw new Error(`${error} (path: ${path})`)
 })
 /** The folder behind the settings page's log entry, created on demand so it opens. */
-ipcMain.handle('app:logDirectory', () => ensureLogDirectory())
-ipcMain.handle('automation:get', () => getAutomationState())
-ipcMain.handle('automation:save', (_event, settings: AutomationSettings) => applyAutomationSettings(settings))
-ipcMain.handle('preferences:language', (_event, language: Language) => {
+handle('app:logDirectory', () => ensureLogDirectory())
+handle('automation:get', () => getAutomationState())
+handle('automation:save', (_event, settings: AutomationSettings) => applyAutomationSettings(settings))
+handle('preferences:language', (_event, language: Language) => {
   saveUILanguage(language)
   // The native menu is the one piece of text the main process has to word itself.
   buildApplicationMenu()
@@ -207,7 +235,7 @@ ipcMain.handle('preferences:language', (_event, language: Language) => {
 
 // The renderer owns the theme choice, including "follow the system", so it tells the
 // window which backdrop to paint behind the interface.
-ipcMain.handle('window:theme', (_event, dark: boolean) => {
+handle('window:theme', (_event, dark: boolean) => {
   mainWindow?.setBackgroundColor(dark ? WindowBackdrop.dark : WindowBackdrop.light)
 })
 
@@ -216,19 +244,19 @@ ipcMain.handle('window:theme', (_event, dark: boolean) => {
  * a scan because it is not disk usage: it is what makes a deleted conversation keep
  * appearing in the desktop sidebar until the row itself is removed.
  */
-ipcMain.handle('sessions:leftovers', () => ({
+handle('sessions:leftovers', () => ({
   count: countOrphanRecords(locations.home),
   logPath: cleanupLogPath()
 }))
 
-ipcMain.handle('sessions:repairLeftovers', () => {
+handle('sessions:repairLeftovers', () => {
   if (codexIsRunning()) throw new MessageError(message('error.codexRunningForRepair'))
   const report = deleteOrphanSessionRecords(locations.home, stateBackupDirectory())
   logCleanup(`repair removed ${report.removedRows} rows for ${report.threadIDs.length} threads; ${describeDesktopSweep()}`)
   return { threads: report.threadIDs.length, removedRows: report.removedRows }
 })
 
-ipcMain.handle('cleanup:prepare', async (_event, selection: CleanupSelection) => {
+handle('cleanup:prepare', async (_event, selection: CleanupSelection) => {
   // Preview from the completed scan immediately, matching the other cleanup pages.
   // Current-plugin uninstall is validated by Codex CLI, while old and residual
   // versions remain constrained to the exact paths captured by the scan.
@@ -236,20 +264,25 @@ ipcMain.handle('cleanup:prepare', async (_event, selection: CleanupSelection) =>
   return makeCleanupPreview(selection, tasks, codexEnvironment(), latestSnapshot, latestWorkspace)
 })
 
-ipcMain.handle('cleanup:run', async (_event, request: CleanupRequest) => {
+handle('cleanup:run', async (_event, request: CleanupRequest) => {
   if (!request || typeof request !== 'object' || typeof request.quitCodex !== 'boolean' || typeof request.forceQuitCodex !== 'boolean') throw new MessageError(message('error.invalidRequest'))
   const tasks = trustedTasks(request.selection)
   const related = request.selection.kind === 'worktrees'
     ? ` deleteRelatedSessions=${request.selection.deleteRelatedSessions} sessionTasks=${tasks.filter((task) => task.threadID).length}`
     : ''
   logEnvironment(`cleanup:run ${request.selection.kind} tasks=${tasks.length}${related} quit=${request.quitCodex} force=${request.forceQuitCodex}`)
-  if (request.quitCodex && tasks.some((task) => task.requiresCodexStopped)) {
-    mainWindow?.webContents.send('cleanup:stage', message('cleanup.quitting'))
-    // Keep Codex closed after cleanup so the user can clean other sections without
-    // paying for another quit/relaunch cycle on every page.
-    await quitCodexDesktop(20_000, request.forceQuitCodex)
-  }
   try {
+    if (request.quitCodex && tasks.some((task) => task.requiresCodexStopped)) {
+      mainWindow?.webContents.send('cleanup:stage', message('cleanup.quitting'))
+      // Keep Codex closed after cleanup so the user can clean other sections without
+      // paying for another quit/relaunch cycle on every page.
+      try {
+        await quitCodexDesktop(20_000, request.forceQuitCodex)
+      } catch (err) {
+        logException('cleanup could not quit Codex', err)
+        throw err
+      }
+    }
     const report = await runCleanup(tasks, guards, cleanupDependencies(), (progress: CleanupProgress) => {
       mainWindow?.webContents.send('cleanup:progress', progress)
     })
@@ -321,6 +354,15 @@ function logEnvironment(label: string): void {
   logCleanup(`${label}: CleanMyCodex ${app.getVersion()} on ${process.platform} ${release()}, electron ${process.versions.electron}`)
   logCleanup(`  codexHome=${locations.home}${process.env['CODEX_HOME'] ? ' (CODEX_HOME)' : ''} codexBinary=${locateCodexExecutable() ?? 'not found'}`)
   logCleanup(`  running=${environment.running} desktop=${environment.desktopRunning} canQuit=${environment.canQuit} blockers=${blockers}`)
+  // The detected codex command lines, so a Windows misclassification (a desktop child counted
+  // as CLI) and a lingering session service that keeps desktopRunning true are both visible in
+  // the log without re-running a process probe by hand.
+  if (environment.cliCommands.length) {
+    logCleanup(`  cli=${environment.cliCommands.length}: ${environment.cliCommands.map((command) => command.slice(0, 160)).join(' | ')}`)
+  }
+  if (environment.desktopCommands.length) {
+    logCleanup(`  desktop=${environment.desktopCommands.length}: ${environment.desktopCommands.map((command) => command.slice(0, 160)).join(' | ')}`)
+  }
 }
 
 /**
@@ -410,7 +452,9 @@ function cleanupDependencies(): CleanupDeps {
       preflightDelete: (threadID, relatedURLs) => preflightSessionRecords(locations.home, threadID, relatedURLs),
       deleteThreadWithProtocol: async (threadID, relatedURLs) => {
         const protocolIDs = sessionProtocolThreadIDs(locations.home, threadID, relatedURLs)
-        const deleted = await appServer.deleteThreads(protocolIDs)
+        const deleted = await appServer.deleteThreads(protocolIDs, (reason) => {
+          logCleanup(`ERROR thread/delete ${threadID} failed: ${reason}`)
+        })
         logCleanup(`thread/delete ${threadID} ids=${protocolIDs.join(' ')} ${deleted ? 'ok' : 'unavailable'}`)
         return deleted
       },
@@ -529,13 +573,28 @@ function createWindow(): void {
     mainWindow?.hide()
   })
   mainWindow.on('closed', () => { mainWindow = null })
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => { void openExternalWebURL(url); return { action: 'deny' } })
+  mainWindow.on('unresponsive', () => logCleanup('ERROR main window became unresponsive'))
+  mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
+    logException(`preload failed (${preloadPath})`, error)
+  })
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    logCleanup(`ERROR renderer process gone: reason=${details.reason} exitCode=${details.exitCode}`)
+  })
+  mainWindow.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
+    if (isMainFrame) logCleanup(`ERROR renderer load failed: code=${code} reason=${description} url=${url}`)
+  })
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    void openExternalWebURL(url).catch((error) => logException(`opening external URL failed (${url})`, error))
+    return { action: 'deny' }
+  })
   mainWindow.webContents.on('will-navigate', (event, url) => {
     const current = mainWindow?.webContents.getURL()
     if (url !== current) event.preventDefault()
   })
-  if (process.env['ELECTRON_RENDERER_URL']) void mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
-  else void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+  const loaded = process.env['ELECTRON_RENDERER_URL']
+    ? mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    : mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+  void loaded.catch((error) => logException('main window load failed', error))
 }
 
 /**
@@ -594,8 +653,7 @@ async function checkForUpdates(mode: 'automatic' | 'manual'): Promise<void> {
     })
     if (result.response === 0) await openExternalWebURL(LatestReleasePage)
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error)
-    logCleanup(`update check failed: ${reason}`)
+    logException(`update check failed (${mode})`, error)
     if (manual) await showUpdateStatus('failed')
   }
 }
@@ -641,8 +699,9 @@ async function runAutomaticCleanup(): Promise<void> {
     record(0, 0, 0, 0, message('auto.disabled'))
     return
   }
-  // launchd wakes the app daily; the interval the user set is enforced here. A wake that
-  // is not due records nothing — writing a run would move the anchor it is measured from.
+  // launchd wakes the app daily; the interval the user set is enforced here. Windows Task
+  // Scheduler already uses that interval, so automaticRunIsDue always accepts its wake.
+  // A macOS wake that is not due records nothing — writing a run would move the anchor.
   const due = automaticRunIsDue()
   if (!due.due) {
     logCleanup(`schedule: woke but not due until ${new Date(due.nextRunAt).toISOString()}`)
@@ -684,6 +743,7 @@ async function runAutomaticCleanup(): Promise<void> {
     }
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err)
+    logException('automatic cleanup failed', err)
     const note = message('auto.failed', { reason: formatMessage(decodeMessage(reason) ?? message('error.verbatim', { text: reason }), language) })
     appendAutomationLog(note)
     record(0, 0, 1, 0, note)
@@ -711,6 +771,9 @@ app.whenReady().then(async () => {
       mainWindow.focus()
     }
   })
+}).catch((error) => {
+  logException('application startup failed', error)
+  app.quit()
 })
 
 app.on('before-quit', () => { quitting = true })
