@@ -1,30 +1,28 @@
-# Clean My Codex 0.1.6
+# Clean My Codex 0.1.7
 
-## New
+A maintenance release. Nothing about how the app behaves has changed — no file under the main process, the renderer or the shared layer was touched — but the platform underneath it moved forward by ten Electron majors, and that raises the macOS version required to run it.
 
-- **Plan output is now tracked as a session asset.** Codex's plan mode writes revisions under `~/.codex/plans/<thread-id>/`; each conversation's revisions collapse into one row named by the H1 of its newest revision, tagged `Plan`, and removed with the conversation that owned it.
-- **Workspace cleanup can delete related conversations.** A workspace folder deletion now offers the same "also delete related conversations and their session assets" option that worktrees already had, so removing `~/Documents/Codex/xxx` can take the conversations that ran there with it. The rule is unchanged — session assets follow their session; the workspace does not.
-- **Windows is now supported end-to-end, not just packaged.** Releases publish a Windows NSIS installer (`.exe`) alongside the macOS `.dmg`, and the app now works there:
-  - **Desktop detection** recognizes the Codex/ChatGPT desktop app on Windows — the MSIX install under `Program Files\WindowsApps\OpenAI.Codex_<version>_\`, the legacy `Program Files\Codex` and `AppData\Local\Programs\Codex` layouts, including Electron helper processes — and excludes the crashpad handler the way macOS does. Because the Windows desktop app is tray-resident (the window × button does not quit it), the blocker now points to **File → Exit**; the auto-quit checkbox, which relies on macOS AppleScript, stays hidden off-darwin.
-  - **CLI location** finds `codex` inside the desktop app's versioned/hash install directories (newest copy first when an upgrade left several), then falls back to `where.exe` and `PATH`, with case-insensitive environment lookup. A failed lookup is no longer cached for the session — install or upgrade Codex while Clean My Codex is open and the next operation finds it.
-  - **Scheduled cleanup** on Windows moved off locale-dependent `schtasks /Query` output to PowerShell `Get-ScheduledTaskInfo`, which emits one invariant ISO timestamp for the next run. The repair pass that re-aligns an out-of-date launch agent on macOS now also reinstalls a Windows task whose executable, arguments, daily interval, or missed-run/battery settings no longer match this build.
-  - **Update checks** run on Windows too (previously macOS-only), with a Windows-specific prompt to download and run the x64 installer. The Software Update row is now shown on every platform.
-  - **Path identity** is handled through a shared layer that normalizes extended-length (`\\?\`) and UNC paths, resolves filesystem aliases through the nearest existing ancestor, and compares Windows paths case-insensitively — and is recognized on every host so the Windows behavior is regression-tested on macOS.
-- **Crash and exception logging.** Every IPC handler is wrapped to record failures before Electron serializes them, the main process observes fatal exceptions, and the renderer forwards uncaught errors, unhandled rejections, and React recoverable/uncaught errors to the main process. Worker errors now carry their stack. All of it lands in the existing `cleanup.log` alongside the normal operation record, so a submitted diagnostic log can explain both a wrong result and a failure that happened before one.
-- **Linux builds have been retired.** The AppImage target, bundled icon, `build:linux` script, and XDG fallback paths are gone; the location layer now refuses unsupported platforms explicitly rather than silently guessing.
+## Before you update
 
-## Improvements
+- **macOS 12 (Monterey) or later is now required.** 0.1.6 ran on macOS 11; Electron 43 does not. If you are on Big Sur, stay on 0.1.6.
+- **Windows 10 or later**, unchanged.
+- The Windows installer published here is x64, as before, and it is compressed exactly the way 0.1.6's was.
 
-- **Resource detail views are unified.** Sessions, Session Assets, Plugins, Workspace, and Worktrees now share one set of list controls:
-  - **Sortable columns** — click a header to sort by it, click again to flip direction; an arrow shows the active direction and a faint double-chevron marks every sortable column. The old sort dropdowns are gone.
-  - **Per-column funnel filters** replace the type/status `<select>` dropdowns. Each funnel opens a small popover with a count beside every option and fills in while a non-default filter is applied.
-  - **Shared selection** that retains valid choices across a rescan, keeps hidden choices across a filter, and bulk-toggles only the visible rows — so toggling a filter no longer silently drops what you had selected. A native indeterminate "select all" checkbox and a single bottom action bar (selection summary + delete button, with the unsafe-git warning inline) replace each page's hand-rolled footer.
-- **Plugins page splits origin from version status.** The single status filter is now two funnels: **Source** (Official / Personal, derived from the scanner's `builtin` signal) and **Version status** (current / outdated / orphaned / unconfirmed). Official plugins show an "Official" pill alongside a "current" version pill, and the summary card breaks the total into Official and Personal.
-- **Cleanup confirmation reflects the choice you actually made.** Implementation-level child operations — the related-conversation deletion that follows a worktree or workspace removal — collapse into their container row in the result list and item count, with a failed or skipped child winning over a successful parent so a related operation that needs attention is never hidden behind a success. A cleanup failure now surfaces inside the dialog instead of duplicating in the main pane.
-- **One deletion warning instead of two.** The worktree and workspace git reminders merged into a single permanent-deletion-with-git notice, and the session-asset local-copy warning is now part of one permanent-deletion line, so the confirmation reads as one warning rather than competing lines.
-- **Closing the main window on macOS hides it.** The renderer and its completed scan stay alive so a Dock click shows the same window instead of mounting a fresh renderer and scanning again; `before-quit` still lets Quit close it normally, and `activate` restores an existing window instead of creating a second one.
-- **Overview sessions row** now shows the per-session rollout total separately from the shared `thread_history_*.sqlite` projection, which gets its own protected row, so the two are no longer conflated in the chart or the total.
-- **Plan-only-copy warning.** Deleting a Plan whose source conversation is already gone now warns that it may be the only surviving copy of that plan.
-- **Scan animation redrawn** with orbiting rings and a tracer dot in place of the old scan-ring/beam, and the redundant "Initial storage analysis" kicker was dropped.
-- **Release pipeline** splits macOS arm64 and x64 into separate build jobs (building both in one workspace could mutate a hard-linked native module after the first app was signed) that verify codesign and the Mach-O arch of the app and every bundled `.node`, then a single release job collects the macOS and Windows artifacts and publishes them.
-- Tightened cleanup dialog copy and button labels; worktree modification times are rounded for stable display.
+## Under the hood
+
+- **Electron 33 → 43** (Chromium 150, Node 24.18.1), **better-sqlite3 11 → 13**, Node 24 for development and CI, and the build toolchain moved to Vite 7 with electron-vite 5.
+- **The native module no longer gets compiled at all.** better-sqlite3 13 is a Node-API addon that ships prebuilt binaries for every platform it supports, so the whole cross-rebuild apparatus is gone: no rebuild on install, no `electron-builder install-app-deps`, and no hand-written script for cross-building the Windows binary from macOS. Each artifact now carries only the one prebuilt binary it can actually load. This retires the failure mode where a macOS-built `.node` could end up inside the Windows installer.
+- **Compile targets are now written down.** electron-vite derives its target from a table of Electron versions that does not include 43, and its fallback quietly picks the *oldest* entry in that table — the app would have been compiled for a decade-old target without a word of warning. The config now names node24 and chrome150 outright.
+
+## Windows on ARM
+
+**A Windows arm64 installer built from this source now installs completely.** Releases still publish the x64 installer only, so this matters if you build your own with `pnpm build:win-arm64`.
+
+electron-builder 26 compresses the app payload with a 2024 build of 7-Zip, which inspects every executable and chooses a compression filter for it — for ARM64 binaries that is the ARM64 filter, added in 7-Zip 23.01. The NSIS installer still unpacks that payload with a plugin built in 2019, which has never heard of it. The result was an installer that ran to completion, reported success, and wrote everything except the nine files it could not decode: the application executable and its eight DLLs. x64 was never affected — it gets the BCJ2 filter, which that plugin does understand and which 0.1.6's installer already used.
+
+The build now pins the filter to one the installer can read, for Windows arm64 only; x64 and macOS are untouched. And because "the installer succeeds and silently omits the program" is not something a failed build would ever have reported, every Windows installer is now re-tested as it is built, using a 7-Zip decoder older than the one inside the installer: a payload that cannot be unpacked fails the build instead of reaching a release page. CI builds and checks both architectures on every push.
+
+## Tests
+
+- **A fresh clone no longer races the Electron download.** Electron 43 dropped its install script, so the binary is fetched on first use rather than at install time. Test files run in parallel, and several would start that download at once while another was already launching the half-written binary. The suite now fetches Electron once, before the first test file.
+- A test process killed by a signal now reports what the child actually printed instead of only the signal name, and CI decodes macOS crash reports when a job fails.
