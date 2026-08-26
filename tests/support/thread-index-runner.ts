@@ -1,22 +1,13 @@
 import { app } from 'electron'
 import Database from 'better-sqlite3'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, writeSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CodexLocations } from '../../electron/main/locations'
 import { scanSessions } from '../../electron/main/sessions'
 import { CodexThreadIndex } from '../../electron/main/thread-index'
 
-// DIAGNOSTIC (remove once the macOS CI crash is located): this process is dying from a
-// signal, which leaves no exception and no exit code. console.log to a pipe is buffered and
-// is lost when a process aborts, so each stage is written straight to fd 1 — the last marker
-// on stdout is the stage the crash happened in.
-function stage(name: string): void {
-  writeSync(1, `STAGE ${name}\n`)
-}
-
 app.whenReady().then(async () => {
-  stage('ready')
   const root = mkdtempSync(join(tmpdir(), 'cleanmycodex-thread-index-'))
   try {
     const locations = new CodexLocations({ home: join(root, '.codex'), library: join(root, 'Library'), caches: join(root, 'Caches'), documents: join(root, 'Documents') })
@@ -83,7 +74,6 @@ app.whenReady().then(async () => {
       'electron-main-window-bounds': { width: 1180 }
     }))
 
-    stage('fixtures-written')
     const sessions = await scanSessions(locations)
     const named = sessions.find((session) => session.threadID === id)
     if (named?.title !== '检查Electron重构功能交互对齐') throw new Error(`会话索引标题未优先：${named?.title}`)
@@ -99,13 +89,11 @@ app.whenReady().then(async () => {
     const unpinned = sessions.find((session) => session.threadID === unpinnedAfterHandover)
     if (unpinned?.isPinned) throw new Error('取消置顶后仍被识别为置顶')
     if (unpinned?.blocksAutomaticCleanup) throw new Error('取消置顶的会话仍在阻止自动清理')
-    stage('sessions-asserted')
     const workspaceThreads = CodexThreadIndex.load(locations.home).workspaceThreads(locations.workspace)
     if (workspaceThreads[0]?.title !== '检查Electron重构功能交互对齐' || !workspaceThreads[0]?.archived) throw new Error('工作产出关联索引未生效')
     // The real Windows data flow filters indexed threads before the workspace scanner
     // attaches them. An extended-length cwd must survive that upstream filter when the
     // configured workspace root uses the ordinary drive spelling.
-    stage('thread-index-loaded')
     const windowsIndex = new CodexThreadIndex()
     windowsIndex.addWorkspace({
       id: 'windows-workspace',
@@ -114,9 +102,7 @@ app.whenReady().then(async () => {
     })
     const windowsThreads = windowsIndex.workspaceThreads(String.raw`C:\Users\erinfan\Documents\Codex`)
     if (windowsThreads[0]?.title !== '创建 Hello World 网页') throw new Error('Windows 长路径 cwd 在工作区预过滤时丢失')
-    stage('assertions-passed')
     console.log('THREAD_INDEX_OK')
-    stage('exiting')
     app.exit(0)
   } catch (error) {
     console.error(error)

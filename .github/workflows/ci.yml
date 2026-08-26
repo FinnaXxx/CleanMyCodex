@@ -30,9 +30,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
-      # A test that spawns Electron can die from a signal, which carries no message. macOS
-      # writes the real reason to a crash report; without this the failure is just a signal
-      # name. DIAGNOSTIC — remove once the macOS crash is understood.
+      # Tests spawn real Electron binaries, and a process killed by a signal reports no
+      # message of its own. macOS writes the reason to a crash report instead, so decode it
+      # here rather than leaving a future failure as the bare word "SIGABRT".
       - name: Report macOS crash logs
         if: failure() && runner.os == 'macOS'
         run: |
