@@ -152,7 +152,7 @@ Clean My Codex 跟随当前 Codex Desktop 的存储布局，建议同时使用�
 
 ## 开发
 
-需要 Node.js 22 和 pnpm 11.19。
+需要 Node.js 24 和 pnpm 11.19。基于 Electron 43，运行环境为 macOS 12+ 与 Windows 10+。
 
 ```bash
 pnpm install
@@ -170,6 +170,7 @@ pnpm check
 ```bash
 pnpm build:mac
 pnpm build:win
+pnpm build:win-arm64
 ```
 
 ## 贡献与支持

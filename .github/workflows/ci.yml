@@ -22,11 +22,23 @@ jobs:
           version: 11.19.0
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
       - name: Package (without publishing)
-        run: pnpm exec electron-builder --dir
+        if: runner.os != 'Windows'
+        run: node scripts/electron-builder.cjs --dir
+      # Build the real installers on Windows rather than just the unpacked app: an app payload
+      # the NSIS extractor cannot unpack is invisible until an installer exists to inspect,
+      # which is what scripts/verify-windows-installer.cjs checks. arm64 is packaged here on an
+      # x64 runner on purpose — the payload is inspected, never executed, so no ARM runner is
+      # needed to catch a filter the installer could not decode.
+      - name: Package Windows x64 installer (without publishing)
+        if: runner.os == 'Windows'
+        run: node scripts/electron-builder.cjs --win nsis --x64 --publish never
+      - name: Package Windows arm64 installer (without publishing)
+        if: runner.os == 'Windows'
+        run: node scripts/electron-builder.cjs --win nsis --arm64 --publish never
