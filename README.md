@@ -6,6 +6,8 @@
 
 English · [简体中文](README_CN.md)
 
+[Website](https://starbits.cc/clean-my-codex) · [Download](https://github.com/FinnaXxx/CleanMyCodex/releases)
+
 [![Release](https://img.shields.io/github/v/release/FinnaXxx/CleanMyCodex)](https://github.com/FinnaXxx/CleanMyCodex/releases)
 [![CI](https://github.com/FinnaXxx/CleanMyCodex/actions/workflows/ci.yml/badge.svg)](https://github.com/FinnaXxx/CleanMyCodex/actions/workflows/ci.yml)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey)
