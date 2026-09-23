@@ -115,7 +115,7 @@ jobs:
       # /releases/latest/download/<name> only stays a stable URL while the asset name is
       # identical in every release. Each versioned artifact therefore ships with a
       # versionless copy: the versioned one remains for the archive, the copy keeps the
-      # always-latest download link that READMEs and websites can hardcode alive.
+      # copy keeps the always-latest download link that READMEs and websites hardcode.
       - name: Create versionless copies for stable download URLs
         shell: bash
         run: |
