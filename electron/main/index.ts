@@ -22,6 +22,7 @@ import {
 } from './session-database'
 import { cleanupLogPath, ensureLogDirectory, logCleanup, logDirectory, logException } from './diagnostics'
 import { removeCodexPlugin } from './plugins'
+import { readSessionTranscript } from './session-transcript'
 import { newerReleaseVersion } from './release-update'
 import {
   appendAutomationLog,
@@ -248,6 +249,14 @@ handle('sessions:leftovers', () => ({
   count: countOrphanRecords(locations.home),
   logPath: cleanupLogPath()
 }))
+
+/** Read-only preview of a scanned conversation; only paths from the latest scan are ever opened. */
+handle('sessions:transcript', (_event, id: string) => {
+  if (!latestSnapshot) throw new MessageError(message('error.scanFirst'))
+  const session = latestSnapshot.sessions.find((item) => item.id === id)
+  if (!session) throw new MessageError(message('error.invalidSelection'))
+  return readSessionTranscript([...session.segmentURLs, session.fileURL])
+})
 
 handle('sessions:repairLeftovers', () => {
   if (codexIsRunning()) throw new MessageError(message('error.codexRunningForRepair'))

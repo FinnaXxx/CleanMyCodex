@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   ScanSnapshot, ScanProgress, AppInfo, CleanupReport, CleanupProgress,
-  WorkspaceSnapshot, AutomationSettings, AutomationState, CleanupSelection, CleanupPreview, CleanupRequest
+  WorkspaceSnapshot, AutomationSettings, AutomationState, CleanupSelection, CleanupPreview, CleanupRequest, SessionTranscript
 } from '../../shared/types'
 import type { Language, Message } from '../../shared/messages'
 
@@ -23,6 +23,8 @@ const api = {
   /** Session rows Codex still lists although their rollout file is gone. */
   sessionLeftovers: (): Promise<{ count: number; logPath: string }> => ipcRenderer.invoke('sessions:leftovers'),
   repairSessionLeftovers: (): Promise<{ threads: number; removedRows: number }> => ipcRenderer.invoke('sessions:repairLeftovers'),
+  /** The user and assistant messages of one scanned conversation, for previewing before deletion. */
+  sessionTranscript: (id: string): Promise<SessionTranscript> => ipcRenderer.invoke('sessions:transcript', id),
   revealPath: (path: string): Promise<void> => ipcRenderer.invoke('path:reveal', path),
   openPath: (path: string): Promise<void> => ipcRenderer.invoke('path:open', path),
   /** This app's own log folder, created on demand so the settings entry can open it. */

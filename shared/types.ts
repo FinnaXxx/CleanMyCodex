@@ -113,6 +113,24 @@ export const SessionTagLabel: Record<SessionTag, string> = {
   worktree: 'Worktree'
 }
 
+/** One user or assistant turn read back from a rollout file, for previewing before deletion. */
+export interface TranscriptMessage {
+  role: 'user' | 'assistant'
+  text: string
+  /** epoch ms, when the rollout line carried a timestamp */
+  timestamp: number | null
+}
+
+export interface SessionTranscript {
+  messages: TranscriptMessage[]
+  /** Tool invocations between the messages; counted rather than shown. */
+  toolCalls: number
+  /** The message cap was reached, so later turns are left out. */
+  truncated: boolean
+  /** Segments that could not be read (missing, or compressed without a decompressor). */
+  unreadableSegments: number
+}
+
 export interface SessionItem {
   id: string
   threadID: string
