@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import {
   type ScanSnapshot,
   type SessionItem,
@@ -15,7 +15,7 @@ import {
   formatBytes
 } from '../../shared/types'
 import { message } from '../../shared/messages'
-import { FolderIcon, PreviewIcon } from '../icons'
+import { CloseIcon, FolderIcon, PreviewIcon } from '../icons'
 import { formatShortDate } from '../format'
 import { usePreferences } from '../preferences'
 import { CleanupSelectionBar, DetailSummary, FunnelFilter, SelectAllCheckbox, SortHeader, useListSelection, useSortState, type SortDir } from '../components/list-controls'
@@ -178,7 +178,8 @@ export default function SessionsView({ snapshot, cleaning, actionsDisabled, clea
         <span />
       </div>
       <ul className="session-list">
-        {visible.map((session) => <SessionRow key={session.id} session={session} checked={selection.isSelected(session)} onToggle={() => selection.toggle(session)} onPreview={() => setPreviewing(session)} locale={locale} />)}
+        {visible.map((session) => <SessionRow key={session.id} session={session} checked={selection.isSelected(session)} active={previewing?.id === session.id}
+          onToggle={() => selection.toggle(session)} onPreview={() => setPreviewing(session)} locale={locale} />)}
       </ul>
       {!visible.length && <p className="empty-inline">{listable.length
         ? t('没有符合筛选条件的会话', 'No sessions match these filters')
@@ -191,14 +192,37 @@ export default function SessionsView({ snapshot, cleaning, actionsDisabled, clea
       cleaning={cleaning} actionsDisabled={actionsDisabled} progress={cleanProgress}
       onDelete={() => onCleanup({ kind: 'sessions-delete', ids: selectedSessions.map(sessionID) })} />
 
-    {previewing && <TranscriptDialog session={previewing} locale={locale} onClose={() => setPreviewing(null)} />}
+    {previewing && <TranscriptDialog session={previewing} locale={locale} onClose={() => setPreviewing(null)}
+      checked={selection.isSelected(previewing)} onToggle={() => selection.toggle(previewing)}
+      position={visible.indexOf(previewing)} count={visible.length}
+      onNavigate={(step) => {
+        const next = visible[visible.indexOf(previewing) + step]
+        if (next) setPreviewing(next)
+      }} />}
   </>
 }
 
-function SessionRow({ session, checked, locale, onToggle, onPreview }: { session: SessionItem; checked: boolean; locale: string; onToggle: () => void; onPreview: () => void }) {
+/** Clicks and keys that land on the row's own controls must not also open the preview. */
+const fromControl = (event: ReactMouseEvent | ReactKeyboardEvent): boolean =>
+  event.target instanceof Element && event.target.closest('input, button, label') !== null
+
+function SessionRow({ session, checked, active, locale, onToggle, onPreview }: {
+  session: SessionItem; checked: boolean; active: boolean; locale: string; onToggle: () => void; onPreview: () => void
+}) {
   const { t, m } = usePreferences()
-  return <li className={`session-row ${session.isUnstable ? 'unstable' : ''}`}>
-    <input type="checkbox" aria-label={sessionDisplayName(session)} checked={checked} onChange={onToggle} />
+  // Clicking a row opens its conversation; only the checkbox selects, so browsing a
+  // deletion list can never quietly add a conversation to what gets deleted.
+  return <li className={`session-row clickable ${session.isUnstable ? 'unstable' : ''} ${checked ? 'selected' : ''} ${active ? 'active' : ''}`}
+    tabIndex={0} title={t('点击查看聊天内容', 'Click to view the conversation')}
+    onClick={(event) => { if (!fromControl(event)) onPreview() }}
+    onKeyDown={(event) => {
+      if (fromControl(event) || (event.key !== 'Enter' && event.key !== ' ')) return
+      event.preventDefault()
+      onPreview()
+    }}>
+    <label className="row-check" onClick={(event) => event.stopPropagation()}>
+      <input type="checkbox" aria-label={sessionDisplayName(session)} checked={checked} onChange={onToggle} />
+    </label>
     <div className="session-title">
       <span className="session-name">{sessionDisplayName(session)}</span>
       {(session.isPinned || session.tags.length > 0) && <span className="session-tags">
@@ -212,14 +236,19 @@ function SessionRow({ session, checked, locale, onToggle, onPreview }: { session
     <span className="col-num">{formatBytes(session.fileBytes)}</span>
     <span className="col-num">{formatBytes(sessionTotalBytes(session))}</span>
     <span className="row-actions">
-      <button className="icon-button" title={t('预览聊天内容', 'Preview conversation')} aria-label={t('预览聊天内容', 'Preview conversation')} onClick={onPreview}><PreviewIcon /></button>
+      <button className="icon-button" title={t('查看聊天内容', 'View conversation')} aria-label={t('查看聊天内容', 'View conversation')} onClick={onPreview}><PreviewIcon /></button>
       <button className="icon-button" title={t('在文件管理器中显示', 'Show in file manager')} aria-label={t('在文件管理器中显示', 'Show in file manager')} onClick={() => window.cleanmycodex.revealPath(session.fileURL)}><FolderIcon /></button>
     </span>
   </li>
 }
 
 /** Read-only look at a conversation's messages, so it can be recognised before it is deleted. */
-function TranscriptDialog({ session, locale, onClose }: { session: SessionItem; locale: string; onClose: () => void }) {
+function TranscriptDialog({ session, locale, onClose, checked, onToggle, position, count, onNavigate }: {
+  session: SessionItem; locale: string; onClose: () => void
+  checked: boolean; onToggle: () => void
+  /** Index within the filtered list, or -1 once filters hide the conversation. */
+  position: number; count: number; onNavigate: (step: -1 | 1) => void
+}) {
   const { t, e } = usePreferences()
   const [transcript, setTranscript] = useState<SessionTranscript | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -227,6 +256,8 @@ function TranscriptDialog({ session, locale, onClose }: { session: SessionItem; 
 
   useEffect(() => {
     let cancelled = false
+    setTranscript(null)
+    setError(null)
     window.cleanmycodex.sessionTranscript(session.id)
       .then((result) => { if (!cancelled) setTranscript(result) })
       .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : String(err)) })
@@ -235,13 +266,20 @@ function TranscriptDialog({ session, locale, onClose }: { session: SessionItem; 
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape') return
-      if (zoomed) setZoomed(null)
-      else onClose()
+      if (event.key === 'Escape') {
+        // Captured first and stopped, so the app's own Escape (back to the overview) waits for the next press.
+        event.stopImmediatePropagation()
+        if (zoomed) setZoomed(null)
+        else onClose()
+      } else if (!zoomed && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+        if (event.target instanceof HTMLInputElement && event.target.type !== 'checkbox') return
+        event.preventDefault()
+        onNavigate(event.key === 'ArrowLeft' ? -1 : 1)
+      }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, zoomed])
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [onClose, onNavigate, zoomed])
 
   const notes: string[] = []
   if (transcript?.toolCalls) notes.push(t(`另有 ${transcript.toolCalls} 次工具调用未显示`, `${transcript.toolCalls} tool calls not shown`))
@@ -253,7 +291,8 @@ function TranscriptDialog({ session, locale, onClose }: { session: SessionItem; 
     <section className="cleanup-dialog transcript-dialog" role="dialog" aria-modal="true" aria-labelledby="transcript-title">
       <header className="transcript-header">
         <h2 id="transcript-title">{sessionDisplayName(session)}</h2>
-        <p className="dialog-lead">{[sessionProjectName(session), new Date(session.modifiedAt).toLocaleString(locale)].filter(Boolean).join(' · ')}</p>
+        <button className="icon-button transcript-close" title={t('关闭', 'Close')} aria-label={t('关闭', 'Close')} onClick={onClose}><CloseIcon /></button>
+        <p className="dialog-lead">{[sessionProjectName(session), new Date(session.modifiedAt).toLocaleString(locale), formatBytes(sessionTotalBytes(session))].filter(Boolean).join(' · ')}</p>
       </header>
       <div className="transcript-body">
         {error && <p className="error">{e(error)}</p>}
@@ -283,9 +322,16 @@ function TranscriptDialog({ session, locale, onClose }: { session: SessionItem; 
         </section>}
       </div>
       {notes.length > 0 && <p className="transcript-notes">{notes.join(' · ')}</p>}
-      <div className="dialog-actions">
-        <button className="btn btn-quiet" onClick={() => void window.cleanmycodex.revealPath(session.fileURL)}>{t('在文件管理器中显示', 'Show in File Manager')}</button>
-        <button className="btn" onClick={onClose}>{t('关闭', 'Close')}</button>
+      <div className="dialog-actions transcript-actions">
+        <label className={`transcript-select ${checked ? 'selected' : ''}`}>
+          <input type="checkbox" checked={checked} onChange={onToggle} />
+          {t('选中此会话', 'Select this conversation')}
+        </label>
+        <span className="transcript-nav">
+          <button className="btn btn-quiet" disabled={position <= 0} title="←" onClick={() => onNavigate(-1)}>{t('上一个', 'Previous')}</button>
+          {position >= 0 && <span className="transcript-position">{position + 1} / {count}</span>}
+          <button className="btn btn-quiet" disabled={position < 0 || position >= count - 1} title="→" onClick={() => onNavigate(1)}>{t('下一个', 'Next')}</button>
+        </span>
       </div>
     </section>
     {zoomed && <div className="image-zoom" role="presentation" onClick={() => setZoomed(null)}><img src={zoomed} alt="" /></div>}
