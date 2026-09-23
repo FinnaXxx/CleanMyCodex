@@ -223,6 +223,7 @@ function TranscriptDialog({ session, locale, onClose }: { session: SessionItem; 
   const { t, e } = usePreferences()
   const [transcript, setTranscript] = useState<SessionTranscript | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [zoomed, setZoomed] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -233,10 +234,14 @@ function TranscriptDialog({ session, locale, onClose }: { session: SessionItem; 
   }, [session.id])
 
   useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => { if (event.key === 'Escape') onClose() }
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      if (zoomed) setZoomed(null)
+      else onClose()
+    }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [onClose, zoomed])
 
   const notes: string[] = []
   if (transcript?.toolCalls) notes.push(t(`另有 ${transcript.toolCalls} 次工具调用未显示`, `${transcript.toolCalls} tool calls not shown`))
@@ -260,7 +265,12 @@ function TranscriptDialog({ session, locale, onClose }: { session: SessionItem; 
               {item.role === 'user' ? t('你', 'You') : 'Codex'}
               {item.timestamp !== null && <time>{new Date(item.timestamp).toLocaleString(locale)}</time>}
             </span>
-            <p>{item.text}</p>
+            {item.text && <p>{item.text}</p>}
+            {item.images.length > 0 && <div className="transcript-images">
+              {item.images.map((src, imageIndex) => <img key={imageIndex} src={src} alt={t(`图片 ${imageIndex + 1}`, `Image ${imageIndex + 1}`)}
+                loading="lazy" onClick={() => setZoomed(src)} />)}
+            </div>}
+            {item.omittedImages > 0 && <p className="transcript-omitted">{t(`${item.omittedImages} 张图片过大，未在预览中显示`, `${item.omittedImages} images too large to preview`)}</p>}
           </li>)}
         </ol>}
       </div>
@@ -270,5 +280,6 @@ function TranscriptDialog({ session, locale, onClose }: { session: SessionItem; 
         <button className="btn" onClick={onClose}>{t('关闭', 'Close')}</button>
       </div>
     </section>
+    {zoomed && <div className="image-zoom" role="presentation" onClick={() => setZoomed(null)}><img src={zoomed} alt="" /></div>}
   </div>
 }

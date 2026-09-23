@@ -45,6 +45,36 @@ describe('session transcript', () => {
     expect(transcript.unreadableSegments).toBe(1)
   })
 
+  it('shows embedded images in place of the clipboard placeholder text', async () => {
+    const png = 'data:image/png;base64,iVBORw0KGgo='
+    const path = rollout([
+      { type: 'response_item', payload: { type: 'message', role: 'user', content: [
+        { type: 'input_text', text: '底色是不是不太匹配？' },
+        { type: 'input_text', text: '<image name=[Image #1] path="/var/folders/T/codex-clipboard-1.png">' },
+        { type: 'input_image', image_url: png },
+        { type: 'input_text', text: '</image>' }
+      ] } },
+      { type: 'response_item', payload: { type: 'message', role: 'user', content: [
+        { type: 'input_text', text: '<image name=[Image #1]>' },
+        { type: 'input_image', image_url: png },
+        { type: 'input_image', image_url: 'https://example.com/remote.png' },
+        { type: 'input_text', text: '</image>' }
+      ] } }
+    ])
+    const transcript = await readSessionTranscript([path])
+    expect(transcript.messages.map(({ text, images }) => [text, images])).toEqual([
+      ['底色是不是不太匹配？', [png]],
+      ['', [png]]
+    ])
+  })
+
+  it('keeps images from UI events when a rollout has no response items', async () => {
+    const png = 'data:image/jpeg;base64,/9j/4AAQ'
+    const path = rollout([{ type: 'event_msg', payload: { type: 'user_message', message: 'look', images: [png] } }])
+    const transcript = await readSessionTranscript([path])
+    expect(transcript.messages[0].images).toEqual([png])
+  })
+
   it('caps long conversations', async () => {
     const path = rollout(Array.from({ length: 450 }, (_, index) => item('user', `message ${index}`)))
     const transcript = await readSessionTranscript([path])

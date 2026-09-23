@@ -117,6 +117,10 @@ export const SessionTagLabel: Record<SessionTag, string> = {
 export interface TranscriptMessage {
   role: 'user' | 'assistant'
   text: string
+  /** `data:image/…` URLs of images embedded in the message, in order. */
+  images: string[]
+  /** Embedded images left out because the preview's image budget was spent. */
+  omittedImages: number
   /** epoch ms, when the rollout line carried a timestamp */
   timestamp: number | null
 }
