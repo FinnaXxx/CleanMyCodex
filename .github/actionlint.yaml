@@ -1,0 +1,7 @@
+# actionlint's built-in runner label list lags GitHub's preview runners.
+# xcode-27 is a GitHub-hosted preview runner (macOS 27 SDK) used by release.yml;
+# registering it here keeps "unknown label" from being reported until actionlint
+# learns the label itself.
+self-hosted-runner:
+  labels:
+    - xcode-27

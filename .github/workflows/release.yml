@@ -112,6 +112,20 @@ jobs:
         with:
           path: release-assets
           merge-multiple: true
+      # /releases/latest/download/<name> only stays a stable URL while the asset name is
+      # identical in every release. Each versioned artifact therefore ships with a
+      # versionless copy: the versioned one remains for the archive, the copy keeps the
+      # always-latest download link that READMEs and websites can hardcode alive.
+      - name: Create versionless copies for stable download URLs
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          prefix="CleanMyCodex-$version-"
+          for f in release-assets/"$prefix"*; do
+            cp "$f" "release-assets/CleanMyCodex-${f#release-assets/$prefix}"
+          done
+          ls -lh release-assets
       - uses: softprops/action-gh-release@v2
         with:
           body_path: RELEASE_NOTES.md

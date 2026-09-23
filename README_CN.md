@@ -49,7 +49,7 @@ worktree 只有在 git 为它保留的管理目录里仍带着 Codex 写入的�
 
 ## 安装
 
-从 [Releases](https://github.com/FinnaXxx/CleanMyCodex/releases) 下载最新安装包。macOS 提供 Apple Silicon（`arm64`）和 Intel（`x64`）两个 `.dmg`；Windows 提供 x64 NSIS 安装程序（`.exe`）。
+直接下载最新版本——[macOS（Apple Silicon）](https://github.com/FinnaXxx/CleanMyCodex/releases/latest/download/CleanMyCodex-arm64.dmg) · [macOS（Intel）](https://github.com/FinnaXxx/CleanMyCodex/releases/latest/download/CleanMyCodex-x64.dmg) · [Windows（x64）](https://github.com/FinnaXxx/CleanMyCodex/releases/latest/download/CleanMyCodex-x64.exe)——也可以到 [Releases](https://github.com/FinnaXxx/CleanMyCodex/releases) 页面挑选安装包。直链永远指向最新发布，可以放心收藏或转发；带版本号的文件（`CleanMyCodex-<版本>-<架构>`）也仍然会保留在每个 release 的资产里。
 
 macOS 安装包做了 ad-hoc 签名但未做公证，首次打开需要在 **系统设置 → 隐私与安全性 → 仍要打开** 里放行一次。Windows 安装程序目前未签名，Microsoft Defender SmartScreen 可能会要求确认后才能运行。
 

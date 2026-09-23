@@ -49,7 +49,7 @@ Configuration and credentials — `config.toml`, `auth.json`, the age-encrypted 
 
 ## Install
 
-Download the latest build from [Releases](https://github.com/FinnaXxx/CleanMyCodex/releases). macOS `.dmg` builds are published for Apple Silicon (`arm64`) and Intel (`x64`); Windows is published as an x64 NSIS installer (`.exe`).
+Download the latest build directly — [macOS (Apple Silicon)](https://github.com/FinnaXxx/CleanMyCodex/releases/latest/download/CleanMyCodex-arm64.dmg) · [macOS (Intel)](https://github.com/FinnaXxx/CleanMyCodex/releases/latest/download/CleanMyCodex-x64.dmg) · [Windows (x64)](https://github.com/FinnaXxx/CleanMyCodex/releases/latest/download/CleanMyCodex-x64.exe) — or pick an installer from [Releases](https://github.com/FinnaXxx/CleanMyCodex/releases). The direct links always serve the newest release, so they are safe to bookmark and share; each release also keeps the versioned files (`CleanMyCodex-<version>-<arch>`) alongside them.
 
 The macOS bundle is ad-hoc signed but not notarized, so the first launch goes through **System Settings → Privacy & Security → Open Anyway**. The Windows installer is currently unsigned, so Microsoft Defender SmartScreen may ask for confirmation before it runs.
 
