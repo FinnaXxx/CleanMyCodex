@@ -1146,7 +1146,10 @@ label.entry-label { cursor: pointer; }
 
 /* --- conversation preview --- */
 .transcript-dialog { width: min(720px, calc(100vw - 48px)); height: min(760px, calc(100vh - 48px)); display: flex; flex-direction: column; overflow: hidden; }
+.transcript-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; column-gap: 12px; }
 .transcript-header h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.transcript-header .dialog-lead { grid-column: 1 / -1; }
+.transcript-close { margin: -6px -8px 0 0; }
 .transcript-body { flex: 1; min-height: 0; margin-top: 14px; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-sunken); }
 .transcript-list { list-style: none; margin: 0; padding: 6px 14px; }
 .transcript-message { padding: 10px 0; border-top: 1px solid var(--line-soft); }

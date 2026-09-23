@@ -15,7 +15,7 @@ import {
   formatBytes
 } from '../../shared/types'
 import { message } from '../../shared/messages'
-import { FolderIcon, PreviewIcon } from '../icons'
+import { CloseIcon, FolderIcon, PreviewIcon } from '../icons'
 import { formatShortDate } from '../format'
 import { usePreferences } from '../preferences'
 import { CleanupSelectionBar, DetailSummary, FunnelFilter, SelectAllCheckbox, SortHeader, useListSelection, useSortState, type SortDir } from '../components/list-controls'
@@ -291,6 +291,7 @@ function TranscriptDialog({ session, locale, onClose, checked, onToggle, positio
     <section className="cleanup-dialog transcript-dialog" role="dialog" aria-modal="true" aria-labelledby="transcript-title">
       <header className="transcript-header">
         <h2 id="transcript-title">{sessionDisplayName(session)}</h2>
+        <button className="icon-button transcript-close" title={t('关闭', 'Close')} aria-label={t('关闭', 'Close')} onClick={onClose}><CloseIcon /></button>
         <p className="dialog-lead">{[sessionProjectName(session), new Date(session.modifiedAt).toLocaleString(locale), formatBytes(sessionTotalBytes(session))].filter(Boolean).join(' · ')}</p>
       </header>
       <div className="transcript-body">
@@ -331,8 +332,6 @@ function TranscriptDialog({ session, locale, onClose, checked, onToggle, positio
           {position >= 0 && <span className="transcript-position">{position + 1} / {count}</span>}
           <button className="btn btn-quiet" disabled={position < 0 || position >= count - 1} title="→" onClick={() => onNavigate(1)}>{t('下一个', 'Next')}</button>
         </span>
-        <button className="btn btn-quiet" onClick={() => void window.cleanmycodex.revealPath(session.fileURL)}>{t('在文件管理器中显示', 'Show in File Manager')}</button>
-        <button className="btn" onClick={onClose}>{t('关闭', 'Close')}</button>
       </div>
     </section>
     {zoomed && <div className="image-zoom" role="presentation" onClick={() => setZoomed(null)}><img src={zoomed} alt="" /></div>}
