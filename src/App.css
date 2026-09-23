@@ -1146,6 +1146,9 @@ label.entry-label { cursor: pointer; }
 .transcript-message p { margin: 4px 0 0; font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 .transcript-images { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .transcript-images img { max-width: min(100%, 320px); max-height: 240px; object-fit: contain; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); cursor: zoom-in; }
+.transcript-generated { margin: 0 14px; padding: 12px 0 14px; border-top: 1px solid var(--line); }
+.transcript-body > .transcript-generated:first-child { border-top: 0; }
+.transcript-generated h3 { margin: 0; font-size: 11.5px; font-weight: 600; color: var(--text-secondary); }
 .transcript-omitted { color: var(--text-tertiary); font-size: 11.5px; }
 .image-zoom { position: fixed; inset: 0; z-index: 110; display: grid; place-items: center; padding: 32px; background: rgba(10, 10, 18, 0.72); cursor: zoom-out; }
 .image-zoom img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: var(--radius-sm); box-shadow: var(--shadow-lg); }

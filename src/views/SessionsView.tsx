@@ -258,7 +258,7 @@ function TranscriptDialog({ session, locale, onClose }: { session: SessionItem; 
       <div className="transcript-body">
         {error && <p className="error">{e(error)}</p>}
         {!error && !transcript && <p className="empty-inline">{t('正在读取…', 'Loading…')}</p>}
-        {transcript && !transcript.messages.length && <p className="empty-inline">{t('这个会话里没有可显示的消息', 'No messages to show in this conversation')}</p>}
+        {transcript && !transcript.messages.length && !transcript.generatedImages.length && <p className="empty-inline">{t('这个会话里没有可显示的消息', 'No messages to show in this conversation')}</p>}
         {transcript && transcript.messages.length > 0 && <ol className="transcript-list">
           {transcript.messages.map((item, index) => <li key={index} className={`transcript-message role-${item.role}`}>
             <span className="transcript-meta">
@@ -273,6 +273,14 @@ function TranscriptDialog({ session, locale, onClose }: { session: SessionItem; 
             {item.omittedImages > 0 && <p className="transcript-omitted">{t(`${item.omittedImages} 张图片过大，未在预览中显示`, `${item.omittedImages} images too large to preview`)}</p>}
           </li>)}
         </ol>}
+        {transcript && (transcript.generatedImages.length > 0 || transcript.omittedGeneratedImages > 0) && <section className="transcript-generated">
+          <h3>{t(`生成的图片（${transcript.generatedImages.length + transcript.omittedGeneratedImages}）`, `Generated images (${transcript.generatedImages.length + transcript.omittedGeneratedImages})`)}</h3>
+          <div className="transcript-images">
+            {transcript.generatedImages.map((image) => <img key={image.name + image.modifiedAt} src={image.src} alt={image.name}
+              title={`${image.name} · ${new Date(image.modifiedAt).toLocaleString(locale)}`} loading="lazy" onClick={() => setZoomed(image.src)} />)}
+          </div>
+          {transcript.omittedGeneratedImages > 0 && <p className="transcript-omitted">{t(`${transcript.omittedGeneratedImages} 张图片过大，未在预览中显示`, `${transcript.omittedGeneratedImages} images too large to preview`)}</p>}
+        </section>}
       </div>
       {notes.length > 0 && <p className="transcript-notes">{notes.join(' · ')}</p>}
       <div className="dialog-actions">

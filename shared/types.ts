@@ -133,6 +133,17 @@ export interface SessionTranscript {
   truncated: boolean
   /** Segments that could not be read (missing, or compressed without a decompressor). */
   unreadableSegments: number
+  /** Images Codex generated for this thread (`generated_images/<thread>/`), oldest first. */
+  generatedImages: GeneratedImagePreview[]
+  /** Generated images left out because the preview's image budget was spent. */
+  omittedGeneratedImages: number
+}
+
+export interface GeneratedImagePreview {
+  name: string
+  /** `data:image/…` URL of the file's contents. */
+  src: string
+  modifiedAt: number // epoch ms
 }
 
 export interface SessionItem {

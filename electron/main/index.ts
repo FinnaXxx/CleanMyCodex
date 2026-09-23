@@ -255,7 +255,8 @@ handle('sessions:transcript', (_event, id: string) => {
   if (!latestSnapshot) throw new MessageError(message('error.scanFirst'))
   const session = latestSnapshot.sessions.find((item) => item.id === id)
   if (!session) throw new MessageError(message('error.invalidSelection'))
-  return readSessionTranscript([...session.segmentURLs, session.fileURL])
+  const generatedImageDirectories = session.assetURLs.filter((url) => dirname(url) === locations.generatedImages)
+  return readSessionTranscript([...session.segmentURLs, session.fileURL], generatedImageDirectories)
 })
 
 handle('sessions:repairLeftovers', () => {

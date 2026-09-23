@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readSessionTranscript } from '../electron/main/session-transcript'
@@ -73,6 +73,23 @@ describe('session transcript', () => {
     const path = rollout([{ type: 'event_msg', payload: { type: 'user_message', message: 'look', images: [png] } }])
     const transcript = await readSessionTranscript([path])
     expect(transcript.messages[0].images).toEqual([png])
+  })
+
+  it('reads generated images oldest first and skips non-images and symlinks', async () => {
+    const path = rollout([item('user', '画一只猫')])
+    const directory = join(roots[0], 'generated_images', 'thread')
+    mkdirSync(join(directory, 'nested'), { recursive: true })
+    writeFileSync(join(directory, 'b.png'), Buffer.from([1, 2, 3]))
+    writeFileSync(join(directory, 'nested', 'a.webp'), Buffer.from([4]))
+    writeFileSync(join(directory, 'notes.txt'), 'not an image')
+    symlinkSync(join(directory, 'b.png'), join(directory, 'link.png'))
+    utimesSync(join(directory, 'nested', 'a.webp'), new Date('2026-01-01'), new Date('2026-01-01'))
+    const transcript = await readSessionTranscript([path], [directory, join(roots[0], 'missing')])
+    expect(transcript.generatedImages.map(({ name, src }) => [name, src])).toEqual([
+      ['a.webp', 'data:image/webp;base64,BA=='],
+      ['b.png', 'data:image/png;base64,AQID']
+    ])
+    expect(transcript.omittedGeneratedImages).toBe(0)
   })
 
   it('caps long conversations', async () => {

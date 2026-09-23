@@ -1,9 +1,10 @@
-import { createReadStream, readFileSync } from 'node:fs'
+import { createReadStream, lstatSync, readdirSync, readFileSync } from 'node:fs'
+import { extname, join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { Readable } from 'node:stream'
 import * as zlib from 'node:zlib'
 import { cleanUserMessage } from './preview'
-import type { SessionTranscript, TranscriptMessage } from '../../shared/types'
+import type { GeneratedImagePreview, SessionTranscript, TranscriptMessage } from '../../shared/types'
 
 /**
  * Reads a conversation back out of its rollout segments so it can be previewed before
@@ -19,6 +20,7 @@ const MAX_LINE_CHARS = 64 * 1024 * 1024
 /** Images cross IPC as data URLs, so their total size per preview is bounded. */
 const MAX_IMAGE_CHARS = 48 * 1024 * 1024
 const IMAGE_TAG_RE = /<\/?image\b[^>]*>/gi
+const IMAGE_TYPES: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' }
 const TOOL_CALL_TYPES = new Set(['function_call', 'custom_tool_call', 'local_shell_call', 'web_search_call'])
 
 interface SegmentMessages {
@@ -128,8 +130,48 @@ async function readSegment(path: string): Promise<SegmentMessages> {
   return result
 }
 
-/** `paths` are the conversation's rollout segments, oldest first. */
-export async function readSessionTranscript(paths: string[]): Promise<SessionTranscript> {
+/** Image files under a thread's generated-images directory, oldest first; symlinks are never followed. */
+function generatedImageFiles(directory: string): Array<{ path: string; name: string; type: string; size: number; modifiedAt: number }> {
+  const files: Array<{ path: string; name: string; type: string; size: number; modifiedAt: number }> = []
+  const stack = [directory]
+  while (stack.length) {
+    const current = stack.pop()!
+    let entries: string[]
+    try { entries = readdirSync(current) } catch { continue }
+    for (const name of entries) {
+      if (name.startsWith('.')) continue
+      const path = join(current, name)
+      let stats
+      try { stats = lstatSync(path) } catch { continue }
+      if (stats.isDirectory()) { stack.push(path); continue }
+      const type = IMAGE_TYPES[extname(name).slice(1).toLowerCase()]
+      if (stats.isFile() && type) files.push({ path, name, type, size: stats.size, modifiedAt: stats.mtimeMs })
+    }
+  }
+  return files.sort((a, b) => a.modifiedAt - b.modifiedAt || a.name.localeCompare(b.name))
+}
+
+function readGeneratedImages(directories: string[], budget: { images: number }): { images: GeneratedImagePreview[]; omitted: number } {
+  const images: GeneratedImagePreview[] = []
+  let omitted = 0
+  for (const file of directories.flatMap(generatedImageFiles)) {
+    // Base64 grows a file by a third; check before reading so an oversized file is never loaded.
+    const encodedLength = Math.ceil(file.size / 3) * 4
+    if (encodedLength > budget.images) { omitted += 1; continue }
+    let data: Buffer
+    try { data = readFileSync(file.path) } catch { omitted += 1; continue }
+    const src = `data:${file.type};base64,${data.toString('base64')}`
+    budget.images -= src.length
+    images.push({ name: file.name, src, modifiedAt: file.modifiedAt })
+  }
+  return { images, omitted }
+}
+
+/**
+ * `paths` are the conversation's rollout segments, oldest first; `generatedImageDirectories`
+ * are the thread's `generated_images` directories the scan attributed to it.
+ */
+export async function readSessionTranscript(paths: string[], generatedImageDirectories: string[] = []): Promise<SessionTranscript> {
   const messages: TranscriptMessage[] = []
   let toolCalls = 0
   let unreadableSegments = 0
@@ -142,10 +184,13 @@ export async function readSessionTranscript(paths: string[]): Promise<SessionTra
   const shown = messages.slice(0, MAX_MESSAGES)
   const budget = { images: MAX_IMAGE_CHARS }
   for (const [index, item] of shown.entries()) shown[index] = withinBudget(item, budget, 'images')
+  const generated = readGeneratedImages(generatedImageDirectories, budget)
   return {
     messages: shown,
     toolCalls,
     truncated: messages.length > MAX_MESSAGES,
-    unreadableSegments
+    unreadableSegments,
+    generatedImages: generated.images,
+    omittedGeneratedImages: generated.omitted
   }
 }
