@@ -20,13 +20,19 @@ function stripRequestPreamble(value: string): string {
   return value
 }
 
-export function cleanPreview(text: unknown): string | null {
+/** The user's own words with Codex's scaffolding removed, or null for a pure-scaffolding message. */
+export function cleanUserMessage(text: unknown): string | null {
   if (typeof text !== 'string' || !text) return null
-  let value = text.trim()
-  value = stripRequestPreamble(value)
+  const value = stripRequestPreamble(text.trim())
   if (!value || value.startsWith('<')) return null
   const head = value.slice(0, 400).toLowerCase()
   if (PREAMBLE_MARKERS.some((item) => head.includes(item))) return null
-  value = value.replace(/\s+/g, ' ')
+  return value
+}
+
+export function cleanPreview(text: unknown): string | null {
+  const cleaned = cleanUserMessage(text)
+  if (!cleaned) return null
+  const value = cleaned.replace(/\s+/g, ' ')
   return value.length > 90 ? `${value.slice(0, 90)}…` : value
 }

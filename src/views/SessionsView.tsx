@@ -4,6 +4,7 @@ import {
   type SessionItem,
   type CleanupSelection,
   type CleanupProgress,
+  type SessionTranscript,
   SessionTagLabel,
   sessionDisplayName,
   sessionProjectName,
@@ -14,7 +15,7 @@ import {
   formatBytes
 } from '../../shared/types'
 import { message } from '../../shared/messages'
-import { FolderIcon } from '../icons'
+import { FolderIcon, PreviewIcon } from '../icons'
 import { formatShortDate } from '../format'
 import { usePreferences } from '../preferences'
 import { CleanupSelectionBar, DetailSummary, FunnelFilter, SelectAllCheckbox, SortHeader, useListSelection, useSortState, type SortDir } from '../components/list-controls'
@@ -58,6 +59,7 @@ export default function SessionsView({ snapshot, cleaning, actionsDisabled, clea
   const [leftovers, setLeftovers] = useState<{ count: number; logPath: string } | null>(null)
   const [repairing, setRepairing] = useState(false)
   const [repairError, setRepairError] = useState<string | null>(null)
+  const [previewing, setPreviewing] = useState<SessionItem | null>(null)
 
   // Leftover rows are metadata, not files, so they are looked up separately from the
   // scan — and again after every scan, because a deletion may have produced new ones.
@@ -176,7 +178,7 @@ export default function SessionsView({ snapshot, cleaning, actionsDisabled, clea
         <span />
       </div>
       <ul className="session-list">
-        {visible.map((session) => <SessionRow key={session.id} session={session} checked={selection.isSelected(session)} onToggle={() => selection.toggle(session)} locale={locale} />)}
+        {visible.map((session) => <SessionRow key={session.id} session={session} checked={selection.isSelected(session)} onToggle={() => selection.toggle(session)} onPreview={() => setPreviewing(session)} locale={locale} />)}
       </ul>
       {!visible.length && <p className="empty-inline">{listable.length
         ? t('没有符合筛选条件的会话', 'No sessions match these filters')
@@ -189,10 +191,11 @@ export default function SessionsView({ snapshot, cleaning, actionsDisabled, clea
       cleaning={cleaning} actionsDisabled={actionsDisabled} progress={cleanProgress}
       onDelete={() => onCleanup({ kind: 'sessions-delete', ids: selectedSessions.map(sessionID) })} />
 
+    {previewing && <TranscriptDialog session={previewing} locale={locale} onClose={() => setPreviewing(null)} />}
   </>
 }
 
-function SessionRow({ session, checked, locale, onToggle }: { session: SessionItem; checked: boolean; locale: string; onToggle: () => void }) {
+function SessionRow({ session, checked, locale, onToggle, onPreview }: { session: SessionItem; checked: boolean; locale: string; onToggle: () => void; onPreview: () => void }) {
   const { t, m } = usePreferences()
   return <li className={`session-row ${session.isUnstable ? 'unstable' : ''}`}>
     <input type="checkbox" aria-label={sessionDisplayName(session)} checked={checked} onChange={onToggle} />
@@ -208,6 +211,83 @@ function SessionRow({ session, checked, locale, onToggle }: { session: SessionIt
     <span className="col-date" title={new Date(session.modifiedAt).toLocaleString(locale)}>{formatShortDate(session.modifiedAt, locale)}</span>
     <span className="col-num">{formatBytes(session.fileBytes)}</span>
     <span className="col-num">{formatBytes(sessionTotalBytes(session))}</span>
-    <button className="icon-button" title={t('在文件管理器中显示', 'Show in file manager')} aria-label={t('在文件管理器中显示', 'Show in file manager')} onClick={() => window.cleanmycodex.revealPath(session.fileURL)}><FolderIcon /></button>
+    <span className="row-actions">
+      <button className="icon-button" title={t('预览聊天内容', 'Preview conversation')} aria-label={t('预览聊天内容', 'Preview conversation')} onClick={onPreview}><PreviewIcon /></button>
+      <button className="icon-button" title={t('在文件管理器中显示', 'Show in file manager')} aria-label={t('在文件管理器中显示', 'Show in file manager')} onClick={() => window.cleanmycodex.revealPath(session.fileURL)}><FolderIcon /></button>
+    </span>
   </li>
+}
+
+/** Read-only look at a conversation's messages, so it can be recognised before it is deleted. */
+function TranscriptDialog({ session, locale, onClose }: { session: SessionItem; locale: string; onClose: () => void }) {
+  const { t, e } = usePreferences()
+  const [transcript, setTranscript] = useState<SessionTranscript | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [zoomed, setZoomed] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    window.cleanmycodex.sessionTranscript(session.id)
+      .then((result) => { if (!cancelled) setTranscript(result) })
+      .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : String(err)) })
+    return () => { cancelled = true }
+  }, [session.id])
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      if (zoomed) setZoomed(null)
+      else onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose, zoomed])
+
+  const notes: string[] = []
+  if (transcript?.toolCalls) notes.push(t(`另有 ${transcript.toolCalls} 次工具调用未显示`, `${transcript.toolCalls} tool calls not shown`))
+  if (transcript?.truncated) notes.push(t(`只显示前 ${transcript.messages.length} 条消息`, `Showing the first ${transcript.messages.length} messages`))
+  if (transcript?.unreadableSegments) notes.push(t(`${transcript.unreadableSegments} 个会话文件无法读取`, `${transcript.unreadableSegments} session files could not be read`))
+  if (session.childThreadCount) notes.push(t(`${session.childThreadCount} 个子代理会话未显示`, `${session.childThreadCount} subagent conversations not shown`))
+
+  return <div className="modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget) onClose() }}>
+    <section className="cleanup-dialog transcript-dialog" role="dialog" aria-modal="true" aria-labelledby="transcript-title">
+      <header className="transcript-header">
+        <h2 id="transcript-title">{sessionDisplayName(session)}</h2>
+        <p className="dialog-lead">{[sessionProjectName(session), new Date(session.modifiedAt).toLocaleString(locale)].filter(Boolean).join(' · ')}</p>
+      </header>
+      <div className="transcript-body">
+        {error && <p className="error">{e(error)}</p>}
+        {!error && !transcript && <p className="empty-inline">{t('正在读取…', 'Loading…')}</p>}
+        {transcript && !transcript.messages.length && !transcript.generatedImages.length && <p className="empty-inline">{t('这个会话里没有可显示的消息', 'No messages to show in this conversation')}</p>}
+        {transcript && transcript.messages.length > 0 && <ol className="transcript-list">
+          {transcript.messages.map((item, index) => <li key={index} className={`transcript-message role-${item.role}`}>
+            <span className="transcript-meta">
+              {item.role === 'user' ? t('你', 'You') : 'Codex'}
+              {item.timestamp !== null && <time>{new Date(item.timestamp).toLocaleString(locale)}</time>}
+            </span>
+            {item.text && <p>{item.text}</p>}
+            {item.images.length > 0 && <div className="transcript-images">
+              {item.images.map((src, imageIndex) => <img key={imageIndex} src={src} alt={t(`图片 ${imageIndex + 1}`, `Image ${imageIndex + 1}`)}
+                loading="lazy" onClick={() => setZoomed(src)} />)}
+            </div>}
+            {item.omittedImages > 0 && <p className="transcript-omitted">{t(`${item.omittedImages} 张图片过大，未在预览中显示`, `${item.omittedImages} images too large to preview`)}</p>}
+          </li>)}
+        </ol>}
+        {transcript && (transcript.generatedImages.length > 0 || transcript.omittedGeneratedImages > 0) && <section className="transcript-generated">
+          <h3>{t(`生成的图片（${transcript.generatedImages.length + transcript.omittedGeneratedImages}）`, `Generated images (${transcript.generatedImages.length + transcript.omittedGeneratedImages})`)}</h3>
+          <div className="transcript-images">
+            {transcript.generatedImages.map((image) => <img key={image.name + image.modifiedAt} src={image.src} alt={image.name}
+              title={`${image.name} · ${new Date(image.modifiedAt).toLocaleString(locale)}`} loading="lazy" onClick={() => setZoomed(image.src)} />)}
+          </div>
+          {transcript.omittedGeneratedImages > 0 && <p className="transcript-omitted">{t(`${transcript.omittedGeneratedImages} 张图片过大，未在预览中显示`, `${transcript.omittedGeneratedImages} images too large to preview`)}</p>}
+        </section>}
+      </div>
+      {notes.length > 0 && <p className="transcript-notes">{notes.join(' · ')}</p>}
+      <div className="dialog-actions">
+        <button className="btn btn-quiet" onClick={() => void window.cleanmycodex.revealPath(session.fileURL)}>{t('在文件管理器中显示', 'Show in File Manager')}</button>
+        <button className="btn" onClick={onClose}>{t('关闭', 'Close')}</button>
+      </div>
+    </section>
+    {zoomed && <div className="image-zoom" role="presentation" onClick={() => setZoomed(null)}><img src={zoomed} alt="" /></div>}
+  </div>
 }
