@@ -1,6 +1,13 @@
 # Clean My Codex 0.1.7
 
-A maintenance release. Nothing about how the app behaves has changed — no file under the main process, the renderer or the shared layer was touched — but the platform underneath it moved forward by ten Electron majors, and that raises the macOS version required to run it.
+The headline is a conversation preview: any conversation can now be read — messages, pasted images and generated images alike — before anything is deleted, and selected from inside the preview itself. Underneath, the platform moved forward by ten Electron majors, and that raises the macOS version required to run it.
+
+## What's new
+
+- **Preview a conversation before you delete it.** Every row on the Sessions page can open a read-only preview of the whole conversation: user and assistant messages reassembled from its rollout segments, oldest first, with Codex's scaffolding stripped the way the list preview strips it, tool calls counted rather than dumped, and long conversations capped. Images pasted into the conversation render inline with click-to-zoom, and images Codex generated for the thread are listed alongside — both under a shared per-preview budget, so a screenshot-heavy conversation is never loaded whole. Previews are only ever opened from the paths of the latest scan.
+- **Browsing is separate from selecting.** Clicking a session row opens its preview; selection lives on the checkbox alone (with a wider hit area), so looking through every conversation on a deletion list never adds to what gets deleted. Inside the preview, ← / → or the previous/next buttons walk the filtered list, and a “Select this conversation” checkbox is bound to the same selection the list shows — decide while reading, not from a title alone.
+- **The preview's chrome, tidied.** A single close button in the top-right corner replaces the footer's Close / Show in File Manager pair (each row keeps its own file-manager button), and Escape now closes only the preview instead of also sending the app back to the overview.
+- **Stable download links.** Each installer is published twice on the release page — the versioned file plus an unversioned copy — so the `/releases/latest/download/…` links in the README always serve the newest release without ever changing.
 
 ## Before you update
 
